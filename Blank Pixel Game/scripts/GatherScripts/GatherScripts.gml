@@ -58,7 +58,7 @@ function GatherNearbyAllies(_unit, _radius = 48) {
 /// @param {Id.Instance} _unit Unit whose team determines which castle counts as "enemy".
 /// @returns {Id.Instance} The opposing team's castle instance.
 function GetEnemyCastle(_unit){
-    if _unit.team = "player"{
+    if (_unit.team == TEAM.PLAYER) {
         return instance_find(oEnemyCastle,0);
     }
     else{
@@ -96,6 +96,65 @@ function _FindNearestEnemyInSweep(_unit, _castlePos, _radius) {
         if (_score < _bestScore) {
             _bestScore = _score;
             _best      = _other;
+        }
+    }
+
+    ds_list_destroy(_list);
+    return _best;
+}
+
+// -----------------------------------------------------------
+// Room-wide queries -- for high-level decision-making (currently
+// just the AI controller), as opposed to the radius-limited
+// steering/aggro queries above. Centralizing "what can team X see"
+// here means that when fog of war extends past castle walls (once
+// building placement ships), a visibility filter only needs to be
+// added in these functions rather than at every call site.
+// -----------------------------------------------------------
+
+/// @function GatherTeamUnits(_team)
+/// @description Every oUnitParent instance belonging to _team, anywhere in the
+///        room. No fog-of-war filtering yet -- the only currently-hidden area is
+///        inside castle walls, and nothing spawns there yet, so every unit is
+///        visible to everyone. See file header for where that filter will go.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Array<Id.Instance>}
+function GatherTeamUnits(_team) {
+    var _result = [];
+    with (oUnitParent) {
+        if (team == _team) {
+            array_push(_result, id);
+        }
+    }
+    return _result;
+}
+
+/// @function _FindNearestEnemy(_unit, _radius)
+/// @description Plain nearest-enemy-unit sweep, no castle weighting -- unlike
+///        _FindNearestEnemyInSweep, this only cares about proximity to _unit.
+///        Used for the aggro check in "attack" (interrupting a building assault
+///        when a defender gets close), where there's no castle position in play.
+/// @param {Id.Instance} _unit
+/// @param {Real}        _radius
+/// @returns {Id.Instance|Constant.NoOne}
+function _FindNearestEnemy(_unit, _radius) {
+    var _list  = ds_list_create();
+    var _count = collision_circle_list(
+        _unit.x, _unit.y, _radius, oUnitParent, false, true, _list, false
+    );
+
+    var _best     = noone;
+    var _bestDist = infinity;
+
+    for (var i = 0; i < _count; i++) {
+        var _other = _list[| i];
+        if (_other == _unit) continue;
+        if (_other.team == _unit.team) continue;
+
+        var _dist = point_distance(_unit.x, _unit.y, _other.x, _other.y);
+        if (_dist < _bestDist) {
+            _bestDist = _dist;
+            _best     = _other;
         }
     }
 

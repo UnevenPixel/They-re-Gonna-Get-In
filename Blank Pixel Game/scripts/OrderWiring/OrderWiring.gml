@@ -19,10 +19,14 @@ function RegisterAllOrders() {
             }
         },
         true, // requiresTarget = true -- menu click starts targeting mode
-        function(_instance) {
-            // Only own-team buildings are valid defend targets.
+        function(_instance, _team) {
+            // Only own-team buildings are valid defend targets. _team is
+            // the ordering side's own team, passed through by whatever's
+            // driving targeting (see SelectionController.UpdateTargeting) --
+            // no more hardcoded TEAM.PLAYER assumption, so this now works
+            // the same regardless of which side issues "defend".
             return object_is_ancestor(_instance.object_index, oBuildingParent)
-                && _instance.team == "player";
+                && _instance.team == _team;
         }
     ));
 
@@ -41,10 +45,13 @@ function RegisterAllOrders() {
             }
         },
         true, // requiresTarget
-        function(_instance) {
-            // Only enemy buildings are valid attack targets.
+        function(_instance, _team) {
+            // Only enemy (non-own-team) buildings are valid attack targets.
+            // Same _team-passthrough fix as "defend" above -- "!= _team"
+            // rather than "== TEAM.ENEMY" so this reads correctly no matter
+            // which side is issuing "attack".
             return object_is_ancestor(_instance.object_index, oBuildingParent)
-                && _instance.team == "enemy";
+                && _instance.team != _team;
         }
     ));
 
@@ -54,6 +61,19 @@ function RegisterAllOrders() {
         for (var i = 0; i < array_length(_units); i++) {
             _units[i].fsm.ChangeState("siege");
         }
+    }));
+
+    // "station" is registered so it legally appears in availableOrders /
+    // the order menu (and doesn't trip GetCommonOrders' registry lookup),
+    // but it's an intentional no-op for now -- stationing units inside
+    // castle walls depends on castle-interior placement, which isn't
+    // built yet. Deliberately NOT using the default onIssue (which would
+    // call fsm.ChangeState("station") against a state that doesn't
+    // exist on any unit's StateMachine, spamming an "unregistered state"
+    // debug message on every click). Replace this stub once stationing
+    // is designed.
+    RegisterOrder(new Order("station", "Station", function(_units, _context) {
+        // Intentionally does nothing yet.
     }));
 
     // "combat" is intentionally NOT registered as a player-issuable

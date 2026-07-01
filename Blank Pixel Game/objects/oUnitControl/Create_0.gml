@@ -1,2 +1,2 @@
-selectionController = new SelectionController(oUnitParent, "player");
+selectionController = new SelectionController(oUnitParent, TEAM.PLAYER);
 orderMenu = new OrderMenu();

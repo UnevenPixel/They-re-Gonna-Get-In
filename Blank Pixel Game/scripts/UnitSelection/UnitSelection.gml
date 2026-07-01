@@ -13,9 +13,13 @@
 ///        menu does NOT issue it immediately -- the controller instead
 ///        enters target-selection mode and waits for a qualifying click.
 ///        See SelectionController.BeginTargeting().
-/// @param {Function} [_targetValidator] (_instance) -> Bool. Only used
-///        when _requiresTarget is true. Decides whether a clicked
-///        instance is a legal target for this order.
+/// @param {Function} [_targetValidator] (_instance, _team) -> Bool. Only
+///        used when _requiresTarget is true. Decides whether a clicked
+///        instance is a legal target for this order. _team is the
+///        "own team" perspective of whoever is issuing the order (see
+///        SelectionController.team) -- always pass it through rather
+///        than hardcoding a team constant, so the same validator works
+///        no matter which side is issuing the order.
 function Order(_name, _label, _onIssue = undefined, _requiresTarget = false, _targetValidator = undefined) constructor {
     name  = _name;
     label = _label;
@@ -94,14 +98,17 @@ function GetCommonOrders(_units) {
 // One instance for the player; create it once, persistent.
 // -----------------------------------------------------------
 
-/// @function SelectionController(_unitObject, _playerTeam)
+/// @function SelectionController(_unitObject, _team)
 /// @param {Asset.GMObject} _unitObject The object type (or parent) to
 ///        consider selectable, e.g. obj_unit.
-/// @param {*} _playerTeam Whatever value identifies the player's own
-///        team on a unit's `team` variable.
-function SelectionController(_unitObject, _playerTeam) constructor {
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY -- whichever side owns
+///        this controller. Not player-exclusive despite the name of the
+///        object that currently instantiates it (oUnitControl) -- an
+///        AI-driven controller could use this same struct with
+///        _team = TEAM.ENEMY.
+function SelectionController(_unitObject, _team) constructor {
     unitObject       = _unitObject;
-    playerTeam       = _playerTeam;
+    team             = _team;
     selected         = [];
     dragging         = false;
     dragStartX       = 0;
@@ -140,14 +147,14 @@ function SelectionController(_unitObject, _playerTeam) constructor {
         var _found = [];
         if (_isClick) {
             var _inst = instance_position(mouse_x, mouse_y, unitObject);
-            if (_inst != noone && _inst.team == playerTeam) {
+            if (_inst != noone && _inst.team == team) {
                 array_push(_found, _inst);
             }
         } else {
             var _list = ds_list_create();
             var _count = collision_rectangle_list(_x1, _y1, _x2, _y2, unitObject, false, true, _list, false);
             for (var i = 0; i < _count; i++) {
-                if (_list[| i].team == playerTeam) {
+                if (_list[| i].team == team) {
                     array_push(_found, _list[| i]);
                 }
             }
@@ -248,7 +255,7 @@ function SelectionController(_unitObject, _playerTeam) constructor {
         }
 
         var _validator = _pendingOrder.targetValidator;
-        var _valid = (_validator != undefined) ? _validator(_clicked) : true;
+        var _valid = (_validator != undefined) ? _validator(_clicked, team) : true;
 
         if (_valid) {
             IssueOrderToUnits(_pendingOrder.name, selected, _clicked);

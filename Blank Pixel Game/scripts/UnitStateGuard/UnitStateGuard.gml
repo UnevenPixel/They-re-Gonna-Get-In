@@ -37,7 +37,6 @@ function GuardPickWaypoint(_unit, _rect) {
     for (var i = 0; i < _count; i++) {
         var _other = _list[| i];
         if (_other == _unit) continue;
-        if (variable_instance_exists(_unit,"team")) continue;
         if (_other.team != _unit.team) continue;
         if (!variable_instance_exists(_other, "guardWaypointClaimed")) continue;
         array_push(_claimed, _other.guardWaypointClaimed);

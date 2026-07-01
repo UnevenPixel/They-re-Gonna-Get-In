@@ -10,14 +10,6 @@ enum UnitAnimState {
     COMBAT
 }
 
-enum UnitOrders {
-    GUARD,
-    DEFEND,
-    ATTACK,
-    SIEGE,
-    STATION
-}
-
 enum TEAM {
     PLAYER,
     ENEMY
