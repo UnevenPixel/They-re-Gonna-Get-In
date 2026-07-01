@@ -1,3 +1,4 @@
+/// @function UnitTryDealDamage(_unit, _target, _machine)
 /// Attempts to deal damage at the correct animation frame.
 /// Guards against multiple hits per swing via _machine.data.hitDealtThisSwing.
 /// Returns true the frame the hit lands, false every other frame.
@@ -5,7 +6,7 @@
 /// @param {Id.Instance} _unit
 /// @param {Id.Instance} _target Any instance with hp (unit or building).
 /// @param {Struct}      _machine
-/// @return {Bool}
+/// @returns {Bool}
 function UnitTryDealDamage(_unit, _target, _machine) {
     if (_machine.data.hitDealtThisSwing) return false;
 
@@ -34,13 +35,15 @@ function UnitTryDealDamage(_unit, _target, _machine) {
     return true;
 }
 
+/// @function UnitAttackAnimComplete(_unit)
 /// Returns true when the current attack animation has fully played through.
 /// @param {Id.Instance} _unit
-/// @return {Bool}
+/// @returns {Bool}
 function UnitAttackAnimComplete(_unit) {
     return image_index >= sprite_get_number(_unit.sprAttack) - 1;
 }
 
+/// @function UnitPursueTarget(_unit, _targetPos, _targetVelocity)
 /// Standard pursue + separation + obstacle avoidance + play area containment.
 /// Reused across combat/attack/siege/defend pursuit phases.
 /// Calls UnitUpdateSprite after movement so sprite and facing are always
@@ -75,6 +78,7 @@ function UnitPursueTarget(_unit, _targetPos, _targetVelocity = undefined) {
     UnitUpdateSprite(_unit);
 }
 
+/// @function UnitIdleInPlace(_unit)
 /// Idles in place this frame (zero steering, still applies knockback
 /// and collision). Calls UnitUpdateSprite so a standing unit still
 /// shows the correct idle sprite after a hit reaction.
@@ -89,6 +93,7 @@ function UnitIdleInPlace(_unit) {
     UnitUpdateSprite(_unit);
 }
 
+/// @function UnitBeginSwing(_unit, _machine)
 /// Enters the attack animation on a unit and resets swing tracking.
 /// @param {Id.Instance} _unit
 /// @param {Struct}      _machine
@@ -101,6 +106,7 @@ function UnitBeginSwing(_unit, _machine) {
     // the direction it was already facing when the swing started.
 }
 
+/// @function UnitEndSwing(_unit, _machine)
 /// Restores idle sprite and writes cooldown back to the instance.
 /// Call at the end of any swing and from all Exit callbacks.
 /// @param {Id.Instance} _unit

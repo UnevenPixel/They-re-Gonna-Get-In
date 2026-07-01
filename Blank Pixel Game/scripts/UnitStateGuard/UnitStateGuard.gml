@@ -16,10 +16,11 @@
 /// variable, which every guard unit writes to itself when it picks a
 /// waypoint and clears on Guard_Exit.
 ///
+/// @function GuardPickWaypoint(_unit, _rect)
 /// @param {Id.Instance} _unit   The unit picking the waypoint (excluded
 ///                              from its own conflict check).
 /// @param {Struct} _rect        { x1, y1, x2, y2 }
-/// @return {Struct.Vector2}
+/// @returns {Struct.Vector2}
 function GuardPickWaypoint(_unit, _rect) {
     var _pad      = GUARD_EDGE_PADDING;
     var _best     = undefined;
@@ -81,6 +82,11 @@ function GuardPickWaypoint(_unit, _rect) {
 // guard
 // -----------------------------------------------------------
 
+/// @function Guard_Enter(_unit, _machine)
+/// @description StateMachine onEnter for "guard". Initializes the waypoint claim
+///        so other units can safely read it, then picks the unit's first waypoint.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Guard_Enter(_unit, _machine) {
     // Initialise the claim variable so other units can always safely
     // read it, even before this unit has picked its first waypoint.
@@ -92,6 +98,12 @@ function Guard_Enter(_unit, _machine) {
     _machine.data.waitTimer = 0;
 }
 
+/// @function Guard_Step(_unit, _machine)
+/// @description StateMachine onStep for "guard". Alternates between waiting at
+///        the current waypoint (random dwell time) and steering toward it once a
+///        new one is picked; releases the old waypoint claim when arriving.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Guard_Step(_unit, _machine) {
     // -----------------------------------------------------------
     // Waiting at a waypoint
@@ -165,6 +177,11 @@ function Guard_Step(_unit, _machine) {
     UnitUpdateSprite(_unit);
 }
 
+/// @function Guard_Draw(_unit, _machine)
+/// @description StateMachine onDraw for "guard". Debug visualization -- shows the
+///        waiting flag and a line to the current waypoint.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Guard_Draw(_unit,_machine){
     draw_set_valign(fa_bottom);
     draw_set_halign(fa_center);
@@ -175,6 +192,11 @@ function Guard_Draw(_unit,_machine){
     draw_line(_unit.x,_unit.y,_machine.data.waypoint.x,_machine.data.waypoint.y)
 }
 
+/// @function Guard_Exit(_unit, _machine)
+/// @description StateMachine onExit for "guard". Releases the claimed waypoint so
+///        it's no longer counted as occupied for other units picking a position.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Guard_Exit(_unit, _machine) {
     // Release the claimed waypoint so it's no longer counted as
     // occupied for other units picking their next position.

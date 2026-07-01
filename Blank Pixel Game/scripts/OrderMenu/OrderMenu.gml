@@ -2,6 +2,10 @@
 #macro ORDER_MENU_WIDTH 140
 #macro ORDER_MENU_PADDING 6
 
+/// @function OrderMenu()
+/// @description A GUI-space right-click order menu. Call Open() to show it with a
+///        set of orders, Update() once per Step to handle hover/click/dismiss, and
+///        Draw() once per Draw GUI to render it.
 function OrderMenu() constructor {
     isOpen       = false;
     x            = 0;
@@ -9,11 +13,12 @@ function OrderMenu() constructor {
     options      = [];   // Array<Struct.Order>
     hoveredIndex = -1;
 
+    /// @function Open(_x, _y, _orders)
     /// Opens the menu at a GUI-space position with the given orders.
     /// @param {Real} _x
     /// @param {Real} _y
     /// @param {Array<Struct.Order>} _orders
-    /// @return {Struct.OrderMenu} self
+    /// @returns {Struct.OrderMenu} self
     static Open = function(_x, _y, _orders) {
         if (array_length(_orders) == 0) return self; // nothing to show
 
@@ -31,7 +36,8 @@ function OrderMenu() constructor {
         return self;
     }
 
-    /// @return {Struct.OrderMenu} self
+    /// @function Close()
+    /// @returns {Struct.OrderMenu} self
     static Close = function() {
         isOpen = false;
         options = [];
@@ -39,8 +45,9 @@ function OrderMenu() constructor {
         return self;
     }
 
+    /// @function Update()
     /// Call once per Step event while the menu might be open.
-    /// @return {String|Undefined} The name of the order clicked this
+    /// @returns {String|Undefined} The name of the order clicked this
     ///         frame, or undefined if nothing was clicked. The caller
     ///         is responsible for actually issuing the order (see
     ///         Quick Start in the docs) -- this only reports the click.
@@ -73,6 +80,7 @@ function OrderMenu() constructor {
         return undefined;
     }
 
+    /// @function Draw()
     /// Call once per Draw GUI event while the menu might be open.
     static Draw = function() {
         if (!isOpen) return;

@@ -21,37 +21,42 @@ function StateMachine(_owner) constructor {
     data         = {};         // cleared on every ChangeState() -- current state's scratch memory
     previousName = undefined;  // name of the state we just left, useful for "return to previous" logic
 
+    /// @function AddState(_name, _state)
     /// @param {String} _name
     /// @param {Struct.State} _state
-    /// @return {Struct.StateMachine} self
+    /// @returns {Struct.StateMachine} self
     static AddState = function(_name, _state) {
         variable_struct_set(states, _name, _state);
         return self;
     }
 
+    /// @function HasState(_name)
     /// @param {String} _name
-    /// @return {Bool} True if a state with this name has been registered.
+    /// @returns {Bool} True if a state with this name has been registered.
     static HasState = function(_name) {
         return variable_struct_exists(states, _name);
     }
 
-    /// @return {String|Undefined} Name of the currently active state.
+    /// @function Current()
+    /// @returns {String|Undefined} Name of the currently active state.
     static Current = function() {
         return currentName;
     }
 
+    /// @function Is(_name)
     /// @param {String} _name
-    /// @return {Bool} True if the machine is currently in the named state.
+    /// @returns {Bool} True if the machine is currently in the named state.
     static Is = function(_name) {
         return currentName == _name;
     }
 
+    /// @function ChangeState(_name, _force)
     /// Transitions to a different state: runs the current state's OnExit,
     /// clears data, switches, then runs the new state's OnEnter.
     /// Does nothing if already in the requested state, unless _force is true.
     /// @param {String} _name
     /// @param {Bool} [_force] Re-enter the same state (re-run OnExit + OnEnter) if true.
-    /// @return {Struct.StateMachine} self
+    /// @returns {Struct.StateMachine} self
     static ChangeState = function(_name, _force = false) {
         if (!HasState(_name)) {
             show_debug_message($"StateMachine: attempted to change to unregistered state '{_name}'");
@@ -76,9 +81,10 @@ function StateMachine(_owner) constructor {
         return self;
     }
 
+    /// @function RevertToPrevious()
     /// Returns to whatever state was active before the last ChangeState()
     /// call. No-op if there is no previous state recorded.
-    /// @return {Struct.StateMachine} self
+    /// @returns {Struct.StateMachine} self
     static RevertToPrevious = function() {
         if (previousName != undefined) {
             ChangeState(previousName);
@@ -86,8 +92,9 @@ function StateMachine(_owner) constructor {
         return self;
     }
 
+    /// @function Step()
     /// Call once per Step event.
-    /// @return {Struct.StateMachine} self
+    /// @returns {Struct.StateMachine} self
     static Step = function() {
         if (currentState != undefined && currentState.onStep != undefined) {
             currentState.onStep(owner, self);
@@ -95,9 +102,10 @@ function StateMachine(_owner) constructor {
         return self;
     }
 
+    /// @function Draw()
     /// Call once per Draw event. Safe to omit entirely if a state has no
     /// draw logic -- onDraw is optional per-state, not just per-machine.
-    /// @return {Struct.StateMachine} self
+    /// @returns {Struct.StateMachine} self
     static Draw = function() {
         if (currentState != undefined && currentState.onDraw != undefined) {
             currentState.onDraw(owner, self);

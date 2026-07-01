@@ -8,6 +8,12 @@
 // siege
 // -----------------------------------------------------------
 
+/// @function Siege_Enter(_unit, _machine)
+/// @description StateMachine onEnter for "siege". Falls back to "guard" if no
+///        enemy castle is found; otherwise stores the castle and resets
+///        phase/cooldown/guard-target tracking.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Siege_Enter(_unit, _machine) {
     var _castle = GetEnemyCastle(_unit);
     if (!instance_exists(_castle)) {
@@ -27,6 +33,13 @@ function Siege_Enter(_unit, _machine) {
     image_speed  = 1;
 }
 
+/// @function Siege_Step(_unit, _machine)
+/// @description StateMachine onStep for "siege". Drives advance/assault/swing/recover
+///        against the enemy castle, with an ENGAGE_GUARD sub-phase that breaks off
+///        to fight any enemy unit swept up within siegeSweepRadius (or the tighter
+///        attackAggroRadius once assaulting) before resuming the castle.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Siege_Step(_unit, _machine) {
 
     // -----------------------------------------------------------
@@ -206,6 +219,11 @@ function Siege_Step(_unit, _machine) {
     }
 }
 
+/// @function Siege_Exit(_unit, _machine)
+/// @description StateMachine onExit for "siege". Ends any in-progress swing and
+///        clears the guard-target tracking.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Siege_Exit(_unit, _machine) {
     UnitEndSwing(_unit, _machine);
     _machine.data.guardTarget = noone;

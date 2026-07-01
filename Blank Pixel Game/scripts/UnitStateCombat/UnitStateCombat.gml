@@ -2,6 +2,11 @@
 #macro COMBAT_PHASE_ATTACK  "attack"
 #macro COMBAT_PHASE_RECOVER "recover"
 
+/// @function Combat_Enter(_unit, _machine)
+/// @description StateMachine onEnter for "combat". Resets phase/cooldown tracking
+///        and starts from the idle sprite.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Combat_Enter(_unit, _machine) {
     _machine.data.phase             = COMBAT_PHASE_PURSUE;
     _machine.data.hitDealtThisSwing = false;
@@ -12,6 +17,13 @@ function Combat_Enter(_unit, _machine) {
     image_speed  = 1;
 }
 
+/// @function Combat_Step(_unit, _machine)
+/// @description StateMachine onStep for "combat". Drives the pursue/attack/recover
+///        cycle against _unit.combatTarget, picking a new target via
+///        ChooseCombatTarget() if the current one is gone, and dropping back to
+///        "guard" if there's no target or the target leashes out of range.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Combat_Step(_unit, _machine) {
 
     // -----------------------------------------------------------
@@ -85,6 +97,10 @@ function Combat_Step(_unit, _machine) {
     }
 }
 
+/// @function Combat_Exit(_unit, _machine)
+/// @description StateMachine onExit for "combat". Ends any in-progress swing.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Combat_Exit(_unit, _machine) {
     UnitEndSwing(_unit, _machine);
 }

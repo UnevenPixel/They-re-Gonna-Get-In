@@ -2,6 +2,7 @@
 // Order -- a single issuable command.
 // -----------------------------------------------------------
 
+/// @function Order(_name, _label, _onIssue, _requiresTarget, _targetValidator)
 /// @param {String} _name   Matches an entry in a unit's availableOrders
 ///        AND a registered StateMachine state name, e.g. "guard".
 /// @param {String} _label  Display text for the dropdown menu, e.g. "Guard".
@@ -35,21 +36,24 @@ function Order(_name, _label, _onIssue = undefined, _requiresTarget = false, _ta
 
 global.__orderRegistry = {};
 
+/// @function RegisterOrder(_order)
 /// @param {Struct.Order} _order
 function RegisterOrder(_order) {
     variable_struct_set(global.__orderRegistry, _order.name, _order);
 }
 
+/// @function GetOrder(_name)
 /// @param {String} _name
-/// @return {Struct.Order|Undefined}
+/// @returns {Struct.Order|Undefined}
 function GetOrder(_name) {
     return variable_struct_exists(global.__orderRegistry, _name)
         ? variable_struct_get(global.__orderRegistry, _name)
         : undefined;
 }
 
+/// @function GetCommonOrders(_units)
 /// @param {Array<Id.Instance>} _units
-/// @return {Array<Struct.Order>} Orders every unit in _units has in its
+/// @returns {Array<Struct.Order>} Orders every unit in _units has in its
 ///         availableOrders, resolved against the registry. Empty array
 ///         if _units is empty or shares nothing in common.
 function GetCommonOrders(_units) {
@@ -90,6 +94,7 @@ function GetCommonOrders(_units) {
 // One instance for the player; create it once, persistent.
 // -----------------------------------------------------------
 
+/// @function SelectionController(_unitObject, _playerTeam)
 /// @param {Asset.GMObject} _unitObject The object type (or parent) to
 ///        consider selectable, e.g. obj_unit.
 /// @param {*} _playerTeam Whatever value identifies the player's own
@@ -104,8 +109,9 @@ function SelectionController(_unitObject, _playerTeam) constructor {
     _pendingOrder    = undefined; // Order awaiting a target click
     isTargeting      = false;     // true while waiting for the player to click a target
 
+    /// @function BeginDrag()
     /// Call from a Left Pressed / mouse-down check in Step.
-    /// @return {Struct.SelectionController} self
+    /// @returns {Struct.SelectionController} self
     static BeginDrag = function() {
         dragging   = true;
         dragStartX = mouse_x;
@@ -113,10 +119,11 @@ function SelectionController(_unitObject, _playerTeam) constructor {
         return self;
     }
 
+    /// @function EndDrag(_additive)
     /// Call from a Left Released / mouse-up check in Step.
     /// @param {Bool} [_additive] Hold-shift behavior: add to selection
     ///        instead of replacing it.
-    /// @return {Struct.SelectionController} self
+    /// @returns {Struct.SelectionController} self
     static EndDrag = function(_additive = false) {
         if (!dragging) return self;
         dragging = false;
@@ -151,7 +158,8 @@ function SelectionController(_unitObject, _playerTeam) constructor {
         return self;
     }
 
-    /// @return {Struct} { x1, y1, x2, y2 } of the in-progress drag box.
+    /// @function GetDragRect()
+    /// @returns {Struct} { x1, y1, x2, y2 } of the in-progress drag box.
     ///         Only meaningful while `dragging` is true.
     static GetDragRect = function() {
         return {
@@ -160,18 +168,20 @@ function SelectionController(_unitObject, _playerTeam) constructor {
         };
     }
 
-    /// @return {Array<Struct.Order>} Orders common to the current selection.
+    /// @function AvailableOrders()
+    /// @returns {Array<Struct.Order>} Orders common to the current selection.
     static AvailableOrders = function() {
         return GetCommonOrders(selected);
     }
 
+    /// @function IssueOrder(_orderName, _context)
     /// Issues a named order to the current selection, or enters
     /// target-selection mode if the order requires a target first.
     /// Internally calls IssueOrderToUnits so the player and AI go
     /// through the exact same Order.onIssue path.
     /// @param {String} _orderName
     /// @param {*} [_context]
-    /// @return {Struct.SelectionController} self
+    /// @returns {Struct.SelectionController} self
     static IssueOrder = function(_orderName, _context = undefined) {
         var _order = GetOrder(_orderName);
         if (_order == undefined) {
@@ -188,32 +198,35 @@ function SelectionController(_unitObject, _playerTeam) constructor {
         return self;
     }
 
+    /// @function BeginTargeting(_order)
     /// Enters target-selection mode for a given order. Called
     /// automatically by IssueOrder -- you shouldn't need to call this
     /// directly, but it's public in case you want to enter targeting
     /// mode programmatically (e.g. from a keyboard shortcut).
     /// @param {Struct.Order} _order
-    /// @return {Struct.SelectionController} self
+    /// @returns {Struct.SelectionController} self
     static BeginTargeting = function(_order) {
         _pendingOrder = _order;
         isTargeting   = true;
         return self;
     }
 
+    /// @function CancelTargeting()
     /// Cancels target-selection mode without issuing anything.
     /// Call on right-click or Escape while isTargeting is true.
-    /// @return {Struct.SelectionController} self
+    /// @returns {Struct.SelectionController} self
     static CancelTargeting = function() {
         _pendingOrder = undefined;
         isTargeting   = false;
         return self;
     }
 
+    /// @function UpdateTargeting()
     /// Call from Step while isTargeting is true. Handles the left-click
     /// target pick and validates it against the order's targetValidator.
     /// Returns true the frame a valid target is clicked (order issued);
     /// false every other frame.
-    /// @return {Bool}
+    /// @returns {Bool}
     static UpdateTargeting = function() {
         if (!isTargeting) return false;
 
@@ -249,6 +262,7 @@ function SelectionController(_unitObject, _playerTeam) constructor {
         return false;
     }
 
+    /// @function DrawDragBox()
     /// Draws the in-progress drag box. Call from a room-space Draw
     /// event (NOT Draw GUI) -- this rectangle is in room coordinates.
     static DrawDragBox = function() {
@@ -257,6 +271,7 @@ function SelectionController(_unitObject, _playerTeam) constructor {
         draw_rectangle_color(_r.x1, _r.y1, _r.x2, _r.y2, c_white, c_white, c_white, c_white, true);
     }
 
+    /// @function DrawTargetingCursor()
     /// Draws a targeting cursor hint while in target-selection mode.
     /// Call from a Draw GUI event. Replace the draw calls here with
     /// whatever cursor sprite fits your UI.

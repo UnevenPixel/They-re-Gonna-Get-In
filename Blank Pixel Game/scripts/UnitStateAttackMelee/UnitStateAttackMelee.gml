@@ -4,13 +4,14 @@
 #macro ATTACK_PHASE_RECOVER   "recover"   // cooldown after a building swing
 #macro ATTACK_PHASE_DEFENDER  "defender"  // temporarily fighting a defending unit
 
+/// @function NearestBuildingEdgePoint(_building, _fromPos)
 /// Returns the nearest point on the building's bounding box edge
 /// to the given position -- used so the unit targets the surface
 /// of the building rather than its center, which would put the
 /// attack trigger point 24px inside the building.
 /// @param {Id.Instance}    _building
 /// @param {Struct.Vector2} _fromPos
-/// @return {Struct.Vector2}
+/// @returns {Struct.Vector2}
 function NearestBuildingEdgePoint(_building, _fromPos) {
     var _bx = _building.x;
     var _by = _building.y;
@@ -26,6 +27,12 @@ function NearestBuildingEdgePoint(_building, _fromPos) {
 // attack
 // -----------------------------------------------------------
 
+/// @function Attack_Enter(_unit, _machine)
+/// @description StateMachine onEnter for "attack". Bails back to "guard" if the
+///        building target is already gone; otherwise resets phase/cooldown/defender
+///        tracking and starts from the idle sprite.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Attack_Enter(_unit, _machine) {
     if (!instance_exists(_unit.attackBuildingTarget)) {
         _machine.ChangeState("guard");
@@ -42,6 +49,12 @@ function Attack_Enter(_unit, _machine) {
     image_speed  = 1;
 }
 
+/// @function Attack_Step(_unit, _machine)
+/// @description StateMachine onStep for "attack". Drives the approach/swing/recover
+///        cycle against attackBuildingTarget, with a DEFENDER sub-phase that
+///        interrupts to fight off a nearby enemy unit before resuming the building.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Attack_Step(_unit, _machine) {
 
     // -----------------------------------------------------------
@@ -192,6 +205,11 @@ function Attack_Step(_unit, _machine) {
     }
 }
 
+/// @function Attack_Exit(_unit, _machine)
+/// @description StateMachine onExit for "attack". Ends any in-progress swing and
+///        clears building/defender target tracking.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
 function Attack_Exit(_unit, _machine) {
     UnitEndSwing(_unit, _machine);
     _unit.attackBuildingTarget = noone;

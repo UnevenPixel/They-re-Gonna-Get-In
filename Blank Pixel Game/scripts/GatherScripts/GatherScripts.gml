@@ -1,5 +1,6 @@
 #macro UNIT_OBSTACLE_LOOK_RADIUS 96 // how far out a unit checks for buildings/environment to avoid
 
+/// @function GatherNearbyObstacles(_unit, _radius)
 /// Gathers nearby buildings and environment solids into the
 /// { pos, radius } struct shape Steering_AvoidObstacles expects.
 /// Buildings of the unit's OWN team are excluded -- a unit shouldn't
@@ -8,7 +9,7 @@
 ///
 /// @param {Id.Instance} _unit
 /// @param {Real} [_radius]
-/// @return {Array<Struct>} Array of { pos: Vector2, radius: Real }
+/// @returns {Array<Struct>} Array of { pos: Vector2, radius: Real }
 function GatherNearbyObstacles(_unit, _radius = UNIT_OBSTACLE_LOOK_RADIUS) {
     var _result = [];
 
@@ -32,9 +33,10 @@ function GatherNearbyObstacles(_unit, _radius = UNIT_OBSTACLE_LOOK_RADIUS) {
 }
 
 
+/// @function GatherNearbyAllies(_unit, _radius)
 /// @param {Id.Instance} _unit
 /// @param {Real} [_radius]
-/// @return {Array<Struct.SteeringAgent>}
+/// @returns {Array<Struct.SteeringAgent>}
 function GatherNearbyAllies(_unit, _radius = 48) {
     var _result = [];
     var _list   = ds_list_create();
@@ -51,8 +53,10 @@ function GatherNearbyAllies(_unit, _radius = 48) {
     return _result;
 }
 
-/// @function GetEnemyCastle(_team)
-/// @desc Get the opposing teams Castle Instance to Return
+/// @function GetEnemyCastle(_unit)
+/// @desc Get the opposing team's Castle instance for a given unit.
+/// @param {Id.Instance} _unit Unit whose team determines which castle counts as "enemy".
+/// @returns {Id.Instance} The opposing team's castle instance.
 function GetEnemyCastle(_unit){
     if _unit.team = "player"{
         return instance_find(oEnemyCastle,0);
@@ -62,10 +66,11 @@ function GetEnemyCastle(_unit){
     }
 }
 
+/// @function _FindNearestEnemyInSweep(_unit, _castlePos, _radius)
 /// @param {Id.Instance}    _unit
 /// @param {Struct.Vector2} _castlePos
 /// @param {Real}           _radius
-/// @return {Id.Instance|Constant.NoOne}
+/// @returns {Id.Instance|Constant.NoOne}
 function _FindNearestEnemyInSweep(_unit, _castlePos, _radius) {
     var _list  = ds_list_create();
     var _count = collision_circle_list(

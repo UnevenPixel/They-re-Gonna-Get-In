@@ -1,7 +1,16 @@
+/// @function ChooseCombatTarget(_unit)
+/// @description Picks a combat target for a unit. Stub -- always returns noone;
+///        replace with real target-selection logic (nearest enemy, threat score,
+///        etc.) once combat targeting is implemented.
+/// @param {Id.Instance} _unit
+/// @returns {Id.Instance|Constant.NoOne}
 function ChooseCombatTarget(_unit){
     return noone;
 }
 
+/// @function UnitDataBlock()
+/// @description Per-unit scratch data that doesn't belong on the base object
+///        variables -- damage taken and active status effects.
 function UnitDataBlock() constructor{
     damageTaken = 0;
     statusEffects = [];
@@ -18,6 +27,7 @@ function UnitDataBlock() constructor{
                                  // preventing the last frames of deceleration
                                  // from flickering the unit's facing direction.
 
+/// @function UnitUpdateSprite(_unit)
 /// Updates sprite_index (idle vs walk) and image_xscale (facing)
 /// for the calling instance based on its agent's current velocity.
 /// Must be called from instance scope.
@@ -51,6 +61,7 @@ function UnitUpdateSprite(_unit) {
 // B. Play area
 // -----------------------------------------------------------
 
+/// @function InitPlayArea(_x1, _y1, _x2, _y2)
 /// Call once at game/room start with your actual coordinates.
 /// "Between the two castle fronts and above the UI strip" --
 /// replace the placeholder values below with real ones.
@@ -80,6 +91,7 @@ function InitPlayArea(_x1, _y1, _x2, _y2) {
 // C. Shared order dispatch
 // -----------------------------------------------------------
 
+/// @function IssueOrderToUnits(_orderName, _units, _context)
 /// Issues a named order to an array of unit instances. Used by
 /// BOTH the player's SelectionController and the AI controller,
 /// so both paths go through the same Order.onIssue callback.

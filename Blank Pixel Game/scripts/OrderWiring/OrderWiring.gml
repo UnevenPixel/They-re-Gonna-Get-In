@@ -2,6 +2,10 @@
 // Order registration (call once, e.g. a game-start script)
 // -----------------------------------------------------------
 
+/// @function RegisterAllOrders()
+/// @description Registers every player-issuable Order with the global order
+///        registry (see RegisterOrder in UnitSelection.gml). Call once at game
+///        start -- currently wired from oGameControl's Create event.
 function RegisterAllOrders() {
     RegisterOrder(new Order("guard", "Guard"));   // default onIssue: fsm.ChangeState("guard")
     RegisterOrder(new Order(
