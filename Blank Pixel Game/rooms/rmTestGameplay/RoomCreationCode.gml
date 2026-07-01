@@ -1,0 +1,1 @@
+InitPlayArea(326, 8, room_width - 326, room_height - 134);

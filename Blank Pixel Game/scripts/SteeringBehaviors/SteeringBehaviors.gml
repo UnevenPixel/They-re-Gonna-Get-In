@@ -1,0 +1,432 @@
+// -----------------------------------------------------------
+// SteeringAgent -- physical state. One per unit.
+// -----------------------------------------------------------
+
+/// @param {Real} _x
+/// @param {Real} _y
+/// @param {Real} [_maxSpeed]
+/// @param {Real} [_maxForce]
+/// @param {Real} [_mass]
+function SteeringAgent(_x, _y, _maxSpeed = 3, _maxForce = 0.25, _mass = 1) constructor {
+    pos       = new Vector2(_x, _y);
+    velocity  = new Vector2(0, 0);
+    maxSpeed  = _maxSpeed;
+    maxForce  = _maxForce;
+    mass      = _mass;
+
+    // Knockback is a separate impulse channel, not a steering force --
+    // see SteeringController.Apply() for why it can't just be Add()ed
+    // like everything else.
+    knockback       = new Vector2(0, 0);
+    knockbackFriction = 0.85; // fraction of knockback retained per frame; lower = stops faster
+
+    /// @return {Real} Current speed (length of velocity).
+    static Speed = function() {
+        return velocity.Length();
+    }
+
+    /// @return {Real} Current heading in degrees (0 if stationary).
+    static Heading = function() {
+        if (velocity.IsZero()) return 0;
+        return velocity.Angle();
+    }
+
+    /// Adds an impulse to the knockback channel. Stacks additively with
+    /// any existing knockback rather than overwriting it, so a second
+    /// hit during recovery compounds instead of resetting.
+    /// @param {Struct.Vector2} _force  Direction * magnitude, e.g.
+    ///        Vector2FromAngle(_hitAngle, _hitStrength).
+    /// @return {Struct.SteeringAgent} self
+    static ApplyKnockback = function(_force) {
+        knockback.Add(_force);
+        return self;
+    }
+
+    /// @return {Bool} True while knockback is still meaningfully active.
+    static IsStaggered = function(_threshold = 0.5) {
+        return knockback.LengthSquared() > (_threshold * _threshold);
+    }
+
+    /// Convenience: sync pos back to GML built-in x/y.
+    static SyncToInstance = function(_inst) {
+        _inst.x = pos.x;
+        _inst.y = pos.y;
+    }
+
+    /// Convenience: pull GML built-in x/y back into pos. Call this after
+    /// move_and_collide() has resolved a move, since that function writes
+    /// directly to the instance's x/y, not to agent.pos.
+    static SyncFromInstance = function(_inst) {
+        pos.Set(_inst.x, _inst.y);
+    }
+}
+
+// -----------------------------------------------------------
+// SteeringController -- accumulates + applies forces.
+// -----------------------------------------------------------
+
+/// @param {Struct.SteeringAgent} _agent
+function SteeringController(_agent) constructor {
+    agent        = _agent;
+    _accumulated = new Vector2(0, 0);
+    wanderAngle  = random_range(0, 360); // wander's persistent angle
+
+    // While agent.knockback's length is above this, steering forces are
+    // scaled down rather than ignored outright -- a unit staggering from
+    // a hit still weakly fights to recover, it doesn't go fully limp.
+    staggerThreshold     = 1.5;
+    staggerSteeringScale = 0.15; // how much steering still applies at full stagger
+
+    /// Reset accumulator. Call at the top of the frame before Add() calls.
+    /// @return {Struct.SteeringController} self
+    static Begin = function() {
+        _accumulated.Set(0, 0);
+        return self;
+    }
+
+    /// Add a weighted force to the accumulator.
+    /// @param {Struct.Vector2} _force  Return value of a Steering_* function.
+    /// @param {Real}           [_weight]
+    /// @return {Struct.SteeringController} self
+    static Add = function(_force, _weight = 1) {
+        _accumulated.Add(_force.GetScale(_weight));
+        return self;
+    }
+
+    /// Truncate accumulated force, integrate velocity, apply + decay
+    /// knockback -- but does NOT move agent.pos. Returns the frame's
+    /// total movement delta instead, so the calling instance can run it
+    /// through move_and_collide() before committing the move. (Struct
+    /// methods can't call move_and_collide themselves -- it reads/writes
+    /// the CALLING INSTANCE's x/y and mask, and `self` inside a struct
+    /// method is the struct, not an instance.)
+    /// @return {Struct.Vector2} The delta to pass into move_and_collide().
+    static Apply = function() {
+        // Scale down (not zero) normal steering while staggered, so a hit
+        // visibly interrupts intent without making the unit feel inert.
+        var _knockbackMag   = agent.knockback.Length();
+        var _steeringScale  = (_knockbackMag > staggerThreshold)
+            ? staggerSteeringScale
+            : 1;
+
+        // Clamp total steering force to maxForce, divide by mass.
+        var _force = _accumulated.GetClampLength(agent.maxForce)
+                                  .Scale(_steeringScale)
+                                  .Divide(agent.mass);
+
+        // Integrate steering into velocity as normal.
+        agent.velocity.Add(_force).ClampLength(agent.maxSpeed);
+
+        // Total delta this frame: normal movement + knockback. Knockback
+        // bypasses maxSpeed on purpose -- a hit should be able to move a
+        // unit faster than its own legs can.
+        var _delta = agent.velocity.GetAdd(agent.knockback);
+
+        // Decay knockback for next frame.
+        agent.knockback.Scale(agent.knockbackFriction);
+        if (agent.knockback.LengthSquared() < 0.0001) {
+            agent.knockback.Set(0, 0);
+        }
+
+        return _delta;
+    }
+}
+
+// -----------------------------------------------------------
+// Core behaviors
+// -----------------------------------------------------------
+
+/// Accelerate toward _target at full speed.
+/// @param {Struct.SteeringAgent} _agent
+/// @param {Struct.Vector2}       _target
+/// @return {Struct.Vector2} steering force
+function Steering_Seek(_agent, _target) {
+    var _desired = _target.GetSubtract(_agent.pos)
+                          .Normalize()
+                          .Scale(_agent.maxSpeed);
+    return _desired.Subtract(_agent.velocity);
+}
+
+/// Accelerate directly away from _from, while within _radius.
+/// Returns zero force outside the radius so units don't flee
+/// things they can't see.
+/// @param {Struct.SteeringAgent} _agent
+/// @param {Struct.Vector2}       _from
+/// @param {Real}                 [_radius]
+/// @return {Struct.Vector2} steering force
+function Steering_Flee(_agent, _from, _radius = 96) {
+    if (_agent.pos.DistanceSquared(_from) > _radius * _radius) {
+        return new Vector2(0, 0);
+    }
+    var _desired = _agent.pos.GetSubtract(_from)
+                             .Normalize()
+                             .Scale(_agent.maxSpeed);
+    return _desired.Subtract(_agent.velocity);
+}
+
+/// Seek with a deceleration zone -- slows smoothly to a stop at
+/// _target rather than overshooting. _slowRadius defines how far
+/// out the unit begins to slow down.
+/// @param {Struct.SteeringAgent} _agent
+/// @param {Struct.Vector2}       _target
+/// @param {Real}                 [_slowRadius]
+/// @return {Struct.Vector2} steering force
+function Steering_Arrive(_agent, _target, _slowRadius = 64) {
+    var _toTarget = _target.GetSubtract(_agent.pos);
+    var _dist     = _toTarget.Length();
+
+    if (_dist < 1) return new Vector2(0, 0);
+
+    var _speed   = (_dist < _slowRadius) ? (_agent.maxSpeed * (_dist / (_slowRadius+1))) : _agent.maxSpeed;
+    var _desired = _toTarget.GetScale(_speed / _dist); // normalize then scale in one step
+    return _desired.Subtract(_agent.velocity);
+}
+
+/// Seek a predicted future position of a moving target, so the
+/// unit feels like it's anticipating rather than always chasing
+/// the tail. Lookahead scales with distance / maxSpeed.
+/// @param {Struct.SteeringAgent} _agent
+/// @param {Struct.Vector2}       _targetPos
+/// @param {Struct.Vector2}       _targetVelocity
+/// @return {Struct.Vector2} steering force
+function Steering_Pursue(_agent, _targetPos, _targetVelocity) {
+    var _toTarget     = _targetPos.GetSubtract(_agent.pos);
+    var _lookAhead    = _toTarget.Length() / _agent.maxSpeed;
+    var _futureTarget = _targetPos.GetAdd(_targetVelocity.GetScale(_lookAhead));
+    return Steering_Seek(_agent, _futureTarget);
+}
+
+/// Flee a predicted future position of a moving threat.
+/// @param {Struct.SteeringAgent} _agent
+/// @param {Struct.Vector2}       _threatPos
+/// @param {Struct.Vector2}       _threatVelocity
+/// @param {Real}                 [_radius]
+/// @return {Struct.Vector2} steering force
+function Steering_Evade(_agent, _threatPos, _threatVelocity, _radius = 96) {
+    var _toThreat     = _threatPos.GetSubtract(_agent.pos);
+    var _lookAhead    = _toThreat.Length() / _agent.maxSpeed;
+    var _futureThreat = _threatPos.GetAdd(_threatVelocity.GetScale(_lookAhead));
+    return Steering_Flee(_agent, _futureThreat, _radius);
+}
+
+/// Smooth random drift. Steers toward a point on a virtual circle
+/// projected ahead of the unit, jittering its angle each frame.
+/// All persistent state lives on the controller, not the unit.
+/// @param {Struct.SteeringAgent}     _agent
+/// @param {Struct.SteeringController} _ctrl
+/// @param {Real}                     [_circleDistance] How far ahead the virtual circle sits.
+/// @param {Real}                     [_circleRadius]   Size of the virtual circle.
+/// @param {Real}                     [_jitterDeg]      Max random angle change per frame.
+/// @return {Struct.Vector2} steering force
+function Steering_Wander(_agent, _ctrl, _circleDistance = 48, _circleRadius = 24, _jitterDeg = 8) {
+    _ctrl.wanderAngle += random_range(-_jitterDeg, _jitterDeg);
+
+    var _heading      = _agent.Heading();
+    var _circleCenter = Vector2FromAngle(_heading, _circleDistance).Add(_agent.pos);
+    var _displacement = Vector2FromAngle(_heading + _ctrl.wanderAngle, _circleRadius);
+
+    return Steering_Seek(_agent, _circleCenter.Add(_displacement));
+}
+
+// -----------------------------------------------------------
+// Spatial / social behaviors
+// (All take a _neighbors array of SteeringAgent structs.)
+// -----------------------------------------------------------
+
+/// Push away from nearby neighbors within _separationRadius.
+/// Closer neighbors exert a stronger repulsive force (inverse
+/// distance weighting).
+/// @param {Struct.SteeringAgent}  _agent
+/// @param {Array<Struct.SteeringAgent>} _neighbors
+/// @param {Real}                  [_separationRadius]
+/// @return {Struct.Vector2} steering force
+function Steering_Separation(_agent, _neighbors, _separationRadius = 32) {
+    var _steer = new Vector2(0, 0);
+    var _count = 0;
+
+    for (var i = 0; i < array_length(_neighbors); i++) {
+        var _other = _neighbors[i];
+        var _dist  = _agent.pos.Distance(_other.pos);
+
+        if (_dist > 0 && _dist < _separationRadius) {
+            // Closer neighbors repel more strongly.
+            var _away = _agent.pos.GetSubtract(_other.pos)
+                                  .Normalize()
+                                  .Scale(1 / _dist);
+            _steer.Add(_away);
+            _count++;
+        }
+    }
+
+    if (_count > 0) {
+        _steer.Scale(1 / _count)
+              .Normalize()
+              .Scale(_agent.maxSpeed)
+              .Subtract(_agent.velocity);
+    }
+
+    return _steer;
+}
+
+/// Match the average velocity of neighbors within _alignRadius.
+/// Makes flocks move in the same direction at the same speed.
+/// @param {Struct.SteeringAgent}  _agent
+/// @param {Array<Struct.SteeringAgent>} _neighbors
+/// @param {Real}                  [_alignRadius]
+/// @return {Struct.Vector2} steering force
+function Steering_Alignment(_agent, _neighbors, _alignRadius = 64) {
+    var _avgVel = new Vector2(0, 0);
+    var _count  = 0;
+
+    for (var i = 0; i < array_length(_neighbors); i++) {
+        var _other = _neighbors[i];
+        if (_agent.pos.Distance(_other.pos) < _alignRadius) {
+            _avgVel.Add(_other.velocity);
+            _count++;
+        }
+    }
+
+    if (_count == 0) return new Vector2(0, 0);
+
+    return _avgVel.Scale(1 / _count)
+                  .Normalize()
+                  .Scale(_agent.maxSpeed)
+                  .Subtract(_agent.velocity);
+}
+
+/// Steer toward the center of mass of neighbors within _cohesionRadius.
+/// Keeps flocks from drifting apart.
+/// @param {Struct.SteeringAgent}  _agent
+/// @param {Array<Struct.SteeringAgent>} _neighbors
+/// @param {Real}                  [_cohesionRadius]
+/// @return {Struct.Vector2} steering force
+function Steering_Cohesion(_agent, _neighbors, _cohesionRadius = 80) {
+    var _centerOfMass = new Vector2(0, 0);
+    var _count        = 0;
+
+    for (var i = 0; i < array_length(_neighbors); i++) {
+        var _other = _neighbors[i];
+        if (_agent.pos.Distance(_other.pos) < _cohesionRadius) {
+            _centerOfMass.Add(_other.pos);
+            _count++;
+        }
+    }
+
+    if (_count == 0) return new Vector2(0, 0);
+
+    _centerOfMass.Scale(1 / _count);
+    return Steering_Seek(_agent, _centerOfMass);
+}
+
+/// Convenience wrapper: separation + alignment + cohesion in one
+/// call, with individually tunable weights.
+/// @param {Struct.SteeringAgent}       _agent
+/// @param {Array<Struct.SteeringAgent>} _neighbors
+/// @param {Real} [_separationRadius]
+/// @param {Real} [_alignRadius]
+/// @param {Real} [_cohesionRadius]
+/// @param {Real} [_separationWeight]
+/// @param {Real} [_alignWeight]
+/// @param {Real} [_cohesionWeight]
+/// @return {Struct.Vector2} combined steering force
+function Steering_Flock(
+    _agent, _neighbors,
+    _separationRadius = 32, _alignRadius = 64, _cohesionRadius = 80,
+    _separationWeight = 1.5, _alignWeight = 1.0, _cohesionWeight = 1.0
+) {
+    var _sep  = Steering_Separation(_agent, _neighbors, _separationRadius).Scale(_separationWeight);
+    var _ali  = Steering_Alignment( _agent, _neighbors, _alignRadius).Scale(_alignWeight);
+    var _coh  = Steering_Cohesion(  _agent, _neighbors, _cohesionRadius).Scale(_cohesionWeight);
+    return _sep.Add(_ali).Add(_coh);
+}
+
+// -----------------------------------------------------------
+// Obstacle avoidance
+// -----------------------------------------------------------
+
+/// Lookahead-based obstacle avoidance. Projects a virtual
+/// "feeler" ahead of the unit scaled by speed, then laterally
+/// steers away from whichever obstacle overlaps the feeler most.
+/// Obstacles are structs with a `pos` (Vector2) and `radius` (Real).
+///
+/// @param {Struct.SteeringAgent}  _agent
+/// @param {Array}                 _obstacles  Array of { pos: Vector2, radius: Real }
+/// @param {Real}                  [_feelerLength]
+/// @return {Struct.Vector2} steering force
+function Steering_AvoidObstacles(_agent, _obstacles, _feelerLength = 80) {
+    // Scale lookahead with current speed so faster units look further ahead.
+    var _dynamicLength = _feelerLength * (_agent.Speed() / _agent.maxSpeed);
+    _dynamicLength     = max(_dynamicLength, _feelerLength * 0.5); // always at least half
+
+    var _heading      = Vector2FromAngle(_agent.Heading(), _dynamicLength);
+    var _feelerTip    = _agent.pos.GetAdd(_heading);
+
+    // Find the obstacle that most intersects the feeler -- not just
+    // the nearest, since the nearest might not actually be in our path.
+    var _mostThreatening = noone;
+    var _minDist         = infinity;
+
+    for (var i = 0; i < array_length(_obstacles); i++) {
+        var _o    = _obstacles[i];
+        var _dist = _agent.pos.Distance(_o.pos);
+
+        // Cheap lateral distance check: project the obstacle center onto
+        // the feeler axis and measure perpendicular offset.
+        var _toObs = _o.pos.GetSubtract(_agent.pos);
+        var _proj  = _toObs.Dot(_heading.GetNormalize());
+        if (_proj < 0 || _proj > _dynamicLength) continue; // behind us or beyond feeler
+
+        var _lateral = sqrt(max(0, _toObs.LengthSquared() - _proj * _proj));
+        if (_lateral > _o.radius) continue; // misses the obstacle
+
+        if (_dist < _minDist) {
+            _minDist         = _dist;
+            _mostThreatening = _o;
+        }
+    }
+
+    if (_mostThreatening == noone) return new Vector2(0, 0);
+
+    // Steer perpendicular to the heading, away from the obstacle center.
+    // Which side: push away from wherever the obstacle is relative to us.
+    var _toObs   = _mostThreatening.pos.GetSubtract(_agent.pos);
+    var _headDir = Vector2FromAngle(_agent.Heading(), 1);
+    var _cross   = _headDir.Cross(_toObs); // positive = obstacle is to our right
+
+    // Rotate heading 90° toward the clear side.
+    var _avoidDir = (_cross >= 0)
+        ? Vector2FromAngle(_agent.Heading() - 90, _agent.maxSpeed)
+        : Vector2FromAngle(_agent.Heading() + 90, _agent.maxSpeed);
+
+    // Scale urgency by how close the obstacle is.
+    var _urgency = clamp(1 - (_minDist / _feelerLength), 0, 1);
+    return _avoidDir.Subtract(_agent.velocity).Scale(_urgency);
+}
+
+// -----------------------------------------------------------
+// Boundary containment
+// -----------------------------------------------------------
+
+/// Soft boundary: seek back toward the rect's center as the unit
+/// approaches an edge. _margin is how far from the edge the pull
+/// begins. Returns zero force when comfortably inside.
+/// _rect: { x1, y1, x2, y2 }
+/// @param {Struct.SteeringAgent} _agent
+/// @param {Struct}               _rect
+/// @param {Real}                 [_margin]
+/// @return {Struct.Vector2} steering force
+function Steering_Contain(_agent, _rect, _margin = 40) {
+    var _cx = (_rect.x1 + _rect.x2) * 0.5;
+    var _cy = (_rect.y1 + _rect.y2) * 0.5;
+    var _px = _agent.pos.x;
+    var _py = _agent.pos.y;
+
+    var _nearEdge = (_px < _rect.x1 + _margin)
+                 || (_px > _rect.x2 - _margin)
+                 || (_py < _rect.y1 + _margin)
+                 || (_py > _rect.y2 - _margin);
+
+    if (!_nearEdge) return new Vector2(0, 0);
+
+    return Steering_Seek(_agent, new Vector2(_cx, _cy));
+}

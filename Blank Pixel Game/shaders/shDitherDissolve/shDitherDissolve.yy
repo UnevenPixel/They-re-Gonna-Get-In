@@ -1,0 +1,12 @@
+{
+  "$GMShader":"",
+  "%Name":"shDitherDissolve",
+  "name":"shDitherDissolve",
+  "parent":{
+    "name":"OpeningCredits",
+    "path":"folders/Menus/OpeningCredits.yy",
+  },
+  "resourceType":"GMShader",
+  "resourceVersion":"2.0",
+  "type":1,
+}
