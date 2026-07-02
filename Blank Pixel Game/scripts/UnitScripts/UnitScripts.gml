@@ -10,10 +10,17 @@ function ChooseCombatTarget(_unit){
 
 /// @function UnitDataBlock()
 /// @description Per-unit scratch data that doesn't belong on the base object
-///        variables -- damage taken and active status effects.
+///        variables -- damage taken, active status effects, and which
+///        UnitDefinition this unit is (see UnitApplyDefinition in
+///        UnitDefinitions.gml). This is deliberately the ONLY state a
+///        stationed unit needs to remember: when oUnitStationed is built, it
+///        should hold nothing but a UnitDataBlock, and redeploy by handing
+///        this struct to the new instance and calling UnitApplyDefinition
+///        again -- unitType is what tells it which definition to reapply.
 function UnitDataBlock() constructor{
     damageTaken = 0;
     statusEffects = [];
+    unitType = undefined; // Asset.GMObject -- set by UnitApplyDefinition
 }
 
 // -----------------------------------------------------------
@@ -86,6 +93,36 @@ function InitPlayArea(_x1, _y1, _x2, _y2) {
 
 #macro PLAY_AREA_CONTAIN_MARGIN 8  // how far from the edge the nudge begins
 #macro PLAY_AREA_CONTAIN_WEIGHT 0.4 // low weight -- a soft suggestion, not a wall
+
+// -----------------------------------------------------------
+// B2. Team guard zones
+// -----------------------------------------------------------
+
+/// @function GetTeamGuardRect(_team)
+/// @description Returns a team's default guard patrol zone -- what
+///        oUnitParent assigns to guardRect at Create time. The player's
+///        zone is authored directly, sitting just in front of (i.e. on the
+///        battlefield side of) the player castle. Every other team's zone
+///        is derived by mirroring it across room_width -- the same axis
+///        oCastleManager uses for oPlayerCastle/oEnemyCastle and
+///        oOuterPlotSpawner uses for its plots -- so the enemy's zone ends
+///        up the same size, the same distance in front of its own castle.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Struct.ShapeRect}
+function GetTeamGuardRect(_team) {
+    var _playerRect = new ShapeRect(328, 8, 480, 400);
+
+    if (_team == TEAM.PLAYER) {
+        return _playerRect;
+    }
+
+    return new ShapeRect(
+        room_width - _playerRect.x2,
+        _playerRect.y1,
+        room_width - _playerRect.x1,
+        _playerRect.y2
+    );
+}
 
 // -----------------------------------------------------------
 // C. Shared order dispatch

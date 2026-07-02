@@ -34,4 +34,3 @@ Working boundaries
 
 Match existing patterns in the file being edited before introducing new ones, per the conventions above.
 Flag before touching FSM/state wiring for guard, defend, combat, attack, siege — these are load-bearing.
-Don't run/build the project — describe changes and let testing happen in the IDE.

@@ -1,11 +1,10 @@
 unitData = new UnitDataBlock();
 
 pos = new Vector2(x,y);
-maxSpeed = 1;
 team = TEAM.PLAYER;
 wanderWait = true;
 
-guardRect = new ShapeRect(328,8,480,400);
+guardRect = GetTeamGuardRect(team); // mirrored per-team -- see GetTeamGuardRect in UnitScripts.gml
 target = noone;
 
 moveVec = new Vector2(0,0);
@@ -18,28 +17,25 @@ fsm.AddState("guard",  new State(Guard_Enter,  Guard_Step, Guard_Draw, Guard_Exi
    .AddState("siege",  new State(Siege_Enter,  Siege_Step,  undefined, Siege_Exit));
 fsm.ChangeState("guard");
 
-agent      = new SteeringAgent(x, y, 1, 0.2, 1);
+agent      = new SteeringAgent(x, y, 1, 0.2, 1); // maxSpeed/maxForce/mass here are placeholders -- UnitApplyDefinition overwrites agent.maxSpeed below
 controller = new SteeringController(agent);
 
-availableOrders = ["guard", "defend", "attack", "siege", "station"];
-
-//Combat
+// Live/runtime combat state only. Base stats (attackRange, attackDamage,
+// attackCooldownMax, sprites, availableOrders, etc.) now come from this
+// unit's UnitDefinition -- see UnitApplyDefinition() at the bottom of this
+// event, and scripts/UnitDefinitions.
 combatTarget      = noone;
-attackRange       = 32;
-attackLeashRange  = 320;
-attackHitFrame    = 3;
 attackCooldown    = 0;
-attackCooldownMax = 60;
-sprIdle           = sM_UnitMask;   // your actual sprite assets
-sprAttack         = sM_UnitMask;
-sprWalk           = sM_UnitMask;
 
 //Attacking Buildings
 attackBuildingTarget = noone;
-attackAggroRadius    = 96;
-
-//Siege
-siegeSweepRadius   = 160;  // proactive guard search radius during advance
 
 //Guard
 guardWaypointClaimed = undefined;
+
+// Resolves this unit's UnitDefinition (keyed by object_index, so this
+// correctly picks up oPeasantUnit/etc. even though it's running as
+// oUnitParent's inherited Create code) and applies every static stat --
+// must run after fsm/agent/unitData above, and after
+// RegisterAllUnitDefinitions() has run at game start.
+UnitApplyDefinition(self);

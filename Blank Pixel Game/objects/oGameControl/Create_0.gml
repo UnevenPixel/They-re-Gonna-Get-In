@@ -1,1 +1,2 @@
 RegisterAllOrders();
+RegisterAllUnitDefinitions();
