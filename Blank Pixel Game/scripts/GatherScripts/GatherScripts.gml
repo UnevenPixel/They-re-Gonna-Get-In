@@ -67,6 +67,12 @@ function GetEnemyCastle(_unit){
 }
 
 /// @function _FindNearestEnemyInSweep(_unit, _castlePos, _radius)
+/// @description SUPERSEDED -- no longer called anywhere as of ChooseCombatTarget
+///        below, which folds this function's castle-weighting in as an optional
+///        axis (pass _castlePos) alongside health/attack/proximity/activity.
+///        Left in place rather than deleted -- flag before removing outright,
+///        in case something still wants a pure distance-only castle-weighted
+///        pick without the rest of ChooseCombatTarget's criteria.
 /// @param {Id.Instance}    _unit
 /// @param {Struct.Vector2} _castlePos
 /// @param {Real}           _radius
@@ -130,34 +136,15 @@ function GatherTeamUnits(_team) {
 }
 
 /// @function _FindNearestEnemy(_unit, _radius)
-/// @description Plain nearest-enemy-unit sweep, no castle weighting -- unlike
-///        _FindNearestEnemyInSweep, this only cares about proximity to _unit.
-///        Used for the aggro check in "attack" (interrupting a building assault
-///        when a defender gets close), where there's no castle position in play.
+/// @description SUPERSEDED -- no longer called anywhere as of ChooseCombatTarget
+///        below, which replaces every call site this fed (Guard_Step,
+///        Defend_Step, Attack_Step, AttackRanged_Step) with a weighted pick.
+///        Left in place rather than deleted -- flag before removing outright,
+///        in case something still wants a plain nearest-enemy lookup with no
+///        weighting at all.
 /// @param {Id.Instance} _unit
 /// @param {Real}        _radius
 /// @returns {Id.Instance|Constant.NoOne}
 function _FindNearestEnemy(_unit, _radius) {
     var _list  = ds_list_create();
-    var _count = collision_circle_list(
-        _unit.x, _unit.y, _radius, oUnitParent, false, true, _list, false
-    );
-
-    var _best     = noone;
-    var _bestDist = infinity;
-
-    for (var i = 0; i < _count; i++) {
-        var _other = _list[| i];
-        if (_other == _unit) continue;
-        if (_other.team == _unit.team) continue;
-
-        var _dist = point_distance(_unit.x, _unit.y, _other.x, _other.y);
-        if (_dist < _bestDist) {
-            _bestDist = _dist;
-            _best     = _other;
-        }
-    }
-
-    ds_list_destroy(_list);
-    return _best;
-}
+    var _count 

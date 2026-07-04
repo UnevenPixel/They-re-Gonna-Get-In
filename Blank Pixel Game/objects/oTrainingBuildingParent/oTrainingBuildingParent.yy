@@ -35,11 +35,4 @@
   "solid":false,
   "spriteId":{
     "name":"sBuildingMask",
-    "path":"sprites/sBuildingMask/sBuildingMask.yy",
-  },
-  "spriteMaskId":{
-    "name":"sBuildingMask",
-    "path":"sprites/sBuildingMask/sBuildingMask.yy",
-  },
-  "visible":true,
-}
+    "path":"sprites/sB

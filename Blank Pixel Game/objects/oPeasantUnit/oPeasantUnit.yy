@@ -9,7 +9,7 @@
   "overriddenProperties":[],
   "parent":{
     "name":"Peasant",
-    "path":"folders/In Game/Units/Peasant.yy",
+    "path":"folders/In Game/Units/Tier 1/Peasant.yy",
   },
   "parentObjectId":{
     "name":"oUnitParent",
@@ -43,5 +43,4 @@
   "tags":[
     "unit",
   ],
-  "visible":true,
-}
+  "visible":

@@ -248,34 +248,4 @@ function BlueprintController(_team) constructor {
             var _rect = GetSlotRect(i);
 
             draw_rectangle_color(_rect.x1, _rect.y1, _rect.x2, _rect.y2, c_black, c_black, c_black, c_black, false);
-            draw_rectangle_color(_rect.x1, _rect.y1, _rect.x2, _rect.y2, c_white, c_white, c_white, c_white, true);
-
-            var _stackIndex = GetStackIndexAtSlot(i);
-            // Empty slot, or its icon is following the cursor instead.
-            if (_stackIndex == -1 || _stackIndex == dragStackIndex) continue;
-
-            var _stack = global.blueprints[team][_stackIndex];
-            var _def   = GetBuildingDefinition(_stack.buildingType);
-            if (_def == undefined) continue;
-
-            draw_sprite(_def.sprite, 0, (_rect.x1 + _rect.x2) / 2, (_rect.y1 + _rect.y2) / 2);
-
-            if (_stack.count > 1) {
-                draw_set_halign(fa_right);
-                draw_set_valign(fa_bottom);
-                draw_set_color(c_white);
-                draw_text(_rect.x2 - 2, _rect.y2 - 2, string(_stack.count));
-            }
-        }
-
-        if (dragging) {
-            var _stacks = global.blueprints[team];
-            if (dragStackIndex >= 0 && dragStackIndex < array_length(_stacks)) {
-                var _def = GetBuildingDefinition(_stacks[dragStackIndex].buildingType);
-                if (_def != undefined) {
-                    draw_sprite(_def.sprite, 0, device_mouse_x_to_gui(0), device_mouse_y_to_gui(0));
-                }
-            }
-        }
-    }
-}
+            draw_rectangle_color(_rect.x1, _rect.y1, _rect.x2, _rect.y2, c_white, c_white,

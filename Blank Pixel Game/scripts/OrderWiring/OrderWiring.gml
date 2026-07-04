@@ -35,13 +35,22 @@ function RegisterAllOrders() {
     // on each unit before transitioning. Replace with however your
     // combat states actually consume a target (e.g. writing into
     // _machine.data instead, if using the StateMachine.data pattern).
+    //
+    // FLAG (FSM/order wiring -- CLAUDE.md calls this load-bearing): the
+    // state a unit enters now depends on its UnitDefinition tags --
+    // "ranged"-tagged units (currently just Archer) go to "attackRanged"
+    // (UnitStateAttackRanged.gml, fires projectiles) instead of "attack"
+    // (UnitStateAttackMelee.gml, instant melee hit). Both states expect the
+    // exact same attackBuildingTarget contract, so this is the only line
+    // that changed in this order's onIssue.
     RegisterOrder(new Order(
         "attack",
         "Attack Building",
         function(_units, _context) {
             for (var i = 0; i < array_length(_units); i++) {
                 _units[i].attackBuildingTarget = _context;
-                _units[i].fsm.ChangeState("attack");
+                var _state = UnitHasTag(_units[i], "ranged") ? "attackRanged" : "attack";
+                _units[i].fsm.ChangeState(_state);
             }
         },
         true, // requiresTarget
@@ -68,15 +77,4 @@ function RegisterAllOrders() {
     // but it's an intentional no-op for now -- stationing units inside
     // castle walls depends on castle-interior placement, which isn't
     // built yet. Deliberately NOT using the default onIssue (which would
-    // call fsm.ChangeState("station") against a state that doesn't
-    // exist on any unit's StateMachine, spamming an "unregistered state"
-    // debug message on every click). Replace this stub once stationing
-    // is designed.
-    RegisterOrder(new Order("station", "Station", function(_units, _context) {
-        // Intentionally does nothing yet.
-    }));
-
-    // "combat" is intentionally NOT registered as a player-issuable
-    // order -- units enter it automatically (e.g. when attacked while
-    // guarding), it's not something a player should pick from a menu.
-}
+ 

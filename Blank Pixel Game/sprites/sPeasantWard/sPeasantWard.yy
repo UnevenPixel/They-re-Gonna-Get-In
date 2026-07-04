@@ -26,7 +26,7 @@
   "origin":4,
   "parent":{
     "name":"PeasantWard",
-    "path":"folders/In Game/Structures/Buildings/Training/PeasantWard.yy",
+    "path":"folders/In Game/Structures/Buildings/Training/Tier 1/PeasantWard.yy",
   },
   "preMultiplyAlpha":false,
   "resourceType":"GMSprite",
@@ -86,5 +86,4 @@
   },
   "type":0,
   "VTile":false,
-  "width":48,
-}
+  "width

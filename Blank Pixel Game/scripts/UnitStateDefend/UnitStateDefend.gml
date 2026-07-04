@@ -68,9 +68,22 @@ function Defend_Enter(_unit, _machine) {
 /// @description StateMachine onStep for "defend". Patrols the building's four
 ///        corner waypoints via Steering_Arrive, advancing to the next corner once
 ///        close enough. Falls back to "guard" if the building is destroyed mid-patrol.
+///        Proximity-aggro check runs first, every step -- same "combat" is
+///        an interim state defend pops into when it needs to fight pattern
+///        as Guard_Step; see UnitEnterCombat (UnitCombatHelpers.gml).
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Defend_Step(_unit, _machine) {
+    // -----------------------------------------------------------
+    // Proximity aggro -- highest priority, checked before anything else.
+    // -----------------------------------------------------------
+
+    var _enemy = ChooseCombatTarget(_unit, _unit.attackAggroRadius);
+    if (_enemy != noone) {
+        UnitEnterCombat(_unit, _enemy);
+        return;
+    }
+
     // Building could be destroyed mid-patrol -- bail out gracefully.
     if (!instance_exists(_unit.defendTarget)) {
         _machine.ChangeState("guard");
@@ -99,20 +112,4 @@ function Defend_Step(_unit, _machine) {
 
     var _delta = _unit.controller.Apply();
     with(_unit){
-        move_and_collide(_delta.x, _delta.y, [oBuildingParent, oEnvironmentSolid]);
-    }
-    _unit.agent.SyncFromInstance(_unit);
-
-    UnitUpdateSprite(_unit);
-}
-
-/// @function Defend_Exit(_unit, _machine)
-/// @description StateMachine onExit for "defend". Clears defendTarget so it
-///        doesn't linger if the unit re-enters a different defend assignment later.
-/// @param {Id.Instance} _unit
-/// @param {Struct.StateMachine} _machine
-function Defend_Exit(_unit, _machine) {
-    // Clear the stored waypoints and target so they don't linger if the
-    // unit re-enters a different defend assignment later.
-    _unit.defendTarget = noone;
-}
+        move_and_collide(_delta.x, _delta.y, [oBuildingParent

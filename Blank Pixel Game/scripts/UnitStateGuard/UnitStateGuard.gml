@@ -111,9 +111,24 @@ function Guard_Enter(_unit, _machine) {
 /// @description StateMachine onStep for "guard". Alternates between waiting at
 ///        the current waypoint (random dwell time) and steering toward it once a
 ///        new one is picked; releases the old waypoint claim when arriving.
+///        Proximity-aggro check runs first, every step: "combat" was
+///        designed as an interim state guard pops into when it needs to
+///        fight (see UnitEnterCombat, UnitCombatHelpers.gml) -- the other
+///        trigger, reactive-on-hit, lives in ApplyDamage instead, since it
+///        needs to fire the instant damage lands, not once per step.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Guard_Step(_unit, _machine) {
+    // -----------------------------------------------------------
+    // Proximity aggro -- highest priority, checked before anything else.
+    // -----------------------------------------------------------
+
+    var _enemy = ChooseCombatTarget(_unit, _unit.attackAggroRadius);
+    if (_enemy != noone) {
+        UnitEnterCombat(_unit, _enemy);
+        return;
+    }
+
     // -----------------------------------------------------------
     // Waiting at a waypoint
     // -----------------------------------------------------------
@@ -193,21 +208,4 @@ function Guard_Step(_unit, _machine) {
 /// @param {Struct.StateMachine} _machine
 function Guard_Draw(_unit,_machine){
     draw_set_valign(fa_bottom);
-    draw_set_halign(fa_center);
-    draw_set_alpha(1);
-    draw_set_color(c_white);
-    draw_text(_unit.x,_unit.y-32,"Waiting: " + string(_machine.data.waiting));
-    
-    draw_line(_unit.x,_unit.y,_machine.data.waypoint.x,_machine.data.waypoint.y)
-}
-
-/// @function Guard_Exit(_unit, _machine)
-/// @description StateMachine onExit for "guard". Releases the claimed waypoint so
-///        it's no longer counted as occupied for other units picking a position.
-/// @param {Id.Instance} _unit
-/// @param {Struct.StateMachine} _machine
-function Guard_Exit(_unit, _machine) {
-    // Release the claimed waypoint so it's no longer counted as
-    // occupied for other units picking their next position.
-    _unit.guardWaypointClaimed = undefined;
-}
+    draw_set_h

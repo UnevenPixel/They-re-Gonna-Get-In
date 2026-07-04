@@ -31,7 +31,7 @@
   "origin":9,
   "parent":{
     "name":"Peasant",
-    "path":"folders/In Game/Units/Peasant.yy",
+    "path":"folders/In Game/Units/Tier 1/Peasant.yy",
   },
   "preMultiplyAlpha":false,
   "resourceType":"GMSprite",
@@ -106,5 +106,4 @@
   },
   "type":0,
   "VTile":false,
-  "width":22,
-}
+  "width

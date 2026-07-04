@@ -36,6 +36,12 @@
 ///               designed yet -- no passive-ability system exists. Treat each
 ///               entry as inert data ({name, description}) until there's an
 ///               actual hook to call it; flag before building real logic on this.
+///        projectileObject  {Asset.GMObject} [optional, defaults to undefined]
+///               The projectile a ranged unit fires -- see SpawnProjectile
+///               (ProjectileScripts.gml), which reads this off the firing
+///               unit's UnitDefinition. Leave unset for melee units; a
+///               "ranged"-tagged unit with no projectileObject just logs and
+///               no-ops when it tries to fire (SpawnProjectile), it won't crash.
 function UnitDefinition(_data) constructor {
     name              = _data.name;
     description       = _data.description;
@@ -53,6 +59,7 @@ function UnitDefinition(_data) constructor {
     availableOrders   = _data.availableOrders;
     tags              = variable_struct_exists(_data, "tags")     ? _data.tags     : [];
     passives          = variable_struct_exists(_data, "passives") ? _data.passives : [];
+    projectileObject  = variable_struct_exists(_data, "projectileObject") ? _data.projectileObject : undefined;
 }
 
 // -----------------------------------------------------------
@@ -94,18 +101,52 @@ function UnitHasTag(_unit, _tag) {
     return (_def != undefined) && array_contains(_def.tags, _tag);
 }
 
-/// @function UnitCurrentHealth(_unit)
-/// @description Current health is deliberately NOT stored as its own field --
-///        it's derived from maxHealth minus unitData.damageTaken every time,
-///        so there's only one source of truth for "how hurt is this unit"
-///        (unitData.damageTaken) and nothing can drift out of sync with it.
-///        This is also exactly the value that survives a station/redeploy
-///        swap: unitData carries over, maxHealth comes back from the
-///        UnitDefinition looked up via unitData.unitType.
-/// @param {Id.Instance} _unit
+/// @function GetDamageTaken(_instance)
+/// @description Reads the current damageTaken value off any damageable
+///        instance -- a unit (stored at unitData.damageTaken, so it
+///        survives a station/redeploy swap) or a building (stored directly
+///        as damageTaken, oBuildingParent -- see BuildingApplyDefinition,
+///        BuildingDefinitions.gml -- buildings have no unitData/station
+///        concept, so there's nothing to nest it inside). Used by
+///        ApplyDamage/GetCurrentHealth so neither has to know which shape
+///        _instance is.
+/// @param {Id.Instance} _instance
 /// @returns {Real}
-function UnitCurrentHealth(_unit) {
-    return _unit.maxHealth - _unit.unitData.damageTaken;
+function GetDamageTaken(_instance) {
+    return variable_instance_exists(_instance, "unitData")
+        ? _instance.unitData.damageTaken
+        : _instance.damageTaken;
+}
+
+/// @function SetDamageTaken(_instance, _value)
+/// @description Writes damageTaken back onto _instance, unit or building --
+///        see GetDamageTaken for the shape this mirrors.
+/// @param {Id.Instance} _instance
+/// @param {Real} _value
+function SetDamageTaken(_instance, _value) {
+    if (variable_instance_exists(_instance, "unitData")) {
+        _instance.unitData.damageTaken = _value;
+    } else {
+        _instance.damageTaken = _value;
+    }
+}
+
+/// @function GetCurrentHealth(_instance)
+/// @description Current health is deliberately NOT stored as its own field --
+///        it's derived from maxHealth minus damageTaken every time (see
+///        GetDamageTaken), so there's only one source of truth for "how hurt
+///        is this thing" and nothing can drift out of sync with it. Works
+///        for both units (maxHealth comes from UnitDefinition, damageTaken
+///        survives a station/redeploy swap via unitData) and buildings
+///        (maxHealth comes from BuildingDefinition, damageTaken lives
+///        directly on the instance). Named generically (not
+///        UnitCurrentHealth) now that buildings use this too -- was
+///        UnitCurrentHealth, renamed when building HP was added; grep found
+///        exactly one caller (ApplyDamage) at rename time.
+/// @param {Id.Instance} _instance
+/// @returns {Real}
+function GetCurrentHealth(_instance) {
+    return _instance.maxHealth - GetDamageTaken(_instance);
 }
 
 /// @function UnitApplyDefinition(_unit)
@@ -136,48 +177,4 @@ function UnitApplyDefinition(_unit) {
     _unit.attackRange       = _def.attackRange;
     _unit.attackLeashRange  = _def.attackLeashRange;
     _unit.attackHitFrame    = _def.attackHitFrame;
-    _unit.attackCooldownMax = _def.attackCooldownMax;
-    _unit.attackAggroRadius = _def.attackAggroRadius;
-    _unit.siegeSweepRadius  = _def.siegeSweepRadius;
-
-    _unit.maxSpeed       = _def.maxSpeed; // flat copy, kept for parity -- nothing currently reads it, see note in oUnitParent/Create_0.gml
-    _unit.agent.maxSpeed = _def.maxSpeed; // the one steering behaviors actually use
-
-    _unit.sprIdle   = _def.sprites.idle;
-    _unit.sprWalk   = _def.sprites.walk;
-    _unit.sprAttack = _def.sprites.attack;
-
-    _unit.availableOrders = _def.availableOrders;
-}
-
-// -----------------------------------------------------------
-// Definition registration (call once, e.g. a game-start script) --
-// mirrors RegisterAllOrders() in OrderWiring.gml.
-// -----------------------------------------------------------
-
-/// @function RegisterAllUnitDefinitions()
-/// @description Registers every unit type's UnitDefinition. Call once at
-///        game start -- wired in alongside RegisterAllOrders(), both called
-///        from oGameControl's Create event (persistent, only placed in
-///        rmInit, so this always runs before any unit is created).
-function RegisterAllUnitDefinitions() {
-    // NOTE: cost/stat numbers below are placeholders, not balanced values --
-    // tune freely, nothing else depends on these specific numbers yet.
-    RegisterUnitDefinition(oPeasantUnit, new UnitDefinition({
-        name:              "Peasant",
-        description:       "A basic conscript. Cheap, unremarkable, expendable.",
-        cost:              new Cost([new ResourceCost("wheat", 10), new ResourceCost("coins", 5)]),
-        maxHealth:         20,
-        attackDamage:      3,
-        attackRange:       32,
-        attackLeashRange:  320,
-        attackHitFrame:    3,
-        attackCooldownMax: 60,
-        attackAggroRadius: 96,
-        siegeSweepRadius:  160,
-        maxSpeed:          1,
-        sprites:           new AnimationLibrary(sPeasantIdle, sPeasantWalk, sPeasantAttack),
-        availableOrders:   ["guard", "defend", "attack", "siege", "station"],
-        tags:              ["infantry", "melee", "cheap"],
-    }));
-}
+    _unit.atta

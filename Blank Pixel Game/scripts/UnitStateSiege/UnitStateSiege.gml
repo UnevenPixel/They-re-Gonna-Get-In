@@ -123,7 +123,7 @@ function Siege_Step(_unit, _machine) {
     if (_machine.data.phase == SIEGE_PHASE_ADVANCE) {
         _unit.sprite_index = _unit.sprIdle;
 
-        var _nearestGuard = _FindNearestEnemyInSweep(_unit, _castlePos, _unit.siegeSweepRadius);
+        var _nearestGuard = ChooseCombatTarget(_unit, _unit.siegeSweepRadius, _castlePos);
         if (_nearestGuard != noone) {
             _machine.data.guardTarget       = _nearestGuard;
             _machine.data.phase             = SIEGE_PHASE_ENGAGE_GUARD;
@@ -154,7 +154,7 @@ function Siege_Step(_unit, _machine) {
         if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer -= global.matchSpeed;
 
         // Reactive defender check at a tighter radius while assaulting.
-        var _nearestGuard = _FindNearestEnemyInSweep(_unit, _castlePos, _unit.attackAggroRadius ?? 96);
+        var _nearestGuard = ChooseCombatTarget(_unit, _unit.attackAggroRadius ?? 96, _castlePos);
         if (_nearestGuard != noone) {
             _machine.data.guardTarget       = _nearestGuard;
             _machine.data.phase             = SIEGE_PHASE_ENGAGE_GUARD;
@@ -199,7 +199,7 @@ function Siege_Step(_unit, _machine) {
         // Keep checking for guards during cooldown -- a fresh wave of
         // defenders arriving during recovery should be engaged before
         // the next swing rather than letting them pile up.
-        var _nearestGuard = _FindNearestEnemyInSweep(_unit, _castlePos, _unit.attackAggroRadius ?? 96);
+        var _nearestGuard = ChooseCombatTarget(_unit, _unit.attackAggroRadius ?? 96, _castlePos);
         if (_nearestGuard != noone) {
             _machine.data.guardTarget       = _nearestGuard;
             _machine.data.phase             = SIEGE_PHASE_ENGAGE_GUARD;
@@ -228,3 +228,4 @@ function Siege_Exit(_unit, _machine) {
     UnitEndSwing(_unit, _machine);
     _machine.data.guardTarget = noone;
 }
+                  

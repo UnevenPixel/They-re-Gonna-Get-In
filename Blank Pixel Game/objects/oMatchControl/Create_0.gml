@@ -38,33 +38,4 @@ global.blueprints = [[], []];
 global.armyLimit = [6, 6];
 
 // STARTING RESOURCES -- confirmed loadout (per econ clarification,
-// 2026-07-03): every SIDE starts each match with 50 wood, 50 water, 50
-// iron, 50 gold, 50 wheat -- applied symmetrically to both teams, since
-// the AI opponent now needs the same economy as the player to actually
-// build/train (see AI_TryPlaceBlueprints/AI_TryTrainAtAllBuildings,
-// AIControl.gml). Everything else (meat/bones/coal/weapons/coins)
-// intentionally stays at 0 -- coins isn't part of the starting loadout, so
-// note that the Wheat Field blueprint below (15 wood + 10 coins) can't
-// actually be placed by either side until coins comes from somewhere (a
-// real acquisition/trading system isn't built yet); the Peasant Ward
-// blueprint (40 wheat + 40 water) is unaffected and fully testable.
-for (var i = 0; i < 2; i++) {
-    global.resources[i].wood  = 50;
-    global.resources[i].water = 50;
-    global.resources[i].iron  = 50;
-    global.resources[i].gold  = 50;
-    global.resources[i].wheat = 50;
-}
-
-// TEST DATA: a few Wheat Field / Peasant Ward blueprints per side so the
-// drag-to-place (player) and AI-placement (AI_TryPlaceBlueprints) flows
-// are both testable end-to-end before a real blueprint-acquisition
-// system exists. Remove/replace once that system is designed.
-AddBlueprint(TEAM.PLAYER, oWheatField, 3);
-AddBlueprint(TEAM.PLAYER, oPeasantWard, 1);
-AddBlueprint(TEAM.ENEMY, oWheatField, 3);
-AddBlueprint(TEAM.ENEMY, oPeasantWard, 1);
-
-// Resets this match's local playtest-analytics counters -- see
-// AnalyticsScripts.gml.
-AnalyticsInit();
+// 2026-07-03): every SIDE starts each match with

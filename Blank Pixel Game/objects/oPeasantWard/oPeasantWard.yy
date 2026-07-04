@@ -9,7 +9,7 @@
   "overriddenProperties":[],
   "parent":{
     "name":"PeasantWard",
-    "path":"folders/In Game/Structures/Buildings/Training/PeasantWard.yy",
+    "path":"folders/In Game/Structures/Buildings/Training/Tier 1/PeasantWard.yy",
   },
   "parentObjectId":{
     "name":"oTrainingBuildingParent",
@@ -40,5 +40,4 @@
     "name":"sBuildingMask",
     "path":"sprites/sBuildingMask/sBuildingMask.yy",
   },
-  "visible":true,
-}
+  "visible":t

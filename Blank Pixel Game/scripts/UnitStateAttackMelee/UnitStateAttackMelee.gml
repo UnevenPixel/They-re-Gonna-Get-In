@@ -140,7 +140,7 @@ function Attack_Step(_unit, _machine) {
     // -----------------------------------------------------------
 
     if (_machine.data.phase != ATTACK_PHASE_SWING) {
-        var _defender = _FindNearestEnemy(_unit, _unit.attackAggroRadius);
+        var _defender = ChooseCombatTarget(_unit, _unit.attackAggroRadius);
         if (_defender != noone) {
             _machine.data.defenderTarget    = _defender;
             _machine.data.phase             = ATTACK_PHASE_DEFENDER;
@@ -214,4 +214,4 @@ function Attack_Exit(_unit, _machine) {
     UnitEndSwing(_unit, _machine);
     _unit.attackBuildingTarget = noone;
     _machine.data.defenderTarget = noone;
-}
+}

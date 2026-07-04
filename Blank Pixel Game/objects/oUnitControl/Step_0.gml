@@ -41,20 +41,4 @@ if (selectionController.isTargeting) {
         // blueprint drag instead of a unit-selection box -- only one of
         // the two should ever start from the same press.
         } else if (!blueprintController.TryBeginDrag()) {
-            selectionController.BeginDrag();
-        }
-    }
-    if (mouse_check_button_released(mb_left)) {
-        selectionController.EndDrag(keyboard_check(vk_shift));
-    }
-
-    if (mouse_check_button_pressed(mb_right) && array_length(selectionController.selected) > 0 && !orderMenu.isOpen) {
-        var _orders = selectionController.AvailableOrders();
-        orderMenu.Open(device_mouse_x_to_gui(0), device_mouse_y_to_gui(0), _orders);
-    }
-}
-
-// Edge-of-screen camera panning -- independent of selection/order/targeting
-// state above, so the player can still scroll the view while dragging a
-// selection box, mid-order-menu, etc.
-UpdateCameraPan();
+            selectionC
