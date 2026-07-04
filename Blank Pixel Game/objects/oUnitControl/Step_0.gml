@@ -13,13 +13,36 @@ if (_clickedOrder != undefined) {
     // if the order has requiresTarget = true.
 }
 
-// While in targeting mode, drag-box selection and normal left-click
-// are suspended -- UpdateTargeting() consumes the click instead.
+// While in targeting mode, drag-box selection and normal left-click are
+// suspended -- UpdateTargeting() consumes the click instead. A blueprint
+// drag suspends the same things for the same reason, and takes priority
+// over starting a new selection box (see the final else branch below).
 if (selectionController.isTargeting) {
     selectionController.UpdateTargeting();
+} else if (blueprintController.dragging) {
+    if (mouse_check_button_released(mb_left)) {
+        blueprintController.EndDrag();
+    }
+    if (mouse_check_button_pressed(mb_right)) {
+        blueprintController.CancelDrag();
+    }
 } else {
     if (mouse_check_button_pressed(mb_left)) {
-        selectionController.BeginDrag();
+        // A press that lands on a friendly training building queues one
+        // unit instead of starting a selection box or a blueprint drag --
+        // checked first since it's a room-space instance click (blueprint
+        // slots are GUI-space, so there's no overlap either way, but
+        // logically "click a building I own" should win over "start
+        // dragging a selection box under it").
+        var _trainingBuilding = instance_position(mouse_x, mouse_y, oTrainingBuildingParent);
+        if (_trainingBuilding != noone && _trainingBuilding.team == TEAM.PLAYER) {
+            TrainingTryQueueUnit(_trainingBuilding);
+        // A press that lands on a filled blueprint slot starts a
+        // blueprint drag instead of a unit-selection box -- only one of
+        // the two should ever start from the same press.
+        } else if (!blueprintController.TryBeginDrag()) {
+            selectionController.BeginDrag();
+        }
     }
     if (mouse_check_button_released(mb_left)) {
         selectionController.EndDrag(keyboard_check(vk_shift));
@@ -30,3 +53,8 @@ if (selectionController.isTargeting) {
         orderMenu.Open(device_mouse_x_to_gui(0), device_mouse_y_to_gui(0), _orders);
     }
 }
+
+// Edge-of-screen camera panning -- independent of selection/order/targeting
+// state above, so the player can still scroll the view while dragging a
+// selection box, mid-order-menu, etc.
+UpdateCameraPan();

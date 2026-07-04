@@ -10,7 +10,7 @@
 function UnitTryDealDamage(_unit, _target, _machine) {
     if (_machine.data.hitDealtThisSwing) return false;
 
-    var _currentFrame = floor(image_index);
+    var _currentFrame = floor(_unit.image_index);
     if (_currentFrame < _unit.attackHitFrame) return false;
 
     _machine.data.hitDealtThisSwing = true;
@@ -40,7 +40,7 @@ function UnitTryDealDamage(_unit, _target, _machine) {
 /// @param {Id.Instance} _unit
 /// @returns {Bool}
 function UnitAttackAnimComplete(_unit) {
-    return image_index >= sprite_get_number(_unit.sprAttack) - 1;
+    return _unit.image_index >= sprite_get_number(_unit.sprAttack) - 1;
 }
 
 /// @function UnitPursueTarget(_unit, _targetPos, _targetVelocity)
@@ -99,9 +99,9 @@ function UnitIdleInPlace(_unit) {
 /// @param {Struct}      _machine
 function UnitBeginSwing(_unit, _machine) {
     _machine.data.hitDealtThisSwing = false;
-    sprite_index = _unit.sprAttack;
-    image_index  = 0;
-    image_speed  = 1;
+    _unit.sprite_index = _unit.sprAttack;
+    _unit.image_index  = 0;
+    _unit.image_speed  = global.matchSpeed;
     // Do NOT touch image_xscale here -- the unit should keep facing
     // the direction it was already facing when the swing started.
 }
@@ -112,8 +112,8 @@ function UnitBeginSwing(_unit, _machine) {
 /// @param {Id.Instance} _unit
 /// @param {Struct}      _machine
 function UnitEndSwing(_unit, _machine) {
-    sprite_index = _unit.sprIdle;
-    image_index  = 0;
-    image_speed  = 1;
+    _unit.sprite_index = _unit.sprIdle;
+    _unit.image_index  = 0;
+    _unit.image_speed  = global.matchSpeed;
     _unit.attackCooldown = max(_machine.data.cooldownTimer, 0);
 }

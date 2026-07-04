@@ -44,9 +44,9 @@ function Attack_Enter(_unit, _machine) {
     _machine.data.cooldownTimer     = _unit.attackCooldown;
     _machine.data.defenderTarget    = noone;
 
-    sprite_index = _unit.sprIdle;
-    image_index  = 0;
-    image_speed  = 1;
+    _unit.sprite_index = _unit.sprIdle;
+    _unit.image_index  = 0;
+    _unit.image_speed  = global.matchSpeed;
 }
 
 /// @function Attack_Step(_unit, _machine)
@@ -105,14 +105,14 @@ function Attack_Step(_unit, _machine) {
         // logic as the combat state, but driven from inside attack's
         // DEFENDER phase rather than a separate FSM state, so the
         // building target is preserved throughout.
-        if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer--;
+        if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer -= global.matchSpeed;
 
         if (_defDist > _unit.attackRange) {
-            sprite_index = _unit.sprIdle;
+            _unit.sprite_index = _unit.sprIdle;
             UnitPursueTarget(_unit, _defPos, _def.agent.velocity);
         } else if (_machine.data.cooldownTimer <= 0) {
             // In range and ready to swing.
-            if (sprite_index != _unit.sprAttack) {
+            if (_unit.sprite_index != _unit.sprAttack) {
                 UnitBeginSwing(_unit, _machine);
             }
 
@@ -145,7 +145,7 @@ function Attack_Step(_unit, _machine) {
             _machine.data.defenderTarget    = _defender;
             _machine.data.phase             = ATTACK_PHASE_DEFENDER;
             _machine.data.hitDealtThisSwing = false;
-            sprite_index = _unit.sprIdle;
+            _unit.sprite_index = _unit.sprIdle;
             return;
         }
     }
@@ -155,13 +155,13 @@ function Attack_Step(_unit, _machine) {
     // -----------------------------------------------------------
 
     if (_machine.data.phase == ATTACK_PHASE_APPROACH) {
-        sprite_index = _unit.sprIdle;
+        _unit.sprite_index = _unit.sprIdle;
 
         // Seek the nearest edge point rather than the center, so
         // the unit's attack range triggers at the building's surface.
         UnitPursueTarget(_unit, _edgePos, new Vector2(0, 0));
 
-        if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer--;
+        if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer -= global.matchSpeed;
 
         if (_distToEdge <= _unit.attackRange && _machine.data.cooldownTimer <= 0) {
             _machine.data.phase = ATTACK_PHASE_SWING;
@@ -189,7 +189,7 @@ function Attack_Step(_unit, _machine) {
     // -----------------------------------------------------------
 
     else if (_machine.data.phase == ATTACK_PHASE_RECOVER) {
-        _machine.data.cooldownTimer--;
+        _machine.data.cooldownTimer -= global.matchSpeed;
 
         // Hug the building edge during recovery so the unit is
         // already in position when the cooldown expires.

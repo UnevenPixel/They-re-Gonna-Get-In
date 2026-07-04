@@ -4,6 +4,17 @@ pos = new Vector2(x,y);
 team = TEAM.PLAYER;
 wanderWait = true;
 
+// HAZARD for any future spawn path that creates a unit then overrides
+// `team` afterward (e.g. TrainingSpawnUnit in TrainingScripts.gml, and
+// eventually whatever redeploys a stationed unit back out through the
+// castle gate): guardRect below is derived from `team` AT THIS MOMENT,
+// which is always the TEAM.PLAYER default the instant Create runs --
+// instance_create_layer() runs Create synchronously, before the caller
+// gets a chance to set team to anything else. If you override team after
+// creation, also recompute `guardRect = GetTeamGuardRect(team);`
+// afterward (see TrainingSpawnUnit for the pattern), and make sure
+// nothing team-dependent (a guard waypoint, a patrol side) gets picked
+// before that correction lands.
 guardRect = GetTeamGuardRect(team); // mirrored per-team -- see GetTeamGuardRect in UnitScripts.gml
 target = noone;
 
@@ -30,8 +41,13 @@ attackCooldown    = 0;
 //Attacking Buildings
 attackBuildingTarget = noone;
 
-//Guard
-guardWaypointClaimed = undefined;
+// guardWaypointClaimed is intentionally NOT initialized here -- Guard_Enter
+// (UnitStateGuard.gml) already sets it the moment fsm.ChangeState("guard")
+// runs above, and Guard_Step/Guard_Exit own it from there. A stray
+// `guardWaypointClaimed = undefined;` used to sit here and clobber that
+// value right after Guard_Enter set it, which is what caused a real crash
+// (a sibling unit's clobbered `undefined` claim got read as a Vector2 by
+// another unit's GuardPickWaypoint). Don't re-add an assignment here.
 
 // Resolves this unit's UnitDefinition (keyed by object_index, so this
 // correctly picks up oPeasantUnit/etc. even though it's running as

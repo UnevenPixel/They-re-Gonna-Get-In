@@ -35,12 +35,15 @@ function UnitDataBlock() constructor{
                                  // from flickering the unit's facing direction.
 
 /// @function UnitUpdateSprite(_unit)
-/// Updates sprite_index (idle vs walk) and image_xscale (facing)
-/// for the calling instance based on its agent's current velocity.
-/// Must be called from instance scope.
+/// Updates sprite_index (idle vs walk), image_xscale (facing), and
+/// image_speed (match-speed-scaled) for the calling instance based on its
+/// agent's current velocity. Must be called from instance scope.
 ///
 /// Rules:
-///   - Never interrupts an in-progress attack animation.
+///   - Never interrupts an in-progress attack animation's sprite_index --
+///     but image_speed still gets refreshed even then (see below), so a
+///     mid-swing pause/speed-change is still honored every frame rather
+///     than only at the moment the swing began (UnitBeginSwing).
 ///   - image_xscale only updates above UNIT_FACE_THRESHOLD so facing
 ///     locks in during deceleration and doesn't flicker as the unit
 ///     comes to a stop.
@@ -49,6 +52,13 @@ function UnitDataBlock() constructor{
 ///
 /// @param {Id.Instance} _unit
 function UnitUpdateSprite(_unit) {
+    // Every state's Step routes through here (directly or via
+    // UnitPursueTarget/UnitIdleInPlace) every frame, including mid-swing,
+    // so this is the one place that needs to track global.matchSpeed for
+    // ALL of a unit's animation (idle/walk/attack alike) to correctly
+    // freeze at 0x and speed up/down at 1x/2x/3x.
+    _unit.image_speed = global.matchSpeed;
+
     if (_unit.sprite_index == _unit.sprAttack) return;
 
     var _vel   = _unit.agent.velocity;

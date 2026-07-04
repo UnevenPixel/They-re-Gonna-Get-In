@@ -12,9 +12,9 @@ function Combat_Enter(_unit, _machine) {
     _machine.data.hitDealtThisSwing = false;
     _machine.data.cooldownTimer     = _unit.attackCooldown;
 
-    sprite_index = _unit.sprIdle;
-    image_index  = 0;
-    image_speed  = 1;
+    _unit.sprite_index = _unit.sprIdle;
+    _unit.image_index  = 0;
+    _unit.image_speed  = global.matchSpeed;
 }
 
 /// @function Combat_Step(_unit, _machine)
@@ -52,10 +52,10 @@ function Combat_Step(_unit, _machine) {
     // -----------------------------------------------------------
 
     if (_machine.data.phase == COMBAT_PHASE_PURSUE) {
-        sprite_index = _unit.sprIdle;
+        _unit.sprite_index = _unit.sprIdle;
         UnitPursueTarget(_unit, _targetPos, _unit.combatTarget.agent.velocity);
 
-        if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer--;
+        if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer -= global.matchSpeed;
 
         if (_dist <= _unit.attackRange && _machine.data.cooldownTimer <= 0) {
             _machine.data.phase = COMBAT_PHASE_ATTACK;
@@ -83,7 +83,7 @@ function Combat_Step(_unit, _machine) {
     // -----------------------------------------------------------
 
     else if (_machine.data.phase == COMBAT_PHASE_RECOVER) {
-        _machine.data.cooldownTimer--;
+        _machine.data.cooldownTimer -= global.matchSpeed;
 
         if (_dist > _unit.attackRange) {
             UnitPursueTarget(_unit, _targetPos, _unit.combatTarget.agent.velocity);

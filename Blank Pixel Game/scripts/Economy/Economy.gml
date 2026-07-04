@@ -103,6 +103,7 @@ function Purchase(_costStruct,_team){
             var _resAmt = struct_get(global.resources[_team],_res);
             var _costAmt = struct_get(self,_res);
             struct_set(global.resources[_team],_res,_resAmt - _costAmt);
+            if (_costAmt > 0) AnalyticsRecordResourceSpent(_team, _res, _costAmt);
         }
         return true;
     }

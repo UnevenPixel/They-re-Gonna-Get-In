@@ -19,8 +19,9 @@ function Vector2(_x = 0, _y = 0) constructor {
     }
 
     /// @function Set(_x, _y)
-    /// @param {Real} _x
-    /// @param {Real} _y
+    /// @param {Real|Struct.Vector2} _x A real x value, or a Vector2 to copy
+    ///        x/y from -- if a Vector2 is passed, _y is ignored entirely.
+    /// @param {Real} [_y] Ignored when _x is a Vector2.
     /// @returns {Struct.Vector2} self
     static Set = function(_x, _y) {
         x = is_struct(_x) ? _x.x : _x;   // is_struct(_x) is true → reads _x.x, never touches _y

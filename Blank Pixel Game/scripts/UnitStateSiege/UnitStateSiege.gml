@@ -28,9 +28,9 @@ function Siege_Enter(_unit, _machine) {
     _machine.data.hitDealtThisSwing = false;
     _machine.data.cooldownTimer     = _unit.attackCooldown;
 
-    sprite_index = _unit.sprIdle;
-    image_index  = 0;
-    image_speed  = 1;
+    _unit.sprite_index = _unit.sprIdle;
+    _unit.image_index  = 0;
+    _unit.image_speed  = global.matchSpeed;
 }
 
 /// @function Siege_Step(_unit, _machine)
@@ -90,13 +90,13 @@ function Siege_Step(_unit, _machine) {
             return;
         }
 
-        if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer--;
+        if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer -= global.matchSpeed;
 
         if (_guardDist > _unit.attackRange) {
-            sprite_index = _unit.sprIdle;
+            _unit.sprite_index = _unit.sprIdle;
             UnitPursueTarget(_unit, _guardPos, _guard.agent.velocity);
         } else if (_machine.data.cooldownTimer <= 0) {
-            if (sprite_index != _unit.sprAttack) {
+            if (_unit.sprite_index != _unit.sprAttack) {
                 UnitBeginSwing(_unit, _machine);
             }
             UnitIdleInPlace(_unit);
@@ -121,7 +121,7 @@ function Siege_Step(_unit, _machine) {
     // -----------------------------------------------------------
 
     if (_machine.data.phase == SIEGE_PHASE_ADVANCE) {
-        sprite_index = _unit.sprIdle;
+        _unit.sprite_index = _unit.sprIdle;
 
         var _nearestGuard = _FindNearestEnemyInSweep(_unit, _castlePos, _unit.siegeSweepRadius);
         if (_nearestGuard != noone) {
@@ -131,7 +131,7 @@ function Siege_Step(_unit, _machine) {
             return;
         }
 
-        if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer--;
+        if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer -= global.matchSpeed;
 
         UnitPursueTarget(_unit, _edgePos, new Vector2(0, 0));
 
@@ -149,9 +149,9 @@ function Siege_Step(_unit, _machine) {
     // -----------------------------------------------------------
 
     else if (_machine.data.phase == SIEGE_PHASE_ASSAULT) {
-        sprite_index = _unit.sprIdle;
+        _unit.sprite_index = _unit.sprIdle;
 
-        if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer--;
+        if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer -= global.matchSpeed;
 
         // Reactive defender check at a tighter radius while assaulting.
         var _nearestGuard = _FindNearestEnemyInSweep(_unit, _castlePos, _unit.attackAggroRadius ?? 96);
@@ -194,7 +194,7 @@ function Siege_Step(_unit, _machine) {
     // -----------------------------------------------------------
 
     else if (_machine.data.phase == SIEGE_PHASE_RECOVER) {
-        _machine.data.cooldownTimer--;
+        _machine.data.cooldownTimer -= global.matchSpeed;
 
         // Keep checking for guards during cooldown -- a fresh wave of
         // defenders arriving during recovery should be engaged before

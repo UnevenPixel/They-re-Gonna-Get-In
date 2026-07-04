@@ -37,8 +37,18 @@ function GuardPickWaypoint(_unit, _rect) {
     for (var i = 0; i < _count; i++) {
         var _other = _list[| i];
         if (_other == _unit) continue;
+        // Room-start instance-creation-order hazard: all room-placed instances
+        // exist before any of their Create events run, so a sibling found here
+        // may not have reached `team = TEAM.PLAYER/ENEMY;` in its own Create yet.
+        // Treat it as "not a valid ally to check" rather than crash.
+        if (!variable_instance_exists(_other, "team")) continue;
         if (_other.team != _unit.team) continue;
         if (!variable_instance_exists(_other, "guardWaypointClaimed")) continue;
+        // Defensive: guardWaypointClaimed can legitimately be `undefined`
+        // between a unit's own Create running and Guard_Enter assigning it
+        // a real Vector2. Skip anything that isn't an actual struct rather
+        // than trusting the value blindly.
+        if (!is_struct(_other.guardWaypointClaimed)) continue;
         array_push(_claimed, _other.guardWaypointClaimed);
     }
     ds_list_destroy(_list);
@@ -109,7 +119,7 @@ function Guard_Step(_unit, _machine) {
     // -----------------------------------------------------------
 
     if (_machine.data.waiting) {
-        _machine.data.waitTimer--;
+        _machine.data.waitTimer -= global.matchSpeed; // 0 at matchSpeed 0 -- wait freezes instead of ticking down during a pause
 
         // Stand still while waiting -- UnitIdleInPlace still applies
         // knockback and collision so the unit isn't frozen solid if hit.

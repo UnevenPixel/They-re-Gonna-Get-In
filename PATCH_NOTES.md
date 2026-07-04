@@ -1,5 +1,37 @@
 # Patch Notes
 
+## v0.0.2.8 — 2026-07-03 (uncommitted — working tree only, not yet committed)
+
+Base-building economy loop: drag-to-place buildings, resource production, unit training with dual caps, edge-pan camera, local playtest analytics, and a Steamworks SDK integration scaffold. Also carries the fixes from the 2026-07-01 code review, which were made same-day but hadn't been written up yet.
+
+### Added
+
+- **Blueprint system** (`scripts/BlueprintScripts.gml`). `BlueprintStack`/`AddBlueprint`/`RemoveBlueprintOne` manage a per-team placeable-building inventory (`global.blueprints`, initialized `[[], []]` in `oMatchControl/Create_0.gml` — deliberately not `array_create(2, [])`, same shared-reference hazard `global.resources` had, see Fixed below). `BlueprintController` is the drag-to-place UI: a paginated 5x2 GUI-space grid, wired into `oUnitControl` (`Create_0`/`Step_0`/`Draw_64`) alongside `selectionController`/`orderMenu`. Dragging a filled slot onto an owned, unblocked `oBuildingPlot` checks affordability, purchases the cost, spawns the building, and consumes one blueprint.
+- **`BuildingDefinition` system** (`scripts/BuildingDefinitions.gml`) — static per-building-type data (name, description, cost, sprite, optional resource production, optional unit training), registered per object type via `RegisterAllBuildingDefinitions()` (called from `oGameControl`'s Create, alongside `RegisterAllUnitDefinitions()`). Mirrors `UnitDefinition`'s registry pattern. `BuildingApplyDefinition(_building)` applies production/training fields onto an instance at Create time.
+- **Resource production** — `oResourceBuildingParent` (new parent) and `oWheatField` (first resource building). `BuildingUpdateProduction()` is a frame-rate-independent, match-speed-scaled tick using a fractional accumulator (so partial progress isn't lost or double-counted across frames), ticked from `oResourceBuildingParent/Step_0.gml`. Calls the existing `PlayResourceProducedEffect` stub once per whole unit produced.
+- **Unit training** — `oTrainingBuildingParent` (new parent) and `oPeasantWard` (first training building). `scripts/TrainingScripts.gml` enforces two independent caps before queueing a unit: a per-type cap (`TrainingTypeLimit` — sum of `unitsPerBuilding` across a team's live training buildings of that type) and an army-wide cap (`global.armyLimit`, `[6, 6]` starting value). Both caps count existing units *and* everything queued across every training building the team owns. Clicking an owned training building (`oUnitControl/Step_0.gml`, via `instance_position`) calls `TrainingTryQueueUnit`; `TrainingUpdateQueue` (ticked from `oTrainingBuildingParent/Step_0.gml`) is duration-based (not rate-based) and spawns via `TrainingSpawnUnit`, which overrides the spawned unit's team (same pattern `BlueprintController.EndDrag` uses for buildings) and re-derives `guardRect` for the correct team before sending the unit into `"defend"`, patrolling the building that trained it.
+- **`UpdateCameraPan()`** (`scripts/CameraScripts.gml`) — edge-of-screen camera panning on view camera 0, ramping linearly with cursor proximity to the screen edge, clamped to room bounds. Called once per Step from `oUnitControl`.
+- **Local playtest analytics** (`scripts/AnalyticsScripts.gml`) — per-team (`global.analytics[TEAM.PLAYER/ENEMY]`) counters for units trained, buildings built, resource produced/spent, and match time, reset each match via `AnalyticsInit()` (`oMatchControl`'s Create). Wired into `TrainingSpawnUnit`, `BlueprintController.EndDrag`, `BuildingUpdateProduction`, `Purchase` (`Economy.gml`), and `oMatchControl/Step_0.gml`. Steam Stats API calls (`steam_set_stat_int`) are written but left commented out — the stat names don't exist on the Steamworks control panel yet. `AnalyticsRecordKill`/`AnalyticsRecordDeath` exist but aren't wired to anything yet — there's still no "unit died" event.
+- **Steamworks SDK extension** (`extensions/Steamworks/`, `scripts/Steamworks_Definitions.gml`) integrated. `global.isGameRestarting` flag added (`oGameControl`'s Create) — needs to be set `true` immediately before any future `game_restart()` call so `steam_shutdown()` is correctly skipped on restart, then reset to `false` right after.
+- A generic GameMaker UI widget starter kit (`obj_gm_button`, `obj_gm_text`, `obj_gm_textbox` + matching sprites/fonts) was imported alongside the Steamworks asset package. Not yet wired into any room or gameplay object — sitting unused for now.
+- Starting resources for `TEAM.PLAYER`: 50 wood/water/iron/gold/wheat (`oMatchControl/Create_0.gml`). A few Wheat Field and Peasant Ward blueprints are granted as test data so the new flows are testable end-to-end before a real blueprint-acquisition system exists.
+- Windows build version bumped to `0.0.2.8`.
+
+### Fixed (made 2026-07-01, written up now)
+
+- **`global.resources` array-sharing bug.** `oMatchControl/Create_0.gml` now builds `global.resources` via `array_create(2, undefined)` followed by a loop assigning a fresh struct literal per team, instead of `array_create(2, {...})`, which evaluated the struct literal once and gave both teams the same reference.
+- **Attack/Combat/Siege sprite-state self-rebinding bug.** `sprite_index`/`image_index`/`image_speed` writes in `UnitStateAttackMelee.gml`, `UnitStateCombat.gml`, `UnitStateSiege.gml`, and `UnitCombatHelpers.gml` now go through `_unit.` explicitly instead of bare variables, so they land on the real unit instance instead of the scratch `State` struct.
+- **`oBuildingPlot`'s `team` Object Property** changed from String (default `"player"`) to Integer (default `0` / `TEAM.PLAYER`), matching how `team` is used as the `TEAM` enum everywhere else.
+- Typo fix in the pre-alpha disclaimer text (`oAlphaDisclaimer`): "encoutner" → "encounter".
+
+### Known issues (new or still open)
+
+- `objects/oUnitParent/Draw_0.gml` still has `if mask_index = sM_UnitMask{` (`=` instead of `==`) — legal GML, functionally fine, still not normalized after being flagged twice now.
+- The Wheat Field's placement cost (15 wood + 10 coins) can't actually be paid yet — coins isn't part of the starting loadout and there's no acquisition/trading system to earn it. The Peasant Ward is unaffected and fully testable.
+- The new `obj_gm_button`/`obj_gm_text`/`obj_gm_textbox` widget kit is imported but unused.
+- `AnalyticsRecordKill`/`AnalyticsRecordDeath` have no death event to call them from yet (same root cause as `UnitTryDealDamage`'s open damage-calc TODO).
+- **This entire entry describes uncommitted working-tree changes** — nothing above has been committed to git yet (last commit: `5012d06`). Recommend committing before doing anything that could touch the working tree.
+
 ## v0.0.2.0 — 2026-07-01
 
 Base-building foundations: unit type data, castle building plots (both sides), and team-symmetric guard zones.

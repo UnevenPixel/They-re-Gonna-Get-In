@@ -114,6 +114,14 @@ function SteeringController(_agent) constructor {
     /// methods can't call move_and_collide themselves -- it reads/writes
     /// the CALLING INSTANCE's x/y and mask, and `self` inside a struct
     /// method is the struct, not an instance.)
+    ///
+    /// Scaled by global.matchSpeed at the very end, deliberately after
+    /// agent.velocity is integrated/clamped -- agent.velocity itself always
+    /// represents "speed at 1x", so everything that reads it elsewhere
+    /// (Speed(), Heading(), UnitUpdateSprite's walk/idle thresholds,
+    /// Steering_AvoidObstacles' feeler-length scaling) stays internally
+    /// consistent no matter the match speed. Only the actual pixel
+    /// displacement returned here speeds up/slows down/freezes.
     /// @returns {Struct.Vector2} The delta to pass into move_and_collide().
     static Apply = function() {
         // Scale down (not zero) normal steering while staggered, so a hit
@@ -133,11 +141,16 @@ function SteeringController(_agent) constructor {
 
         // Total delta this frame: normal movement + knockback. Knockback
         // bypasses maxSpeed on purpose -- a hit should be able to move a
-        // unit faster than its own legs can.
-        var _delta = agent.velocity.GetAdd(agent.knockback);
+        // unit faster than its own legs can. global.matchSpeed == 0 makes
+        // this (0,0) -- a full movement freeze, exactly what pausing needs.
+        var _delta = agent.velocity.GetAdd(agent.knockback).Scale(global.matchSpeed);
 
-        // Decay knockback for next frame.
-        agent.knockback.Scale(agent.knockbackFriction);
+        // Decay knockback for next frame -- power(friction, matchSpeed)
+        // rather than a flat multiply, so decay speeds up/slows down with
+        // match speed the same as everything else (friction^1 == today's
+        // behavior at 1x; friction^0 == 1, i.e. no decay at all while
+        // paused, instead of quietly bleeding off knockback during a pause).
+        agent.knockback.Scale(power(agent.knockbackFriction, global.matchSpeed));
         if (agent.knockback.LengthSquared() < 0.0001) {
             agent.knockback.Set(0, 0);
         }
