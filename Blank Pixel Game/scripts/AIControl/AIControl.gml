@@ -56,4 +56,95 @@ function AIBrain(_team) constructor {
 ///        building/training/massing on the same cadence.
 /// @param {Struct.AIBrain} _brain
 /// @param {Struct.StateMachine} _machine
-function AI_BuildUp_Step(_brain, _ma
+function AI_BuildUp_Step(_brain, _machine) {
+    AI_TryPlaceBlueprints(_brain.team);
+    AI_TryTrainAtAllBuildings(_brain.team);
+
+    var _units = GatherTeamUnits(_brain.team);
+    var _idle  = [];
+
+    for (var i = 0; i < array_length(_units); i++) {
+        var _u = _units[i];
+        if (_u.fsm.Is("guard")) {
+            array_push(_idle, _u);
+        }
+    }
+
+    if (array_length(_idle) >= AI_ATTACK_GROUP_SIZE) {
+        IssueOrderToUnits("siege", _idle);
+    }
+}
+
+// -----------------------------------------------------------
+// AI economy -- building placement + training. Both are deliberately
+// greedy/simple (no build-order priority, no plot-category preference):
+// spend whatever's affordable, train at every owned training building,
+// every think tick. Reuses the exact same underlying functions the
+// player's UI calls (TryPlaceBlueprint, TrainingTryQueueUnit) so AI-built
+// structures and AI-trained units go through identical cost/limit/
+// analytics handling as the player's.
+// -----------------------------------------------------------
+
+/// @function AI_FindEmptyOwnedPlot(_team)
+/// @description First unblocked oBuildingPlot belonging to _team, or
+///        noone. No inside/outside preference -- oOuterPlotSpawner's
+///        header comment describes an intended future placement bonus
+///        split (resource buildings outside, training buildings inside),
+///        but no such bonus system exists yet to make that choice matter,
+///        so this just grabs whichever empty owned plot it finds first.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Id.Instance|Constant.NoOne}
+function AI_FindEmptyOwnedPlot(_team) {
+    var _found = noone;
+    with (oBuildingPlot) {
+        if (team == _team && !blocked) {
+            _found = id;
+            break;
+        }
+    }
+    return _found;
+}
+
+/// @function AI_TryPlaceBlueprints(_team)
+/// @description Attempts to place every currently-affordable blueprint
+///        _team owns onto any empty plot it owns, via TryPlaceBlueprint
+///        (BlueprintScripts.gml) -- the same placement logic
+///        BlueprintController.EndDrag uses for the player's mouse-drag
+///        flow, just called directly with a plot the AI picked itself
+///        instead of one resolved from the cursor.
+///        Iterates global.blueprints[_team] BACKWARDS deliberately: a
+///        successful placement calls RemoveBlueprintOne, which can delete
+///        the stack it just consumed (array_delete) -- iterating from the
+///        end means that deletion only ever shifts indices this loop has
+///        already visited, never ones still to come.
+/// @param {Real} _team
+function AI_TryPlaceBlueprints(_team) {
+    var _stacks = global.blueprints[_team];
+    for (var i = array_length(_stacks) - 1; i >= 0; i--) {
+        var _buildingType = _stacks[i].buildingType;
+        var _def = GetBuildingDefinition(_buildingType);
+        if (_def == undefined || !_def.cost.CanAfford(_team)) continue;
+
+        var _plot = AI_FindEmptyOwnedPlot(_team);
+        if (_plot == noone) continue;
+
+        TryPlaceBlueprint(_team, _buildingType, _plot);
+    }
+}
+
+/// @function AI_TryTrainAtAllBuildings(_team)
+/// @description Attempts to queue one unit at every training building
+///        _team owns, via TrainingTryQueueUnit (TrainingScripts.gml).
+///        That function already does all the real work -- type/army
+///        limit checks, affordability -- and is safe to call
+///        speculatively every think tick: it just logs and returns false
+///        if it can't queue right now, so there's no extra bookkeeping
+///        needed here to avoid over-queueing.
+/// @param {Real} _team
+function AI_TryTrainAtAllBuildings(_team) {
+    with (oTrainingBuildingParent) {
+        if (team == _team) {
+            TrainingTryQueueUnit(id);
+        }
+    }
+}

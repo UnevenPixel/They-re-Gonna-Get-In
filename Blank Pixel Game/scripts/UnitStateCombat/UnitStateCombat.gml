@@ -100,4 +100,10 @@ function Combat_Step(_unit, _machine) {
     }
 }
 
-/// @function Combat_Exit(_unit, _mach
+/// @function Combat_Exit(_unit, _machine)
+/// @description StateMachine onExit for "combat". Ends any in-progress swing.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
+function Combat_Exit(_unit, _machine) {
+    UnitEndSwing(_unit, _machine);
+}

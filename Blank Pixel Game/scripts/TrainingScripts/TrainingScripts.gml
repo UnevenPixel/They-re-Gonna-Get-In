@@ -225,4 +225,7 @@ function TrainingUpdateQueue(_building) {
         TrainingSpawnUnit(_building);
     }
 
-    if (_bu
+    if (_building.trainQueue <= 0) {
+        _building.trainProgress = 0;
+    }
+}

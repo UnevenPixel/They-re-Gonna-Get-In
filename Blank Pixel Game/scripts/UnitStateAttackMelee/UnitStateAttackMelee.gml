@@ -214,4 +214,4 @@ function Attack_Exit(_unit, _machine) {
     UnitEndSwing(_unit, _machine);
     _unit.attackBuildingTarget = noone;
     _machine.data.defenderTarget = noone;
-}
+}

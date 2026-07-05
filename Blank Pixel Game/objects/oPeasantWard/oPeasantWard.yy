@@ -40,4 +40,5 @@
     "name":"sBuildingMask",
     "path":"sprites/sBuildingMask/sBuildingMask.yy",
   },
-  "visible":t
+  "visible":true,
+}

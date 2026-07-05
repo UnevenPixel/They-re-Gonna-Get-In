@@ -147,4 +147,142 @@ function GatherTeamUnits(_team) {
 /// @returns {Id.Instance|Constant.NoOne}
 function _FindNearestEnemy(_unit, _radius) {
     var _list  = ds_list_create();
-    var _count 
+    var _count = collision_circle_list(
+        _unit.x, _unit.y, _radius, oUnitParent, false, true, _list, false
+    );
+
+    var _best     = noone;
+    var _bestDist = infinity;
+
+    for (var i = 0; i < _count; i++) {
+        var _other = _list[| i];
+        if (_other == _unit) continue;
+        if (_other.team == _unit.team) continue;
+
+        var _dist = point_distance(_unit.x, _unit.y, _other.x, _other.y);
+        if (_dist < _bestDist) {
+            _bestDist = _dist;
+            _best     = _other;
+        }
+    }
+
+    ds_list_destroy(_list);
+    return _best;
+}
+
+// -----------------------------------------------------------
+// Weighted combat target selection -- ChooseCombatTarget replaces the old
+// "always returns noone" stub that used to live in UnitScripts.gml (moved
+// here to sit next to the two functions it supersedes). Unifies every
+// previous unweighted "just grab the nearest enemy" pick
+// (_FindNearestEnemy/_FindNearestEnemyInSweep above) into one real,
+// tunable decision.
+//
+// Called wherever combat/attack/siege need to pick which enemy UNIT to
+// fight: entering "combat"/"combatRanged" and re-acquiring when the current
+// target dies (Combat_Step/CombatRanged_Step -- already wired to call this),
+// the defender-interrupt in "attack"/"attackRanged" (Attack_Step/
+// AttackRanged_Step), the aggro trigger in "guard"/"defend" (Guard_Step/
+// Defend_Step), and the guard-sweep in "siege" (Siege_Step). NOT used for
+// picking what BUILDING or CASTLE to attack -- that's still player-order-
+// driven (attackBuildingTarget) or GetEnemyCastle(), untouched.
+//
+// Weights below are placeholders, per instruction -- tune freely, nothing
+// else depends on these specific numbers. Health/proximity/castle are
+// normalized 0..1 before weighting; attackDamage is NOT normalized (its raw
+// value is multiplied by its weight directly) -- fine for a first-pass
+// placeholder since every candidate is compared on the same combined scale,
+// but flag if you'd rather every axis were normalized to 0..1 for easier
+// tuning later.
+// -----------------------------------------------------------
+
+#macro COMBAT_TARGET_WEIGHT_HEALTH    1.0  // rewards LOW health remaining (damageTaken / maxHealth) -- finish off the wounded
+#macro COMBAT_TARGET_WEIGHT_ATTACK    0.4  // rewards HIGH attackDamage (raw stat, not normalized) -- focus the biggest threat
+#macro COMBAT_TARGET_WEIGHT_PROXIMITY 1.2  // rewards closeness to the deciding unit
+#macro COMBAT_TARGET_WEIGHT_ACTIVITY  1.0  // rewards a candidate currently attacking one of ours -- castle > building > unit > idle
+#macro COMBAT_TARGET_WEIGHT_CASTLE    0.8  // siege-only: rewards closeness to the castle being sieged -- only applied when _castlePos is passed; preserves what _FindNearestEnemyInSweep used to do for "siege" specifically
+
+/// @function _CombatTargetActivityScore(_candidate)
+/// @description Scores what _candidate is currently doing -- the "whether
+///        it is attacking a unit, building, or castle" criterion.
+///        Sieging our castle scores highest (the biggest threat), then
+///        attacking one of our buildings, then already fighting one of our
+///        units, then idle (guard/defend) scores 0. Only ever called with
+///        an oUnitParent instance (everything that reaches it comes from a
+///        collision_circle_list against oUnitParent), so .fsm always exists.
+/// @param {Id.Instance} _candidate
+/// @returns {Real} 0..1
+function _CombatTargetActivityScore(_candidate) {
+    switch (_candidate.fsm.Current()) {
+        case "siege":        return 1.0;
+        case "attack":
+        case "attackRanged": return 0.7;
+        case "combat":
+        case "combatRanged": return 0.3;
+        default:             return 0; // guard, defend
+    }
+}
+
+/// @function ChooseCombatTarget(_unit, _radius, _castlePos)
+/// @description Picks the best enemy unit within _radius for _unit to fight,
+///        scoring every candidate on four weighted criteria: how low its
+///        health is, how high its attackDamage is, how close it is, and
+///        what it's currently attacking (see _CombatTargetActivityScore).
+///        Returns noone if no enemy unit is in range -- same contract the
+///        old stub and _FindNearestEnemy both had, so every caller's
+///        existing "if (_unit.combatTarget == noone)" check keeps working
+///        unchanged.
+/// @param {Id.Instance} _unit
+/// @param {Real} [_radius] Search radius around _unit. Defaults to
+///        _unit.attackAggroRadius (same idiom as UnitPursueTarget's
+///        _targetVelocity default -- can't reference _unit directly in the
+///        parameter list itself, so it's resolved in the body instead).
+/// @param {Struct.Vector2} [_castlePos] Pass the castle being sieged to also
+///        weight closeness-to-castle (COMBAT_TARGET_WEIGHT_CASTLE) --
+///        Siege_Step is the only caller that should ever pass this.
+/// @returns {Id.Instance|Constant.NoOne}
+function ChooseCombatTarget(_unit, _radius = undefined, _castlePos = undefined) {
+    _radius ??= _unit.attackAggroRadius;
+
+    var _list  = ds_list_create();
+    var _count = collision_circle_list(
+        _unit.x, _unit.y, _radius, oUnitParent, false, true, _list, false
+    );
+
+    var _best      = noone;
+    var _bestScore = -infinity;
+
+    for (var i = 0; i < _count; i++) {
+        var _c = _list[| i];
+        if (_c == _unit) continue;
+        if (_c.team == _unit.team) continue;
+
+        var _dist = point_distance(_unit.x, _unit.y, _c.x, _c.y);
+
+        var _healthFrac = (variable_instance_exists(_c, "maxHealth") && _c.maxHealth > 0)
+            ? (GetDamageTaken(_c) / _c.maxHealth)
+            : 0;
+        var _attackStat = variable_instance_exists(_c, "attackDamage") ? _c.attackDamage : 0;
+        var _proxScore  = 1 - clamp(_dist / _radius, 0, 1);
+        var _activity   = _CombatTargetActivityScore(_c);
+
+        var _score = (_healthFrac * COMBAT_TARGET_WEIGHT_HEALTH)
+                   + (_attackStat * COMBAT_TARGET_WEIGHT_ATTACK)
+                   + (_proxScore  * COMBAT_TARGET_WEIGHT_PROXIMITY)
+                   + (_activity   * COMBAT_TARGET_WEIGHT_ACTIVITY);
+
+        if (_castlePos != undefined) {
+            var _distToCastle = point_distance(_c.x, _c.y, _castlePos.x, _castlePos.y);
+            var _castleProx   = 1 - clamp(_distToCastle / _radius, 0, 1);
+            _score += _castleProx * COMBAT_TARGET_WEIGHT_CASTLE;
+        }
+
+        if (_score > _bestScore) {
+            _bestScore = _score;
+            _best      = _c;
+        }
+    }
+
+    ds_list_destroy(_list);
+    return _best;
+}

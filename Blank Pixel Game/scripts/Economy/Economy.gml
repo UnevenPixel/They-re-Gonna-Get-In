@@ -12,22 +12,28 @@ function ResourceCost(_resource,_amt) constructor{
 /// @function Cost(_costs)
 /// @description Aggregated cost struct for anything purchasable -- sums an array
 ///        of ResourceCost entries into one field per resource type (wood, wheat,
-///        water, iron, gold, meat, bones, coal, weapons, coins).
+///        water, iron, gold, meat, bones, coal, weapons, coins, xp, fateTokens).
+///        xp/fateTokens are included here for consistency (CanAfford/Purchase
+///        walk global.resources generically) even though nothing is expected
+///        to cost XP directly yet -- Fate Tokens are the more likely spend
+///        once that system exists (see ProgressionScripts.gml).
 /// @param {Array<Struct.ResourceCost>} _costs Array of ResourceCost structs to total up.
 function Cost(_costs) constructor{
-    wood    = 0;
-    wheat   = 0;
-    water   = 0;
-    iron    = 0;
-    gold    = 0;
-    meat    = 0;
-    bones   = 0;
-    coal    = 0;
-    weapons = 0;
-    coins   = 0;
+    wood       = 0;
+    wheat      = 0;
+    water      = 0;
+    iron       = 0;
+    gold       = 0;
+    meat       = 0;
+    bones      = 0;
+    coal       = 0;
+    weapons    = 0;
+    coins      = 0;
+    xp         = 0;
+    fateTokens = 0;
     for(var i = 0; i < array_length(_costs); i ++){
         if !is_instanceof(_costs[i], ResourceCost) continue;
-        
+
         switch(_costs[i].resource){
             case "wood":
                 wood += _costs[i].amt;
@@ -58,6 +64,12 @@ function Cost(_costs) constructor{
                 break;
             case "coins":
                 coins += _costs[i].amt;
+                break;
+            case "xp":
+                xp += _costs[i].amt;
+                break;
+            case "fateTokens":
+                fateTokens += _costs[i].amt;
                 break;
             default:
                 break;
@@ -104,3 +116,10 @@ function Purchase(_costStruct,_team){
             var _costAmt = struct_get(self,_res);
             struct_set(global.resources[_team],_res,_resAmt - _costAmt);
             if (_costAmt > 0) AnalyticsRecordResourceSpent(_team, _res, _costAmt);
+        }
+        return true;
+    }
+    else{
+        return false;
+    }
+}

@@ -228,4 +228,3 @@ function Siege_Exit(_unit, _machine) {
     UnitEndSwing(_unit, _machine);
     _machine.data.guardTarget = noone;
 }
-                  

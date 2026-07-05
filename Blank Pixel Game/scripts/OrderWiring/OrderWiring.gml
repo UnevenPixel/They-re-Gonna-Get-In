@@ -77,4 +77,15 @@ function RegisterAllOrders() {
     // but it's an intentional no-op for now -- stationing units inside
     // castle walls depends on castle-interior placement, which isn't
     // built yet. Deliberately NOT using the default onIssue (which would
- 
+    // call fsm.ChangeState("station") against a state that doesn't
+    // exist on any unit's StateMachine, spamming an "unregistered state"
+    // debug message on every click). Replace this stub once stationing
+    // is designed.
+    RegisterOrder(new Order("station", "Station", function(_units, _context) {
+        // Intentionally does nothing yet.
+    }));
+
+    // "combat" is intentionally NOT registered as a player-issuable
+    // order -- units enter it automatically (e.g. when attacked while
+    // guarding), it's not something a player should pick from a menu.
+}

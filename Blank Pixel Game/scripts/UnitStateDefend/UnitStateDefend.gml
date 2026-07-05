@@ -112,4 +112,20 @@ function Defend_Step(_unit, _machine) {
 
     var _delta = _unit.controller.Apply();
     with(_unit){
-        move_and_collide(_delta.x, _delta.y, [oBuildingParent
+        move_and_collide(_delta.x, _delta.y, [oBuildingParent, oEnvironmentSolid]);
+    }
+    _unit.agent.SyncFromInstance(_unit);
+
+    UnitUpdateSprite(_unit);
+}
+
+/// @function Defend_Exit(_unit, _machine)
+/// @description StateMachine onExit for "defend". Clears defendTarget so it
+///        doesn't linger if the unit re-enters a different defend assignment later.
+/// @param {Id.Instance} _unit
+/// @param {Struct.StateMachine} _machine
+function Defend_Exit(_unit, _machine) {
+    // Clear the stored waypoints and target so they don't linger if the
+    // unit re-enters a different defend assignment later.
+    _unit.defendTarget = noone;
+}

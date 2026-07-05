@@ -149,4 +149,139 @@ function RegisterAllBuildingDefinitions() {
         maxHealth:        250,
     }));
 
-    RegisterBuildingDefinition(oBarracks, ne
+    RegisterBuildingDefinition(oBarracks, new BuildingDefinition({
+        name:             "Barracks",
+        description:      "Trains Soldiers. Each Barracks supports up to 4 at once.",
+        cost:             new Cost([new ResourceCost("wheat", 100), new ResourceCost("gold", 25), new ResourceCost("iron", 50)]),
+        sprite:            sBarracks,
+        trainsUnit:       oSoldierUnit,
+        unitsPerBuilding: 4,
+        trainCost:        new Cost([new ResourceCost("wheat", 25), new ResourceCost("wood", 25), new ResourceCost("iron", 25)]),
+        trainTime:        15,
+        maxHealth:        220,
+    }));
+
+    RegisterBuildingDefinition(oArcheryRange, new BuildingDefinition({
+        name:             "Archery Range",
+        description:      "Trains Archers. Each Range supports up to 3 at once.",
+        cost:             new Cost([new ResourceCost("wheat", 50), new ResourceCost("wood", 50)]),
+        sprite:            sArcheryRange,
+        trainsUnit:       oArcherUnit,
+        unitsPerBuilding: 3,
+        trainCost:        new Cost([new ResourceCost("wheat", 50), new ResourceCost("gold", 25), new ResourceCost("wood", 25)]),
+        trainTime:        10,
+        maxHealth:        180,
+    }));
+
+    RegisterBuildingDefinition(oRoundTable, new BuildingDefinition({
+        name:             "Round Table",
+        description:      "Trains Knights. Each Round Table supports up to 3 at once.",
+        cost:             new Cost([new ResourceCost("wheat", 70), new ResourceCost("iron", 70)]),
+        sprite:            sRoundTable,
+        trainsUnit:       oKnightUnit,
+        unitsPerBuilding: 3,
+        trainCost:        new Cost([new ResourceCost("wheat", 100), new ResourceCost("gold", 25), new ResourceCost("iron", 50)]),
+        trainTime:        20,
+        maxHealth:        220,
+    }));
+}
+
+// -----------------------------------------------------------
+// Per-instance application + production tick -- mirrors
+// UnitApplyDefinition's role in UnitDefinitions.gml, but scoped to just
+// the fields that actually vary at runtime (production state). Everything
+// else (sprite, collision, team/radius) already comes from the building's
+// own dedicated object, so there's nothing else to copy here.
+// -----------------------------------------------------------
+
+/// @function BuildingApplyDefinition(_building)
+/// @description Looks up _building's BuildingDefinition by object_index and
+///        sets up its per-instance runtime state -- production fields
+///        (resource buildings) AND training fields (training buildings)
+///        are both set unconditionally, regardless of which kind of
+///        building this is; a resource building simply gets trainsUnit ==
+///        undefined / trainQueue == 0, which TrainingUpdateQueue treats as
+///        a no-op, and a training building gets productionRate == 0,
+///        which BuildingUpdateProduction already treats as a no-op. Call
+///        once from a building's Create event, after event_inherited()
+///        (team/radius) and after RegisterAllBuildingDefinitions() has run
+///        at game start. Logs and no-ops if no definition is registered
+///        for this object type.
+/// @param {Id.Instance} _building
+function BuildingApplyDefinition(_building) {
+    var _def = GetBuildingDefinition(_building.object_index);
+    if (_def == undefined) {
+        show_debug_message($"BuildingApplyDefinition: no BuildingDefinition registered for {object_get_name(_building.object_index)}. Check RegisterAllBuildingDefinitions().");
+        return;
+    }
+
+    _building.productionResource    = _def.productionResource;
+    _building.productionRate        = _def.productionRate;
+    _building.productionAccumulator = 0; // fractional progress toward the next whole unit -- see BuildingUpdateProduction
+
+    _building.trainsUnit       = _def.trainsUnit;
+    _building.unitsPerBuilding = _def.unitsPerBuilding;
+    _building.trainCost        = _def.trainCost;
+    _building.trainTime        = _def.trainTime;
+    _building.trainQueue       = 0; // units waiting to be trained -- see TrainingTryQueueUnit
+    _building.trainProgress    = 0; // seconds accumulated toward the next completion -- see TrainingUpdateQueue
+
+    // Same maxHealth/damageTaken pair units carry (UnitApplyDefinition,
+    // UnitDefinitions.gml) -- damageTaken lives directly on the instance
+    // here rather than nested in a unitData-style wrapper, since buildings
+    // have no station/redeploy concept to preserve it across. ApplyDamage/
+    // GetCurrentHealth (UnitCombatHelpers.gml / UnitDefinitions.gml) read
+    // damageTaken via GetDamageTaken, which already knows to check for
+    // unitData first and fall back to this flat field -- see that function.
+    _building.maxHealth   = _def.maxHealth;
+    _building.damageTaken = 0;
+}
+
+/// @function BuildingUpdateProduction(_building)
+/// @description Delta-time-based resource production, scaled by
+///        global.matchSpeed. Accumulates fractional progress on the
+///        instance (productionAccumulator) instead of adding a flat amount
+///        per frame, so production is frame-rate independent and never
+///        caps at "at most one whole unit per frame" -- a rate high enough
+///        to cross several whole units within a single frame (e.g. from
+///        stacked bonuses, or a slow frame) still awards all of them, each
+///        triggering its own PlayResourceProducedEffect call, since
+///        resources are whole-integer-only in this game (see Economy.gml).
+///        No-op if the building has no production (productionRate <= 0).
+///        Call once per Step from a producing building (currently wired
+///        from oResourceBuildingParent/Step_0.gml, so every resource
+///        building gets this automatically).
+/// @param {Id.Instance} _building
+function BuildingUpdateProduction(_building) {
+    if (_building.productionRate <= 0 || _building.productionResource == undefined) return;
+
+    var _dt = delta_time / 1000000; // microseconds -> seconds, same idiom as oOpeningCredits/Step_0.gml
+    _building.productionAccumulator += _building.productionRate * global.matchSpeed * _dt;
+
+    var _wholeUnits = floor(_building.productionAccumulator);
+    if (_wholeUnits <= 0) return;
+
+    _building.productionAccumulator -= _wholeUnits;
+
+    var _resources = global.resources[_building.team];
+    var _current    = struct_get(_resources, _building.productionResource);
+    struct_set(_resources, _building.productionResource, _current + _wholeUnits);
+
+    AnalyticsRecordResourceProduced(_building.team, _building.productionResource, _wholeUnits);
+
+    repeat (_wholeUnits) {
+        PlayResourceProducedEffect(_building, _building.productionResource);
+    }
+}
+
+/// @function PlayResourceProducedEffect(_building, _resource)
+/// @description STUB -- called exactly once per whole unit of resource
+///        produced (BuildingUpdateProduction may call this more than once
+///        in a single frame at high production rates). Replace with the
+///        real particle/sound/popup effect; for now just logs, so
+///        production is verifiable without real art/audio yet.
+/// @param {Id.Instance} _building
+/// @param {String} _resource
+function PlayResourceProducedEffect(_building, _resource) {
+    show_debug_message($"+1 {_resource} produced by {object_get_name(_building.object_index)} ({_building}).");
+}

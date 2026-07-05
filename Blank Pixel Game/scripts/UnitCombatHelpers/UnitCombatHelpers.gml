@@ -87,4 +87,154 @@ function UnitEnterCombat(_unit, _target) {
 ///        _machine.previousName is always "guard" or "defend" at that point
 ///        -- RevertToPrevious (StateMachine.gml) goes back to exactly that.
 ///        Falls back to "guard" in the (should-never-happen) case combat
-///        was s
+///        was somehow entered with no recorded previous state, so a unit
+///        can never get stuck in combat forever with nowhere to revert to.
+/// @param {Struct.StateMachine} _machine
+function UnitRevertFromCombat(_machine) {
+    if (_machine.previousName != undefined) {
+        _machine.RevertToPrevious();
+    } else {
+        _machine.ChangeState("guard");
+    }
+}
+
+/// @function UnitTryDealDamage(_unit, _target, _machine)
+/// Attempts to deal damage at the correct animation frame.
+/// Guards against multiple hits per swing via _machine.data.hitDealtThisSwing.
+/// Returns true the frame the hit lands, false every other frame.
+///
+/// @param {Id.Instance} _unit
+/// @param {Id.Instance} _target Any instance with maxHealth (unit or building).
+/// @param {Struct}      _machine
+/// @returns {Bool}
+function UnitTryDealDamage(_unit, _target, _machine) {
+    if (_machine.data.hitDealtThisSwing) return false;
+
+    var _currentFrame = floor(_unit.image_index);
+    if (_currentFrame < _unit.attackHitFrame) return false;
+
+    _machine.data.hitDealtThisSwing = true;
+
+    if (!instance_exists(_target)) return false;
+
+    ApplyDamage(_target, _unit.attackDamage, _unit);
+
+    // Knockback (units only, buildings don't move) -- not implemented,
+    // left as the same suggestion this TODO always had:
+    //   if (object_is_ancestor(_target.object_index, oUnitParent)) {
+    //       var _dir = Vector2FromAngle(_unit.agent.pos.AngleTo(
+    //           new Vector2(_target.x, _target.y)), 1);
+    //       _target.agent.ApplyKnockback(_dir.Scale(knockbackStrength));
+    //   }
+
+    return true;
+}
+
+/// @function UnitTryFireProjectile(_unit, _target, _machine)
+/// @description Ranged counterpart to UnitTryDealDamage -- same
+///        once-per-swing / hit-frame gating (_machine.data.hitDealtThisSwing,
+///        _unit.attackHitFrame), but spawns a projectile (SpawnProjectile,
+///        ProjectileScripts.gml) aimed at _target instead of applying
+///        damage immediately. Damage resolves later, when the projectile
+///        arrives (ProjectileResolveHit) -- not the frame this returns true.
+/// @param {Id.Instance} _unit
+/// @param {Id.Instance} _target
+/// @param {Struct}      _machine
+/// @returns {Bool} True the frame the shot is fired, false every other frame.
+function UnitTryFireProjectile(_unit, _target, _machine) {
+    if (_machine.data.hitDealtThisSwing) return false;
+
+    var _currentFrame = floor(_unit.image_index);
+    if (_currentFrame < _unit.attackHitFrame) return false;
+
+    _machine.data.hitDealtThisSwing = true;
+
+    if (!instance_exists(_target)) return false;
+
+    SpawnProjectile(_unit, _target);
+
+    return true;
+}
+
+/// @function UnitAttackAnimComplete(_unit)
+/// Returns true when the current attack animation has fully played through.
+/// @param {Id.Instance} _unit
+/// @returns {Bool}
+function UnitAttackAnimComplete(_unit) {
+    return _unit.image_index >= sprite_get_number(_unit.sprAttack) - 1;
+}
+
+/// @function UnitPursueTarget(_unit, _targetPos, _targetVelocity)
+/// Standard pursue + separation + obstacle avoidance + play area containment.
+/// Reused across combat/attack/siege/defend pursuit phases.
+/// Calls UnitUpdateSprite after movement so sprite and facing are always
+/// current without each state needing to do it explicitly.
+///
+/// @param {Id.Instance}    _unit
+/// @param {Struct.Vector2} _targetPos
+/// @param {Struct.Vector2} [_targetVelocity] Pass undefined/Vector2(0,0) for stationary targets.
+function UnitPursueTarget(_unit, _targetPos, _targetVelocity = undefined) {
+    _targetVelocity ??= new Vector2(0, 0);
+
+    var _obstacles = GatherNearbyObstacles(_unit);
+    var _allies    = GatherNearbyAllies(_unit, 48);
+
+    _unit.controller.Begin();
+    _unit.controller.Add(
+        Steering_Pursue(_unit.agent, _targetPos, _targetVelocity), 1.2
+    );
+    _unit.controller.Add(Steering_Separation(_unit.agent, _allies, 28),        1.0);
+    _unit.controller.Add(Steering_AvoidObstacles(_unit.agent, _obstacles, 80), 1.8);
+    _unit.controller.Add(
+        Steering_Contain(_unit.agent, global.playAreaRect, PLAY_AREA_CONTAIN_MARGIN),
+        PLAY_AREA_CONTAIN_WEIGHT
+    );
+
+    var _delta = _unit.controller.Apply();
+    with(_unit){
+        move_and_collide(_delta.x, _delta.y, [oBuildingParent, oEnvironmentSolid]);
+    }
+    _unit.agent.SyncFromInstance(_unit);
+
+    UnitUpdateSprite(_unit);
+}
+
+/// @function UnitIdleInPlace(_unit)
+/// Idles in place this frame (zero steering, still applies knockback
+/// and collision). Calls UnitUpdateSprite so a standing unit still
+/// shows the correct idle sprite after a hit reaction.
+/// @param {Id.Instance} _unit
+function UnitIdleInPlace(_unit) {
+    _unit.controller.Begin();
+    var _delta = _unit.controller.Apply();
+    with(_unit){
+        move_and_collide(_delta.x, _delta.y, [oBuildingParent, oEnvironmentSolid]);
+    }
+    _unit.agent.SyncFromInstance(_unit);
+    UnitUpdateSprite(_unit);
+}
+
+/// @function UnitBeginSwing(_unit, _machine)
+/// Enters the attack animation on a unit and resets swing tracking.
+/// @param {Id.Instance} _unit
+/// @param {Struct}      _machine
+function UnitBeginSwing(_unit, _machine) {
+    _machine.data.hitDealtThisSwing = false;
+    _unit.sprite_index = _unit.sprAttack;
+    _unit.image_index  = 0;
+    _unit.image_speed  = global.matchSpeed;
+    // Do NOT touch image_xscale here -- the unit should keep facing
+    // the direction it was already facing when the swing started.
+}
+
+/// @function UnitEndSwing(_unit, _machine)
+/// Restores idle sprite and writes cooldown back to the instance.
+/// Call at the end of any swing and from all Exit callbacks.
+/// @param {Id.Instance} _unit
+/// @param {Struct}      _machine
+function UnitEndSwing(_unit, _machine) {
+    _unit.sprite_index = _unit.sprIdle;
+    _unit.image_index  = 0;
+    _unit.image_speed  = global.matchSpeed;
+    _unit.attackCooldown = max(_machine.data.cooldownTimer, 0);
+}
