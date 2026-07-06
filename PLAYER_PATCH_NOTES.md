@@ -1,5 +1,28 @@
 # They're Gonna Get In! — Patch Notes
 
+## Update — July 5-6, 2026 (in progress)
+
+**The full resource economy is in**
+
+- Water Pumps, Sawmills, Gold Mines, and Iron Mines round out the complete set of resource buildings, joining Wheat Fields. Every core resource now has a way to produce it.
+
+**Wheat Fields rebalanced**
+
+- Adjusted Wheat Field costs to match the intended design — food production should feel fairer to get going now.
+
+**Your economy is easier to watch**
+
+- Resource buildings now throw a little visual burst when they produce, so it's easier to see your base actually working.
+
+**Cleaner building tray**
+
+- The building tray (where you drag out new buildings) has been resized and repositioned for better readability.
+
+**Fixes**
+
+- Fixed an issue where starting a unit-selection drag near the bottom of the screen could accidentally catch the building tray instead.
+- Fixed a bug where a purchase (buildings or units) could, in rare cases, fail to deduct from the correct stockpile.
+
 ## Update — July 4, 2026 (in progress)
 
 **Five new recruits have joined the roster**

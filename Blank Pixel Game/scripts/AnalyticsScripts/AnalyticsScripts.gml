@@ -44,8 +44,19 @@ function AnalyticsInit() {
             kills:            ds_map_create(), // object_index -> count
             deaths:           ds_map_create(), // object_index -> count
             buildingsBuilt:   ds_map_create(), // object_index -> count
-            resourceProduced: { wood:0, wheat:0, water:0, iron:0, gold:0, meat:0, bones:0, coal:0, weapons:0, coins:0 },
-            resourceSpent:    { wood:0, wheat:0, water:0, iron:0, gold:0, meat:0, bones:0, coal:0, weapons:0, coins:0 },
+            // xp/fateTokens added 2026-07-06 -- GainXP (ProgressionScripts.gml)
+            // calls AnalyticsRecordResourceProduced(_team, "xp", ...) and
+            // (_team, "fateTokens", ...), but neither key existed on this
+            // struct, so struct_get returned undefined and
+            // `undefined + _amt` crashed the instant any XP was ever
+            // actually awarded (first repro: TrainingSpawnUnit's
+            // first-deployment Strategic XP). Added to resourceSpent too
+            // for symmetry -- nothing spends xp/fateTokens as a Cost today,
+            // but Cost/ResourceCost already supports both as a resource
+            // type, so this heads off the identical crash the moment
+            // something does.
+            resourceProduced: { wood:0, wheat:0, water:0, iron:0, gold:0, meat:0, bones:0, coal:0, weapons:0, coins:0, xp:0, fateTokens:0 },
+            resourceSpent:    { wood:0, wheat:0, water:0, iron:0, gold:0, meat:0, bones:0, coal:0, weapons:0, coins:0, xp:0, fateTokens:0 },
         };
     }
 

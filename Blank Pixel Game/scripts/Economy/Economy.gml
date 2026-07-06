@@ -97,6 +97,30 @@ function Cost(_costs) constructor{
     }
 }
 
+/// @function GetDiscountedCost(_cost, _fraction)
+/// @description Returns a NEW Cost struct with every resource field reduced
+///        by _fraction (e.g. 0.5 = 50% off), rounded to the nearest whole
+///        unit -- this project's resources are whole-integer-only (see
+///        Purchase/CanAfford above; also BuildingUpdateProduction,
+///        BuildingDefinitions.gml). Does not mutate _cost. Built for the
+///        2026-07-06/07 "plot bonuses" request -- see GetPlacementCost
+///        (BlueprintScripts.gml), which applies this when a building is
+///        placed on a plot that discounts its type.
+/// @param {Struct.Cost} _cost
+/// @param {Real} _fraction 0-1 fraction to discount off (0.5 = half price).
+/// @returns {Struct.Cost}
+function GetDiscountedCost(_cost, _fraction) {
+    var _discounted = new Cost([]);
+    var _names = struct_get_names(_cost);
+    for (var i = 0; i < array_length(_names); i++) {
+        var _name = _names[i];
+        var _amt  = struct_get(_cost, _name);
+        if (!is_real(_amt)) continue; // skips CanAfford -- a static method, not a resource field, but struct_get_names can still list it
+        struct_set(_discounted, _name, round(_amt * (1 - _fraction)));
+    }
+    return _discounted;
+}
+
 /// @function Purchase(_costStruct, _team)
 /// @description Attempts to purchase an item using a supplied Cost struct. If the
 ///        team can afford it, deducts the cost from global.resources.

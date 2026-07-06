@@ -45,6 +45,18 @@ global.blueprints = [[], []];
 // same flat number, no shared-reference hazard (see global.armyLimit below).
 global.age = [1, 1];
 
+// Per-team "age bar is full, waiting on a manual Age Up" flag -- see
+// TryAgeUp (ProgressionScripts.gml). 2026-07-06 doc change: age no longer
+// advances the instant XP fills: GainXP raises this, TryAgeUp (not yet
+// wired to any UI) is what actually spends the resources and advances.
+global.ageUpReady = [false, false];
+
+// Per-team set of unit types (object_index) ever deployed (TrainingSpawnUnit,
+// TrainingScripts.gml) -- "First deployment of unit type" Strategic XP,
+// 2026-07-06 doc. [[], []] -- NOT array_create(2, []), same shared-reference
+// hazard as global.blueprints above.
+global.unitsDeployed = [[], []];
+
 // Per-team cap on total live + queued units, regardless of type or
 // station status -- see TrainingTryQueueUnit (TrainingScripts.gml). A
 // plain 2-slot array (not array_create(2, ...)) since both start at the
@@ -55,7 +67,7 @@ global.armyLimit = [6, 6];
 // 2026-07-03): every SIDE starts each match with 50 wood, 50 water, 50
 // iron, 50 gold, 50 wheat -- applied symmetrically to both teams, since
 // the AI opponent now needs the same economy as the player to actually
-// build/train (see AI_TryPlaceBlueprints/AI_TryTrainAtAllBuildings,
+// build/train (see AI_TryPlaceBlueprints/AI_TryTrainComposition,
 // AIControl.gml). Everything else (meat/bones/coal/weapons/coins) stays
 // at 0 -- coins isn't part of the starting loadout. Wheat Field's cost was
 // corrected 2026-07-05 to 20 water + 10 wood (see BuildingDefinitions.gml),

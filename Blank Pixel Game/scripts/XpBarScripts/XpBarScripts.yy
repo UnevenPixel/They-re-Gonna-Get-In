@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"XpBarScripts",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"XpBarScripts",
+  "parent":{
+    "name":"Scripts",
+    "path":"folders/Scripts.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

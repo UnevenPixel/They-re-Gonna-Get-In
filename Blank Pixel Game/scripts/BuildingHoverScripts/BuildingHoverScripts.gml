@@ -1,0 +1,516 @@
+// -----------------------------------------------------------
+// BuildingHoverScripts -- hover/tooltip data overlay for PLACED building
+// instances (oBuildingParent, in-world) AND blueprint UI slots
+// (BlueprintController, GUI-space) -- 2026-07-08 request. Second real
+// consumer of the general-purpose HoverCard base (HoverCardScripts.gml),
+// after PlotHoverScripts.gml.
+//
+// Reuses PlotHoverScripts.gml's dwell/fade/anchor constants
+// (PLOT_HOVER_DELAY_STEPS/PLOT_HOVER_FADE_STEPS/PLOT_HOVER_CURSOR_GAP) --
+// the request says building hover should appear "the same way the plot
+// hover data appears (after 1 second, as I adjusted it myself)", i.e. the
+// SAME timing, not a separate copy of it. The "PLOT_HOVER_" prefix is now
+// a bit of a misnomer since 3 systems share these constants (plot/building/
+// blueprint); flagging rather than renaming an already-shipped macro name
+// without being asked -- a future pass could rename to something generic
+// like HOVER_CARD_DELAY_STEPS.
+//
+// This is the first consumer to need MORE than HoverCard's built-in
+// name+body+flavor slots -- production/training buildings show an extra
+// "icon row" above the body text (a building icon, a timer/rate readout,
+// and the produced item's icon), per the ORIGINAL hover-card spec's items
+// C/D/E (sHoverCardBuildingWindow/sHoverCardTimer/sHoverCardUnitWindow,
+// all registered but unused until now -- see HoverCardScripts.gml's file
+// header). HoverCardScripts.gml gained two new OPTIONAL trailing Show()
+// params this pass (_topContentHeight/_bottomContentHeight, both default 0)
+// so this icon row -- and a blueprint-only cost row below everything else --
+// can reserve space without touching PlotHoverController's existing call
+// site at all. BuildingHoverExtras (below) draws that row itself, using
+// HoverCard.GetContentTopY()/GetContentBottomY() so it never has to
+// duplicate HoverCard's internal layout math.
+//
+// Layout call: the building's own icon goes in the TOP LEFT of the body,
+// matching sHoverCardBuildingWindow's ORIGINAL spec wording ("placed in the
+// top left corner") -- an initial pass here had it top-right per a
+// misreading of that day's request, corrected 2026-07-08 once flagged.
+// Combined with the ORIGINAL spec's wording for the other two sprites --
+// sHoverCardTimer "placed next to the Building Window, tops in line", and
+// sHoverCardUnitWindow "on the other side of the card timer" from the
+// Building Window -- the icon row reads LEFT TO RIGHT as:
+//     [ Building Window ] [ Timer ] [ Item/Unit Window ]
+// i.e. the Building Window anchors to the body's left margin, Timer sits
+// immediately to its right, and the Item/Unit Window sits immediately to
+// the Timer's right. All three columns' TOP edges align. This ordering is
+// fully determined by combining the two specs above -- not a fresh guess --
+// but the exact pixel gaps between columns (BUILDING_HOVER_ICON_GAP_X etc.)
+// are new judgment calls this pass, worth a visual sanity check in-engine.
+//
+// Two hover contexts share ALL the data-gathering/drawing logic below
+// (BuildingHoverExtras, BuildingHoverDescriptionText, etc.) but differ in
+// exactly two ways, both threaded through an _isBlueprint bool:
+//   - Placed building (BuildingHoverController, driven by oUnitControl's
+//     Step/Draw): resource-limit reads as "remaining/total" (e.g. "300/400"
+//     -- how much MORE this specific instance can still produce before
+//     hitting its cap), read off the LIVE INSTANCE's own
+//     resourceLimit/producedTotal (not the BuildingDefinition's base
+//     resourceLimit) -- a Distant-plot building's resourceLimit may already
+//     be +50% boosted by ApplyPlotBonuses (BuildingDefinitions.gml,
+//     2026-07-07), so this correctly reflects its actual current cap, not
+//     the un-boosted base value. No cost row (already paid for).
+//   - Blueprint slot (BlueprintController, driven by its own Step/Draw
+//     wiring, BlueprintScripts.gml): resource-limit reads as just the flat
+//     BuildingDefinition.resourceLimit (no instance exists yet, nothing
+//     produced), PLUS a cost row along the card's bottom (icon+amount per
+//     resource, reusing CostToScribbleText/ResourceUIScripts.gml). That
+//     cost row shows the building's BASE cost (BuildingDefinition.cost) --
+//     NOT a plot-discounted cost (GetPlacementCost, BlueprintScripts.gml),
+//     since no specific plot has been chosen yet at blueprint-hover time.
+//     Flagging: the final charged price may differ once an actual plot is
+//     picked, given the 2026-07-07 plot-discount mechanic.
+//
+// "What it does" (the card's normal body text, e.g. "Produces Wheat"/
+// "Trains Peasant") is auto-generated from BuildingDefinition fields, not
+// authored -- see BuildingHoverDescriptionText. The flavor window reuses
+// BuildingDefinition.description -- an EXISTING field that was already
+// defined on every registered building (BuildingDefinitions.gml) but never
+// actually DISPLAYED anywhere before this pass (confirmed via a project-
+// wide grep for ".description" -- it only appeared in the file that
+// defines it). Rather than add a redundant new field for "flavor text",
+// this pass just wires that already-authored-but-dormant field up as the
+// flavor text. Per the 2026-07-08 request ("I will provide the flavor text
+// later when I find the document containing them"), these existing
+// descriptions are PLACEHOLDER flavor text until the real, document-
+// sourced versions arrive -- don't treat current wording as final.
+//
+// Suppression / mutual exclusion: a building can never be hovered while
+// its plot shows plot-hover data, because PlotHoverController only
+// triggers on UN-OCCUPIED plots (PlotHoverScripts.gml) and a placed
+// building's plot is, by definition, occupied -- no extra guard needed
+// there, it just falls out of the existing design. The genuinely new
+// conflict is the Blueprint UI panel: it's a GUI-space overlay drawn on
+// top of the game world, so the mouse can simultaneously sit over a filled
+// blueprint slot (GUI-space) AND whatever world-space plot/building
+// happens to render underneath that same screen position (room-space,
+// via mouse_x/mouse_y) -- without a fix, both a blueprint tooltip AND a
+// plot/building tooltip could try to show at once. Fixed by having
+// BlueprintController expose IsMouseOverPanel() (BlueprintScripts.gml,
+// checks the whole grid's bounding rect, not just filled slots) and having
+// BOTH PlotHoverSuppressed (PlotHoverScripts.gml) and
+// BuildingHoverSuppressed (below) treat that as a suppression condition.
+// -----------------------------------------------------------
+
+#macro BUILDING_HOVER_ICON_ROW_GAP_TOP 4 // native, gap between the name plate and the icon row -- same value as HOVER_CARD_BODY_MARGIN_TOP, no reason for it to differ
+#macro BUILDING_HOVER_ICON_GAP_X       4 // native, horizontal gap between adjacent icon-row columns (Item Window <-> Timer <-> Building Window)
+#macro BUILDING_HOVER_ICON_LABEL_GAP_Y 2 // native, gap between an icon's bottom edge and its label text below it (Timer's rate/time text, the Item Window's resource-limit text)
+#macro BUILDING_HOVER_ROW_TO_BODY_GAP  4 // native, gap between the icon row's bottom and the "what it does" body text below it
+#macro BUILDING_HOVER_COST_ROW_GAP_TOP 4 // native, gap between the card's last content (flavor window, or body text if none) and the blueprint-only cost row
+
+// Per-instance counter, same "why a global not a #macro" reasoning as
+// HoverCard's global.__hoverCardNextId (HoverCardScripts.gml) -- keeps
+// BuildingHoverExtras' own Scribble elements (timer/limit/cost text) from
+// colliding in Scribble's (uniqueId + string) cache if more than one
+// instance ever exists at once (e.g. world building hover AND blueprint
+// hover, owned by BuildingHoverController and BlueprintController
+// respectively).
+global.__buildingHoverExtrasNextId = 0;
+
+/// @function BuildingHoverTitleCase(_word)
+/// @description Capitalizes the first letter only -- "wheat" -> "Wheat".
+///        Used to turn a raw resource-name string (global.resources /
+///        Cost's lowercase keys) into display text.
+/// @param {String} _word
+/// @returns {String}
+function BuildingHoverTitleCase(_word) {
+    if (string_length(_word) == 0) return _word;
+    return string_upper(string_copy(_word, 1, 1)) + string_copy(_word, 2, string_length(_word) - 1);
+}
+
+/// @function BuildingHoverDescriptionText(_def)
+/// @description The hover card's NORMAL body text -- a short, auto-
+///        generated statement of what this building type mechanically
+///        does, e.g. "Produces Wheat" / "Trains Peasant". Distinct from
+///        the flavor window (BuildingDefinition.description) -- see file
+///        header. Singular unit names are used as-is ("Trains Peasant",
+///        not "Trains Peasants") to avoid inventing English pluralization
+///        rules that would break on irregular names; flag if plural reads
+///        better and is worth the risk.
+/// @param {Struct.BuildingDefinition} _def
+/// @returns {String}
+function BuildingHoverDescriptionText(_def) {
+    if (_def.productionResource != undefined) {
+        return $"Produces {BuildingHoverTitleCase(_def.productionResource)}";
+    }
+
+    if (_def.trainsUnit != undefined) {
+        var _unitDef = GetUnitDefinition(_def.trainsUnit);
+        return (_unitDef != undefined) ? $"Trains {_unitDef.name}" : "Trains a unit";
+    }
+
+    // Neither production nor training (e.g. a future "facility" building,
+    // per the ORIGINAL hover-card spec's "training, resource, facility"
+    // wording) -- nothing mechanical to auto-generate, so fall back to the
+    // descriptive field directly rather than showing a blank line.
+    return _def.description;
+}
+
+/// @function BuildingHoverTimerText(_def, _building, _isBlueprint)
+/// @description The label drawn below the Timer icon -- "{rate} /sec" for
+///        production buildings, "{trainTime} sec" for training buildings,
+///        "" for anything else (no Timer icon is drawn at all in that
+///        case -- see BuildingHoverExtras.Layout).
+/// @param {Struct.BuildingDefinition} _def
+/// @param {Id.Instance|Constant.NoOne} _building A placed building
+///        instance, or noone when _isBlueprint is true.
+/// @param {Bool} _isBlueprint
+/// @returns {String}
+function BuildingHoverTimerText(_def, _building, _isBlueprint) {
+    if (_def.productionResource != undefined) {
+        var _rate = _isBlueprint ? _def.productionRate : _building.productionRate;
+        return $"{_rate} /sec";
+    }
+
+    if (_def.trainsUnit != undefined) {
+        var _time = _isBlueprint ? _def.trainTime : _building.trainTime;
+        return $"{_time} sec";
+    }
+
+    return "";
+}
+
+/// @function BuildingHoverResourceLimitText(_def, _building, _isBlueprint)
+/// @description The label drawn below the Item/Unit Window, ONLY for
+///        resource (production) buildings with a resourceLimit -- "" for
+///        training buildings (they have no resourceLimit concept) and for
+///        unlimited resource buildings (resourceLimit left undefined).
+///        Blueprint hover shows just the flat limit ("400"); placed-
+///        building hover shows "remaining/total" (e.g. "300/400" -- 300
+///        more units before this INSTANCE depletes, 400 its current
+///        total cap) -- 2026-07-08 request. Reads resourceLimit/
+///        producedTotal off the LIVE INSTANCE (not _def) for the placed
+///        case, since ApplyPlotBonuses (BuildingDefinitions.gml) may have
+///        already boosted a Distant-plot instance's resourceLimit above
+///        _def's base value -- this shows the instance's ACTUAL current
+///        cap.
+/// @param {Struct.BuildingDefinition} _def
+/// @param {Id.Instance|Constant.NoOne} _building A placed building
+///        instance, or noone when _isBlueprint is true.
+/// @param {Bool} _isBlueprint
+/// @returns {String}
+function BuildingHoverResourceLimitText(_def, _building, _isBlueprint) {
+    if (_def.productionResource == undefined) return "";
+
+    if (_isBlueprint) {
+        return (_def.resourceLimit == undefined) ? "" : string(_def.resourceLimit);
+    }
+
+    if (_building.resourceLimit == undefined) return "";
+    return $"{_building.resourceLimit - _building.producedTotal}/{_building.resourceLimit}";
+}
+
+/// @function BuildingHoverItemIcon(_def)
+/// @description Resolves the sprite/frame to draw inside the Item/Unit
+///        Window (sHoverCardUnitWindow) -- a resource icon
+///        (sResourceIcons, via ResourceIconIndex, ResourceUIScripts.gml)
+///        for production buildings, or the trained unit's idle sprite
+///        (UnitDefinition.sprites.idle, frame 0) for training buildings.
+///        Unit idle sprites weren't authored with this 28x28 native window
+///        in mind -- if a unit's sprite is much bigger it may overflow the
+///        window frame; flag if any look wrong in-engine, this pass didn't
+///        check every unit's actual sprite dimensions.
+/// @param {Struct.BuildingDefinition} _def
+/// @returns {Struct|Undefined} { sprite, image } or undefined if this
+///        building type neither produces nor trains anything.
+function BuildingHoverItemIcon(_def) {
+    if (_def.productionResource != undefined) {
+        return { sprite: sResourceIcons, image: ResourceIconIndex(_def.productionResource) };
+    }
+
+    if (_def.trainsUnit != undefined) {
+        var _unitDef = GetUnitDefinition(_def.trainsUnit);
+        return (_unitDef != undefined) ? { sprite: _unitDef.sprites.idle, image: 0 } : undefined;
+    }
+
+    return undefined;
+}
+
+/// @function BuildingHoverExtras()
+/// @description Owns the Scribble text elements (timer/resource-limit/cost
+///        labels) and draws the "icon row" + blueprint-only cost row that
+///        sit ABOVE and BELOW a HoverCard's own content respectively --
+///        see file header for why this lives outside HoverCard itself
+///        (shared by both the world-building and blueprint hover
+///        contexts). Call Layout() every time the card's content changes
+///        (mirrors HoverCard.Show()'s "safe to call every frame" design),
+///        then pass its returned sizes into HoverCard.Show(), THEN call
+///        Draw() right after HoverCard.Draw() so this row layers on top in
+///        the right place.
+function BuildingHoverExtras() constructor {
+    __id = global.__buildingHoverExtrasNextId++;
+
+    hasTimerText   = false;
+    hasLimitText   = false;
+    hasItemIcon    = false;
+    showCostRow    = false;
+    buildingSprite = noone;
+    itemIconSprite = noone;
+    itemIconImage  = 0;
+
+    timerText = scribble("", $"__buildingHoverExtras{__id}Timer__")
+        .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
+        .align(fa_center, fa_top);
+
+    limitText = scribble("", $"__buildingHoverExtras{__id}Limit__")
+        .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
+        .align(fa_center, fa_top);
+
+    costText = scribble("", $"__buildingHoverExtras{__id}Cost__")
+        .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
+        .align(fa_left, fa_top)
+        .wrap(HoverCardBodyWrapWidth());
+
+    /// @function Layout(_def, _building, _isBlueprint)
+    /// @description Sets this frame's text content and computes how much
+    ///        extra vertical space the icon row (top) and cost row
+    ///        (bottom, blueprint only) need -- feed the result straight
+    ///        into HoverCard.Show()'s trailing params.
+    /// @param {Struct.BuildingDefinition} _def
+    /// @param {Id.Instance|Constant.NoOne} _building A placed building
+    ///        instance, or noone when _isBlueprint is true.
+    /// @param {Bool} _isBlueprint
+    /// @returns {Struct} { topContentHeight, bottomContentHeight } -- both
+    ///        already-scaled on-screen px, see HoverCard.Show()'s doc.
+    static Layout = function(_def, _building, _isBlueprint) {
+        buildingSprite = _def.sprite;
+
+        var _timerString = BuildingHoverTimerText(_def, _building, _isBlueprint);
+        hasTimerText = (_timerString != "");
+        if (hasTimerText) {
+            timerText = scribble(_timerString, $"__buildingHoverExtras{__id}Timer__")
+                .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
+                .align(fa_center, fa_top);
+        }
+
+        var _limitString = BuildingHoverResourceLimitText(_def, _building, _isBlueprint);
+        hasLimitText = (_limitString != "");
+        if (hasLimitText) {
+            limitText = scribble(_limitString, $"__buildingHoverExtras{__id}Limit__")
+                .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
+                .align(fa_center, fa_top);
+        }
+
+        var _icon = BuildingHoverItemIcon(_def);
+        hasItemIcon = (_icon != undefined);
+        if (hasItemIcon) {
+            itemIconSprite = _icon.sprite;
+            itemIconImage  = _icon.image;
+        }
+
+        // -- Icon row height: tallest of the 3 columns. Building Window is
+        // a fixed height; Timer/Item columns add their label text's height
+        // (native, unscaled -- text stays 1x per this project's standing
+        // "layout scales, glyphs don't" convention) UNDER their icon, only
+        // when that column actually has something to show. --
+        var _buildingColHeight = sprite_get_height(sHoverCardBuildingWindow) * HOVER_CARD_SCALE;
+
+        var _timerColHeight = 0;
+        if (hasTimerText) {
+            _timerColHeight = (sprite_get_height(sHoverCardTimer) * HOVER_CARD_SCALE)
+                + (BUILDING_HOVER_ICON_LABEL_GAP_Y * HOVER_CARD_SCALE)
+                + timerText.get_height();
+        }
+
+        var _itemColHeight = 0;
+        if (hasItemIcon) {
+            _itemColHeight = sprite_get_height(sHoverCardUnitWindow) * HOVER_CARD_SCALE;
+            if (hasLimitText) {
+                _itemColHeight += (BUILDING_HOVER_ICON_LABEL_GAP_Y * HOVER_CARD_SCALE) + limitText.get_height();
+            }
+        }
+
+        var _rowHeight = max(_buildingColHeight, _timerColHeight, _itemColHeight);
+        var _topContentHeight = _rowHeight + (BUILDING_HOVER_ICON_ROW_GAP_TOP * HOVER_CARD_SCALE) + (BUILDING_HOVER_ROW_TO_BODY_GAP * HOVER_CARD_SCALE);
+
+        // -- Cost row (blueprint hover only) --
+        showCostRow = _isBlueprint;
+        var _bottomContentHeight = 0;
+        if (showCostRow) {
+            var _costString = CostToScribbleText(_def.cost);
+            showCostRow = (_costString != ""); // a free building has nothing to show -- no such building exists today, but don't reserve dead space if one ever does
+            if (showCostRow) {
+                costText = scribble(_costString, $"__buildingHoverExtras{__id}Cost__")
+                    .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
+                    .align(fa_left, fa_top)
+                    .wrap(HoverCardBodyWrapWidth());
+
+                _bottomContentHeight = (BUILDING_HOVER_COST_ROW_GAP_TOP * HOVER_CARD_SCALE) + costText.get_height();
+            }
+        }
+
+        return { topContentHeight: _topContentHeight, bottomContentHeight: _bottomContentHeight };
+    }
+
+    /// @function Draw(_card, _alpha)
+    /// @description Call once per Draw GUI event, immediately after
+    ///        _card.Draw(_alpha) -- draws the icon row (building/timer/
+    ///        item windows + their labels) and, if showCostRow, the
+    ///        blueprint cost row below everything else.
+    /// @param {Struct.HoverCard} _card
+    /// @param {Real} _alpha
+    static Draw = function(_card, _alpha) {
+        var _rowTopY      = _card.GetContentTopY();
+        var _cardLeftEdge = _card.x;
+
+        // Building icon window -- top-left of the body (matches
+        // sHoverCardBuildingWindow's ORIGINAL spec wording; see file
+        // header for the 2026-07-08 top-right -> top-left correction).
+        var _buildingHalfW   = (sprite_get_width(sHoverCardBuildingWindow) / 2) * HOVER_CARD_SCALE;
+        var _buildingCenterX = _cardLeftEdge + (HOVER_CARD_BODY_MARGIN_X * HOVER_CARD_SCALE) + _buildingHalfW;
+        var _buildingCenterY = _rowTopY + (sprite_get_height(sHoverCardBuildingWindow) / 2) * HOVER_CARD_SCALE;
+
+        draw_sprite_ext(sHoverCardBuildingWindow, 0, _buildingCenterX, _buildingCenterY, HOVER_CARD_SCALE, HOVER_CARD_SCALE, 0, c_white, _alpha);
+        if (buildingSprite != noone) {
+            draw_sprite_ext(buildingSprite, 0, _buildingCenterX, _buildingCenterY, HOVER_CARD_SCALE, HOVER_CARD_SCALE, 0, c_white, _alpha);
+        }
+
+        var _cursorLeftEdge = _buildingCenterX + _buildingHalfW;
+
+        // Timer icon + text -- immediately to the Building Window's RIGHT,
+        // tops aligned (ORIGINAL spec, item D). sHoverCardTimer has a
+        // TOP-CENTER origin (unlike the other two windows' middle-center),
+        // so drawing it at Y = _rowTopY directly already puts its TOP edge
+        // there -- same row-top alignment as the other two columns without
+        // a half-height offset.
+        if (hasTimerText) {
+            var _timerHalfW   = (sprite_get_width(sHoverCardTimer) / 2) * HOVER_CARD_SCALE;
+            var _timerCenterX = _cursorLeftEdge + (BUILDING_HOVER_ICON_GAP_X * HOVER_CARD_SCALE) + _timerHalfW;
+
+            draw_sprite_ext(sHoverCardTimer, 0, _timerCenterX, _rowTopY, HOVER_CARD_SCALE, HOVER_CARD_SCALE, 0, c_white, _alpha);
+
+            var _timerTextY = _rowTopY + (sprite_get_height(sHoverCardTimer) * HOVER_CARD_SCALE) + (BUILDING_HOVER_ICON_LABEL_GAP_Y * HOVER_CARD_SCALE);
+            DrawCardTextWithShadow(timerText, _timerCenterX, _timerTextY, _alpha);
+
+            _cursorLeftEdge = _timerCenterX + _timerHalfW;
+        }
+
+        // Item/Unit window -- "on the other side of the card timer" from
+        // the Building Window (ORIGINAL spec, item E), i.e. the RIGHTMOST
+        // column.
+        if (hasItemIcon) {
+            var _itemHalfW   = (sprite_get_width(sHoverCardUnitWindow) / 2) * HOVER_CARD_SCALE;
+            var _itemCenterX = _cursorLeftEdge + (BUILDING_HOVER_ICON_GAP_X * HOVER_CARD_SCALE) + _itemHalfW;
+            var _itemCenterY = _rowTopY + (sprite_get_height(sHoverCardUnitWindow) / 2) * HOVER_CARD_SCALE;
+
+            draw_sprite_ext(sHoverCardUnitWindow, 0, _itemCenterX, _itemCenterY, HOVER_CARD_SCALE, HOVER_CARD_SCALE, 0, c_white, _alpha);
+            draw_sprite_ext(itemIconSprite, itemIconImage, _itemCenterX, _itemCenterY, HOVER_CARD_SCALE, HOVER_CARD_SCALE, 0, c_white, _alpha);
+
+            if (hasLimitText) {
+                var _limitTextY = _rowTopY + (sprite_get_height(sHoverCardUnitWindow) * HOVER_CARD_SCALE) + (BUILDING_HOVER_ICON_LABEL_GAP_Y * HOVER_CARD_SCALE);
+                DrawCardTextWithShadow(limitText, _itemCenterX, _limitTextY, _alpha);
+            }
+        }
+
+        // Cost row -- blueprint hover only, along the bottom, below
+        // whatever the card itself drew last (flavor window, or body text
+        // if no flavor) -- 2026-07-08 request.
+        if (showCostRow) {
+            var _costX = _card.x + HOVER_CARD_BODY_MARGIN_X * HOVER_CARD_SCALE;
+            var _costY = _card.GetContentBottomY() + BUILDING_HOVER_COST_ROW_GAP_TOP * HOVER_CARD_SCALE;
+            DrawCardTextWithShadow(costText, _costX, _costY, _alpha);
+        }
+    }
+}
+
+/// @function BuildingHoverSuppressed(_selectionController, _blueprintController)
+/// @description True while the player is mid-action elsewhere and building
+///        hover data should NOT trigger -- targeting, dragging a blueprint,
+///        the mouse sitting over the Blueprint UI panel at all (see file
+///        header on why this is needed -- GUI-space panel vs. room-space
+///        building underneath it), or the Fate Engine overlay being open.
+///        Same shape as PlotHoverSuppressed (PlotHoverScripts.gml).
+/// @param {Struct.SelectionController} _selectionController
+/// @param {Struct.BlueprintController} _blueprintController
+/// @returns {Bool}
+function BuildingHoverSuppressed(_selectionController, _blueprintController) {
+    return _selectionController.isTargeting
+        || _blueprintController.dragging
+        || _blueprintController.IsMouseOverPanel()
+        || global.fateEngineOverlayActive;
+}
+
+/// @function BuildingHoverController()
+/// @description Owns one HoverCard + one BuildingHoverExtras and drives
+///        them for placed building instances (oBuildingParent, any team --
+///        this is informational only, not tied to who owns the building;
+///        flag if hover data should be restricted to the player's own
+///        buildings instead): the same 1-second dwell timer
+///        (PLOT_HOVER_DELAY_STEPS) and fade (PLOT_HOVER_FADE_STEPS) as
+///        plot hover, and the same cursor-relative quadrant anchoring.
+///        Same "plain struct, owner calls Step()/Draw()" pattern as
+///        PlotHoverController -- wire into oUnitControl alongside it.
+function BuildingHoverController() constructor {
+    card        = new HoverCard();
+    extras      = new BuildingHoverExtras();
+    hoverTarget = noone; // the oBuildingParent instance currently being dwelt on, or noone
+    hoverTimer  = 0;     // real steps (NOT global.matchSpeed), same basis as PlotHoverController
+    alpha       = 0;     // current fade level, 0-1
+
+    /// @function Step(_selectionController, _blueprintController)
+    /// @description Call once per Step event. Same dwell/fade/positioning
+    ///        structure as PlotHoverController.Step -- see that function's
+    ///        doc comment (PlotHoverScripts.gml) for the general pattern.
+    /// @param {Struct.SelectionController} _selectionController
+    /// @param {Struct.BlueprintController} _blueprintController
+    static Step = function(_selectionController, _blueprintController) {
+        var _candidate = noone;
+        if (!BuildingHoverSuppressed(_selectionController, _blueprintController)) {
+            var _found = instance_position(mouse_x, mouse_y, oBuildingParent);
+            if (_found != noone && GetBuildingDefinition(_found.object_index) != undefined) {
+                _candidate = _found;
+            }
+        }
+
+        if (_candidate != hoverTarget) {
+            hoverTarget = _candidate;
+            hoverTimer  = 0;
+        } else if (_candidate != noone) {
+            hoverTimer += 1;
+        }
+
+        var _shouldShow  = (hoverTarget != noone) && (hoverTimer >= PLOT_HOVER_DELAY_STEPS);
+        var _targetAlpha = _shouldShow ? 1 : 0;
+        var _fadeStep    = 1 / PLOT_HOVER_FADE_STEPS;
+        alpha = (alpha < _targetAlpha)
+            ? min(_targetAlpha, alpha + _fadeStep)
+            : max(_targetAlpha, alpha - _fadeStep);
+
+        if (_shouldShow) {
+            var _def = GetBuildingDefinition(hoverTarget.object_index);
+
+            var _sizes = extras.Layout(_def, hoverTarget, false);
+            card.Show(_def.name, BuildingHoverDescriptionText(_def), 0, 0, _def.description, _sizes.topContentHeight, _sizes.bottomContentHeight);
+
+            var _mx    = device_mouse_x_to_gui(0);
+            var _my    = device_mouse_y_to_gui(0);
+            var _cardW = card.GetWidth();
+            var _cardH = card.GetHeight();
+
+            var _anchorLeft = (_mx < display_get_gui_width()  / 2);
+            var _anchorTop  = (_my < display_get_gui_height() / 2);
+
+            card.x = _anchorLeft ? (_mx + PLOT_HOVER_CURSOR_GAP) : (_mx - PLOT_HOVER_CURSOR_GAP - _cardW);
+            card.y = _anchorTop  ? (_my + PLOT_HOVER_CURSOR_GAP) : (_my - PLOT_HOVER_CURSOR_GAP - _cardH);
+
+            card.x = clamp(card.x, 0, display_get_gui_width()  - _cardW);
+            card.y = clamp(card.y, 0, display_get_gui_height() - _cardH);
+        }
+    }
+
+    /// @function Draw()
+    /// @description Call once per Draw GUI event. No-ops while fully faded
+    ///        out, same as PlotHoverController.Draw.
+    static Draw = function() {
+        if (alpha <= 0) return;
+        card.Draw(alpha);
+        extras.Draw(card, alpha);
+    }
+}

@@ -122,6 +122,7 @@ function SelectionController(_unitObject, _team) constructor {
     dragStartY       = 0;
     _pendingOrder    = undefined; // Order awaiting a target click
     isTargeting      = false;     // true while waiting for the player to click a target
+    _targetingJustBegan = false;  // swallows the same-frame click that opened targeting mode -- see BeginTargeting/UpdateTargeting
 
     /// @function BeginDrag()
     /// Call from a Left Pressed / mouse-down check in Step. No-ops (leaves
@@ -203,6 +204,13 @@ function SelectionController(_unitObject, _team) constructor {
     /// target-selection mode if the order requires a target first.
     /// Internally calls IssueOrderToUnits so the player and AI go
     /// through the exact same Order.onIssue path.
+    ///
+    /// Clears `selected` the instant the order actually goes out (i.e.
+    /// immediately here for a no-target order like "guard"/"siege" -- a
+    /// targeted order like "defend"/"attack" doesn't clear until
+    /// UpdateTargeting's successful-click branch, since nothing has
+    /// actually been issued yet at this point for those). Per 2026-07-06
+    /// request: units deselect once given an order.
     /// @param {String} _orderName
     /// @param {*} [_context]
     /// @returns {Struct.SelectionController} self
@@ -217,6 +225,7 @@ function SelectionController(_unitObject, _team) constructor {
             BeginTargeting(_order);
         } else {
             IssueOrderToUnits(_orderName, selected, _context);
+            selected = [];
         }
 
         return self;
@@ -227,11 +236,19 @@ function SelectionController(_unitObject, _team) constructor {
     /// automatically by IssueOrder -- you shouldn't need to call this
     /// directly, but it's public in case you want to enter targeting
     /// mode programmatically (e.g. from a keyboard shortcut).
+    ///
+    /// Sets _targetingJustBegan so the very next UpdateTargeting call (which,
+    /// per oUnitControl/Step_0.gml, runs in the SAME Step event as the menu
+    /// click that got here via IssueOrder) doesn't immediately consume that
+    /// same physical mouse press -- see UpdateTargeting for why that was a
+    /// real bug (2026-07-06: "sometimes does not bring up the targeting
+    /// reticle").
     /// @param {Struct.Order} _order
     /// @returns {Struct.SelectionController} self
     static BeginTargeting = function(_order) {
-        _pendingOrder = _order;
-        isTargeting   = true;
+        _pendingOrder        = _order;
+        isTargeting          = true;
+        _targetingJustBegan  = true;
         return self;
     }
 
@@ -240,8 +257,9 @@ function SelectionController(_unitObject, _team) constructor {
     /// Call on right-click or Escape while isTargeting is true.
     /// @returns {Struct.SelectionController} self
     static CancelTargeting = function() {
-        _pendingOrder = undefined;
-        isTargeting   = false;
+        _pendingOrder        = undefined;
+        isTargeting          = false;
+        _targetingJustBegan  = false;
         return self;
     }
 
@@ -253,6 +271,23 @@ function SelectionController(_unitObject, _team) constructor {
     /// @returns {Bool}
     static UpdateTargeting = function() {
         if (!isTargeting) return false;
+
+        // BeginTargeting (called from IssueOrder, itself called from
+        // oUnitControl/Step_0.gml the instant orderMenu.Update() reports a
+        // click) runs in the SAME Step event as this first UpdateTargeting
+        // call -- mouse_check_button_pressed(mb_left) below is still true
+        // for the rest of that Step, since it's the exact same physical
+        // press that selected "Defend Building" from the menu. Without this
+        // guard, that stale press gets read as the player's target click,
+        // resolving against wherever the cursor happened to be sitting on
+        // the menu (almost never a valid target) and canceling targeting
+        // mode before the reticle is ever drawn -- 2026-07-06: "sometimes
+        // does not bring up the targeting reticle." Swallow exactly that
+        // one same-frame press and start reading clicks for real next Step.
+        if (_targetingJustBegan) {
+            _targetingJustBegan = false;
+            return false;
+        }
 
         if (mouse_check_button_pressed(mb_right)) {
             CancelTargeting();
@@ -266,6 +301,30 @@ function SelectionController(_unitObject, _team) constructor {
         // environment objects, so we check all instances at the cursor
         // and let the validator decide.
         var _clicked = instance_position(mouse_x, mouse_y, all);
+
+        // An occupied oBuildingPlot is never destroyed once something is
+        // built on it (TryPlaceBlueprint, BlueprintScripts.gml -- it just
+        // sets occupied = true) and sits at the exact same x/y as the
+        // building placed on it, so instance_position(..., all) can
+        // resolve to the plot instead of the building underneath it --
+        // the plot fails every real targetValidator (it's not an
+        // oBuildingParent), so the click would otherwise silently do
+        // nothing. Per 2026-07-06 request ("strip its mask... regain it
+        // once nothing's built on it"): rather than an actual mask/sprite
+        // swap (every mask in this project, sPlot included, is rectangle/
+        // bbox collision, not precise -- an empty mask would need a new,
+        // hand-authored sprite asset), an occupied plot is click-through
+        // here, and we re-resolve against oBuildingParent (which matches
+        // the building sitting on top of it). NOTE: this checks `occupied`,
+        // NOT `blocked` -- blocked is an unrelated meta-progression flag
+        // (see oPlotSpawner/Create_0.gml's interior-grid lockout), corrected
+        // same day after conflating the two. An UNOCCUPIED plot (blocked or
+        // not) has nothing built on it and is unaffected -- still a normal
+        // target in its own right.
+        if (_clicked != noone && _clicked.object_index == oBuildingPlot && _clicked.occupied) {
+            _clicked = instance_position(mouse_x, mouse_y, oBuildingParent);
+        }
+
         if (_clicked == noone) {
             CancelTargeting();
             return false;
@@ -276,6 +335,7 @@ function SelectionController(_unitObject, _team) constructor {
 
         if (_valid) {
             IssueOrderToUnits(_pendingOrder.name, selected, _clicked);
+            selected = []; // deselect now that the order has actually gone out -- 2026-07-06
             CancelTargeting();
             return true;
         }

@@ -1,4 +1,4 @@
-#macro UNIT_OBSTACLE_LOOK_RADIUS 96 // how far out a unit checks for buildings/environment to avoid
+#macro UNIT_OBSTACLE_LOOK_RADIUS 140 // how far out a unit checks for buildings/environment to avoid -- was 96 (2026-07-06); that left barely any margin beyond Steering_AvoidObstacles' own feeler length (up to 80, more for a longer siege-march feeler -- see UnitPursueTarget), so obstacles were only ever spotted right at the tip of the feeler with almost no room to steer around them smoothly. Widening this doesn't change avoidance LOGIC, just how early an obstacle is seen -- part of the 2026-07-06 fix for siege units getting caught on buildings en route to the castle.
 
 /// @function GatherNearbyObstacles(_unit, _radius)
 /// Gathers nearby buildings and environment solids into the
@@ -63,6 +63,24 @@ function GetEnemyCastle(_unit){
     }
     else{
         return instance_find(oPlayerCastle,0);
+    }
+}
+
+/// @function GetTeamCastle(_team)
+/// @desc _team's OWN castle instance -- the inverse of GetEnemyCastle above,
+///       which takes a UNIT and returns the OPPOSING side's castle. This
+///       takes a TEAM directly and returns that same team's castle. Added
+///       2026-07-06 for AI castle-defense threat detection
+///       (AI_CastleUnderThreat, AIControl.gml), which needs to check
+///       proximity to a team's own castle rather than the enemy's.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Id.Instance} _team's own castle instance.
+function GetTeamCastle(_team) {
+    if (_team == TEAM.PLAYER) {
+        return instance_find(oPlayerCastle, 0);
+    }
+    else {
+        return instance_find(oEnemyCastle, 0);
     }
 }
 

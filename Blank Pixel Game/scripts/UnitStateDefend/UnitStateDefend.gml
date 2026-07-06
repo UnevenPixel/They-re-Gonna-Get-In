@@ -1,7 +1,7 @@
 #macro DEFEND_BUILDING_HALF  24   // half of 48x48
-#macro DEFEND_PATROL_MARGIN  20   // how far outside the building edge the patrol path sits
+#macro DEFEND_PATROL_MARGIN  16    // how far outside the building edge the patrol path sits -- tightened from 20, 2026-07-06 ("4 px should look better")
 #macro DEFEND_WAYPOINT_REACH 12   // how close the unit needs to get before advancing to next waypoint
-#macro DEFEND_ARRIVE_RADIUS  48   // Steering_Arrive slow-down zone
+#macro DEFEND_ARRIVE_RADIUS  16   // Steering_Arrive slow-down zone -- was 48, tightened alongside DEFEND_PATROL_MARGIN: the old value was nearly as big as the entire corner-to-corner patrol leg at the new, much smaller margin, which would have kept units decelerating for almost the whole loop instead of ever reaching a normal patrol speed
 
 /// @function DefendBuildingWaypoints(_building)
 /// Builds the four patrol corner waypoints around a building.
@@ -45,18 +45,30 @@ function NearestWaypointIndex(_pos, _waypoints) {
 
 /// @function Defend_Enter(_unit, _machine)
 /// @description StateMachine onEnter for "defend". Falls back to "guard" if the
-///        target building is already gone; otherwise builds the patrol waypoints
-///        and picks up the patrol from whichever corner is nearest the unit.
+///        target is already gone; otherwise builds the patrol waypoints and
+///        picks up the patrol from whichever waypoint is nearest the unit.
+///        2026-07-06: _unit.defendTarget can now also be a castle
+///        (oPlayerCastle/oEnemyCastle, AI_CastleDefense_Step in AIControl.gml)
+///        -- neither is an oBuildingParent descendant (parentObjectId: null),
+///        so !object_is_ancestor(..., oBuildingParent) reliably tells the two
+///        apart without hardcoding either castle object name here. A castle
+///        gets CastleDefendWaypoints (patrol spread along its actual front
+///        wall, CastleScripts.gml) instead of DefendBuildingWaypoints' 4-corner
+///        box, which assumes a 48x48 building and would be wrong for a
+///        350x411 castle.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Defend_Enter(_unit, _machine) {
     if (!instance_exists(_unit.defendTarget)) {
-        // Building was destroyed before the unit arrived -- fall back.
+        // Target was destroyed before the unit arrived -- fall back.
         _machine.ChangeState("guard");
         return;
     }
 
-    var _waypoints = DefendBuildingWaypoints(_unit.defendTarget);
+    var _target    = _unit.defendTarget;
+    var _isCastle  = !object_is_ancestor(_target.object_index, oBuildingParent);
+    var _waypoints = _isCastle ? CastleDefendWaypoints(_target) : DefendBuildingWaypoints(_target);
+
     _machine.data.waypoints     = _waypoints;
     _machine.data.waypointIndex = NearestWaypointIndex(
         _unit.agent.pos,
@@ -110,9 +122,19 @@ function Defend_Step(_unit, _machine) {
         PLAY_AREA_CONTAIN_WEIGHT
     );
 
+    // oBuildingParent dropped from this collision list, 2026-07-06 --
+    // units no longer physically collide with buildings, only with real
+    // static geometry (oEnvironmentSolid). Steering_AvoidObstacles above
+    // still sees buildings (GatherNearbyObstacles, GatherScripts.gml, is
+    // unchanged) and steers around them cosmetically; a unit can now clip
+    // through one if avoidance doesn't fully route around it, which is
+    // accepted as harmless per that request. (The building itself being
+    // "defended" is never in this list to begin with -- patrol waypoints
+    // already sit outside it -- so this only affects buildings a unit
+    // might pass near while patrolling.)
     var _delta = _unit.controller.Apply();
     with(_unit){
-        move_and_collide(_delta.x, _delta.y, [oBuildingParent, oEnvironmentSolid]);
+        move_and_collide(_delta.x, _delta.y, [oEnvironmentSolid]);
     }
     _unit.agent.SyncFromInstance(_unit);
 

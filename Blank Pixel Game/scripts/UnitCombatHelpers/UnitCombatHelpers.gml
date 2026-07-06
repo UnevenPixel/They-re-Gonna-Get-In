@@ -1,3 +1,10 @@
+#macro COMBAT_XP_TIER_1        1  // Combat XP per kill, by victim's UnitDefinition.tier -- "XP Age Progression System" doc, 2026-07-06
+#macro COMBAT_XP_TIER_2        3
+#macro COMBAT_XP_TIER_3        5
+#macro COMBAT_XP_STRUCTURE     5  // destroy any enemy building (oBuildingParent)
+#macro COMBAT_XP_RESOURCE_BLDG 5  // ADDITIONAL XP on top of COMBAT_XP_STRUCTURE if that building is also an oResourceBuildingParent (+10 total) -- confirmed stacking, 2026-07-06
+#macro STRATEGIC_XP_LOSE_UNIT  1  // to the LOSING team, every unit death -- doc's "Lose a unit" line, 2026-07-06
+
 /// @function ApplyDamage(_target, _amount, _source)
 /// @description The one real damage-application function in the codebase --
 ///        both melee (UnitTryDealDamage below) and ranged (ProjectileResolveHit,
@@ -16,11 +23,29 @@
 ///        source of truth. damageTaken is clamped to maxHealth here so it
 ///        can never overshoot into "more dead than dead."
 ///
+///        Resets _target.noDamageTimer to 0 on any hit, lethal or not, if
+///        that field exists on it -- generic hook for oPlayerCastle/
+///        oEnemyCastle's "no damage for 120s" Defensive XP timer
+///        (CastleScripts.gml); harmless no-op for anything else.
+///
 ///        Destroys _target the instant its health reaches 0 -- this is the
 ///        first place in the codebase anything can actually die. Also
 ///        closes the loop on AnalyticsRecordKill/AnalyticsRecordDeath
 ///        (AnalyticsScripts.gml), which existed already but had no death
-///        event to call them from.
+///        event to call them from, and now awards Combat/Strategic XP (per
+///        the 2026-07-06 "XP Age Progression System" doc):
+///          - _target is a unit (has "fsm"): the LOSING team (_target.team)
+///            gets STRATEGIC_XP_LOSE_UNIT regardless of _source. If _source
+///            is a valid, team-tagged killer, its team also gets Combat XP
+///            by the victim's UnitDefinition.tier (COMBAT_XP_TIER_1/2/3).
+///          - _target is a building (has no "fsm"): if _source is a valid,
+///            team-tagged killer, its team gets COMBAT_XP_STRUCTURE, PLUS
+///            COMBAT_XP_RESOURCE_BLDG on top if _target is also an
+///            oResourceBuildingParent (so destroying a resource building
+///            nets +10 total, confirmed stacking).
+///        Economic XP ("resource building depletes naturally") is NOT
+///        wired here or anywhere -- no depletion mechanic exists yet, see
+///        PATCH_NOTES.md.
 ///
 ///        Non-lethal hits also drive "combat"'s reactive-on-hit trigger
 ///        (per design: combat is an interim state guard/defend pop into
@@ -33,8 +58,11 @@
 /// @param {Id.Instance} _target
 /// @param {Real} _amount
 /// @param {Id.Instance} [_source] The attacking unit, for kill-credit via
-///        AnalyticsRecordKill and as the reactive-on-hit combat target.
-///        Optional -- omit if there's no single attributable attacker.
+///        AnalyticsRecordKill/Combat XP and as the reactive-on-hit combat
+///        target. Optional -- omit if there's no single attributable attacker
+///        (Strategic XP for the losing team and structure XP still needs a
+///        team to credit though -- no _source means no Combat/Structure XP,
+///        just the loss XP for a dead unit).
 /// @returns {Bool} True if this call killed _target.
 function ApplyDamage(_target, _amount, _source = noone) {
     if (!instance_exists(_target)) return false;
@@ -46,6 +74,10 @@ function ApplyDamage(_target, _amount, _source = noone) {
 
     SetDamageTaken(_target, min(GetDamageTaken(_target) + _amount, _target.maxHealth));
 
+    if (variable_instance_exists(_target, "noDamageTimer")) {
+        _target.noDamageTimer = 0;
+    }
+
     if (GetCurrentHealth(_target) > 0) {
         if (_source != noone && instance_exists(_source)
             && variable_instance_exists(_target, "fsm")
@@ -56,8 +88,38 @@ function ApplyDamage(_target, _amount, _source = noone) {
     }
 
     AnalyticsRecordDeath(_target.team, _target.object_index);
-    if (_source != noone && instance_exists(_source) && variable_instance_exists(_source, "team")) {
+
+    var _hasKiller = (_source != noone && instance_exists(_source) && variable_instance_exists(_source, "team"));
+    if (_hasKiller) {
         AnalyticsRecordKill(_source.team, _source.object_index);
+    }
+
+    var _isUnit = variable_instance_exists(_target, "fsm");
+    if (_isUnit) {
+        GainXP(_target.team, STRATEGIC_XP_LOSE_UNIT); // the losing team, regardless of whether there's an attributable killer
+
+        if (_hasKiller) {
+            var _def  = GetUnitDefinition(_target.object_index);
+            var _tier = (_def != undefined) ? _def.tier : 1;
+            var _tierXp = ((_tier >= 3) ? COMBAT_XP_TIER_3 : ((_tier == 2) ? COMBAT_XP_TIER_2 : COMBAT_XP_TIER_1));
+            GainXP(_source.team, _tierXp);
+        }
+    } else {
+        // Building destroyed -- always free up whatever plot it was built
+        // on (BuildingFreePlot, PlotScripts.gml) so the plot is buildable
+        // AND clickable/targetable again (2026-07-06), regardless of
+        // whether there's an attributable killer. XP below still only
+        // applies with one.
+        BuildingFreePlot(_target);
+
+        if (_hasKiller) {
+            // COMBAT_XP_STRUCTURE always, plus COMBAT_XP_RESOURCE_BLDG on
+            // top (not instead of) if it's also a resource building.
+            GainXP(_source.team, COMBAT_XP_STRUCTURE);
+            if (object_is_ancestor(_target.object_index, oResourceBuildingParent)) {
+                GainXP(_source.team, COMBAT_XP_RESOURCE_BLDG);
+            }
+        }
     }
 
     instance_destroy(_target);
@@ -164,7 +226,7 @@ function UnitAttackAnimComplete(_unit) {
     return _unit.image_index >= sprite_get_number(_unit.sprAttack) - 1;
 }
 
-/// @function UnitPursueTarget(_unit, _targetPos, _targetVelocity)
+/// @function UnitPursueTarget(_unit, _targetPos, _targetVelocity, _feelerLength)
 /// Standard pursue + separation + obstacle avoidance + play area containment.
 /// Reused across combat/attack/siege/defend pursuit phases.
 /// Calls UnitUpdateSprite after movement so sprite and facing are always
@@ -173,7 +235,15 @@ function UnitAttackAnimComplete(_unit) {
 /// @param {Id.Instance}    _unit
 /// @param {Struct.Vector2} _targetPos
 /// @param {Struct.Vector2} [_targetVelocity] Pass undefined/Vector2(0,0) for stationary targets.
-function UnitPursueTarget(_unit, _targetPos, _targetVelocity = undefined) {
+/// @param {Real} [_feelerLength] Steering_AvoidObstacles lookahead -- default
+///        80 (unchanged behavior everywhere except where a caller opts into
+///        a longer one). Siege_Step's ADVANCE phase passes a longer feeler
+///        (2026-07-06) since that's a long, deliberate march across open
+///        ground toward the castle where getting snagged on a building was
+///        reported -- earlier detection gives the existing avoidance logic
+///        more room to curve around smoothly instead of reacting at the
+///        last moment, which is what tends to catch on corners.
+function UnitPursueTarget(_unit, _targetPos, _targetVelocity = undefined, _feelerLength = 80) {
     _targetVelocity ??= new Vector2(0, 0);
 
     var _obstacles = GatherNearbyObstacles(_unit);
@@ -183,16 +253,23 @@ function UnitPursueTarget(_unit, _targetPos, _targetVelocity = undefined) {
     _unit.controller.Add(
         Steering_Pursue(_unit.agent, _targetPos, _targetVelocity), 1.2
     );
-    _unit.controller.Add(Steering_Separation(_unit.agent, _allies, 28),        1.0);
-    _unit.controller.Add(Steering_AvoidObstacles(_unit.agent, _obstacles, 80), 1.8);
+    _unit.controller.Add(Steering_Separation(_unit.agent, _allies, 28),                    1.0);
+    _unit.controller.Add(Steering_AvoidObstacles(_unit.agent, _obstacles, _feelerLength),  1.8);
     _unit.controller.Add(
         Steering_Contain(_unit.agent, global.playAreaRect, PLAY_AREA_CONTAIN_MARGIN),
         PLAY_AREA_CONTAIN_WEIGHT
     );
 
+    // oBuildingParent dropped from this collision list, 2026-07-06 --
+    // units no longer physically collide with buildings, only with real
+    // static geometry (oEnvironmentSolid). Steering_AvoidObstacles above
+    // still sees buildings (GatherNearbyObstacles, GatherScripts.gml, is
+    // unchanged) and steers around them cosmetically; a unit can now clip
+    // through one if avoidance doesn't fully route around it, which is
+    // accepted as harmless per that request.
     var _delta = _unit.controller.Apply();
     with(_unit){
-        move_and_collide(_delta.x, _delta.y, [oBuildingParent, oEnvironmentSolid]);
+        move_and_collide(_delta.x, _delta.y, [oEnvironmentSolid]);
     }
     _unit.agent.SyncFromInstance(_unit);
 
@@ -203,12 +280,30 @@ function UnitPursueTarget(_unit, _targetPos, _targetVelocity = undefined) {
 /// Idles in place this frame (zero steering, still applies knockback
 /// and collision). Calls UnitUpdateSprite so a standing unit still
 /// shows the correct idle sprite after a hit reaction.
+///
+/// Brakes the agent first (SteeringAgent.Brake, SteeringBehaviors.gml) --
+/// "zero steering" does NOT mean "zero speed" on its own: Begin()/Apply()
+/// with no Add() calls leaves agent.velocity completely untouched (every
+/// Steering_* behavior decelerates by computing desired-minus-velocity,
+/// but doing nothing at all provides no opposing force whatsoever), so
+/// without braking here, a unit that arrives at this call with leftover
+/// momentum from whatever pursuit got it here just keeps gliding in that
+/// same direction every subsequent step, indefinitely. This is what caused
+/// siege units to keep sliding into/through the castle wall after reaching
+/// attack range instead of actually stopping to fight -- 2026-07-06:
+/// "once they reach the castle edge, they should stop walking." Also fixes
+/// the same latent issue for every other caller (attack/attackRanged/
+/// combat/combatRanged), not just siege.
 /// @param {Id.Instance} _unit
 function UnitIdleInPlace(_unit) {
+    _unit.agent.Brake();
     _unit.controller.Begin();
     var _delta = _unit.controller.Apply();
+    // oBuildingParent dropped from this collision list, 2026-07-06 -- see
+    // UnitPursueTarget above for the full rationale (units no longer
+    // physically collide with buildings, only oEnvironmentSolid).
     with(_unit){
-        move_and_collide(_delta.x, _delta.y, [oBuildingParent, oEnvironmentSolid]);
+        move_and_collide(_delta.x, _delta.y, [oEnvironmentSolid]);
     }
     _unit.agent.SyncFromInstance(_unit);
     UnitUpdateSprite(_unit);

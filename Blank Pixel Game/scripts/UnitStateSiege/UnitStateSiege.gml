@@ -53,7 +53,15 @@ function Siege_Step(_unit, _machine) {
     }
 
     var _castlePos  = new Vector2(_machine.data.castle.x, _machine.data.castle.y);
-    var _edgePos    = NearestBuildingEdgePoint(_machine.data.castle, _unit.agent.pos);
+    // CastleFrontEdgePoint (CastleScripts.gml), not the generic
+    // NearestBuildingEdgePoint (UnitStateAttackMelee.gml) -- that function
+    // assumes every building is 48x48 (ATTACK_BUILDING_HALF), which a
+    // castle is nowhere close to, and clamps against all 4 sides rather
+    // than just the one facing the room's center. Per 2026-07-06 request:
+    // siege now targets anywhere along the castle's actual front edge
+    // (its real bbox, whichever side faces the room's middle) instead of
+    // a single fixed point clamped into a wrong-sized box.
+    var _edgePos    = CastleFrontEdgePoint(_machine.data.castle, _unit.agent.pos);
     var _distToEdge = _unit.agent.pos.Distance(_edgePos);
 
     // -----------------------------------------------------------
@@ -133,7 +141,14 @@ function Siege_Step(_unit, _machine) {
 
         if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer -= global.matchSpeed;
 
-        UnitPursueTarget(_unit, _edgePos, new Vector2(0, 0));
+        // Longer obstacle-avoidance feeler than the default 80 (see
+        // UnitPursueTarget, UnitCombatHelpers.gml) -- this is a long march
+        // across open ground toward the castle, so spotting a building
+        // earlier gives the avoidance steering more room to curve smoothly
+        // around it instead of reacting at the last moment right against a
+        // corner, which is what tends to snag a unit in place. 2026-07-06:
+        // "units have a chance to get caught on buildings" during siege.
+        UnitPursueTarget(_unit, _edgePos, new Vector2(0, 0), 120);
 
         if (_distToEdge <= _unit.attackRange && _machine.data.cooldownTimer <= 0) {
             _machine.data.phase = SIEGE_PHASE_ASSAULT;

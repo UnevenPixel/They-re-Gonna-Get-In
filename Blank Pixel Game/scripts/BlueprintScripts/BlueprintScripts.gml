@@ -64,19 +64,65 @@ function RemoveBlueprintOne(_team, _buildingType) {
     return false;
 }
 
+#macro PLOT_BONUS_DISCOUNT_FRACTION 0.5 // 50% off placement cost -- 2026-07-07 "plot bonuses" request, see GetPlacementCost below
+
+/// @function GetPlacementCost(_def, _plot)
+/// @description The actual Cost to charge for placing _def's building type
+///        on _plot, after plot-based placement discounts (2026-07-07 "plot
+///        bonuses" request, realizing the split oOuterPlotSpawner's header
+///        comment already described as intended: "Resource buildings get a
+///        placement bonus OUTSIDE the castle; unit-training buildings get
+///        theirs INSIDE"):
+///          - Resource buildings (_def.productionResource set) placed
+///            OUTSIDE the castle (_plot.inside == false -- covers BOTH
+///            Exterior and Distant/"far" plots) cost
+///            PLOT_BONUS_DISCOUNT_FRACTION (50%) less.
+///          - Training buildings (_def.trainsUnit set) placed on a CASTLE
+///            plot (_plot.inside == true) cost the same 50% less.
+///        A building is either a resource building or a training building
+///        in every BuildingDefinition registered today (never both), and a
+///        plot can't be both inside and !inside, so at most one discount
+///        ever applies -- no stacking logic needed. If neither condition is
+///        met, returns _def.cost UNCHANGED (the same instance, not a copy --
+///        CanAfford/Purchase only read it, never mutate it).
+///
+///        Distant plots ALSO grant a stat bonus (maxHealth, and resourceLimit
+///        for production buildings) on top of whichever discount applies
+///        here -- that's handled separately by ApplyPlotBonuses
+///        (BuildingDefinitions.gml), applied to the building AFTER it's
+///        created, since it affects stats rather than cost.
+/// @param {Struct.BuildingDefinition} _def
+/// @param {Id.Instance} _plot An oBuildingPlot instance.
+/// @returns {Struct.Cost}
+function GetPlacementCost(_def, _plot) {
+    var _isResourceBuilding = _def.productionResource != undefined;
+    var _isTrainingBuilding = _def.trainsUnit != undefined;
+
+    var _discounted = (_isResourceBuilding && !_plot.inside)
+        || (_isTrainingBuilding && _plot.inside);
+
+    return _discounted ? GetDiscountedCost(_def.cost, PLOT_BONUS_DISCOUNT_FRACTION) : _def.cost;
+}
+
 /// @function TryPlaceBlueprint(_team, _buildingType, _plot)
 /// @description Resolves an attempt to place _buildingType at _plot for
-///        _team: valid target is an unblocked oBuildingPlot owned by
-///        _team; if valid and affordable, purchases the cost, spawns the
-///        building, marks the plot blocked, consumes one blueprint, and
-///        records it to analytics. Every rejection is logged via
-///        show_debug_message and simply returns false -- caller decides
-///        what "stays in the UI" / "try again later" means for it.
+///        _team: valid target is an owned oBuildingPlot that's neither
+///        blocked (a meta-progression-locked slot -- see
+///        oPlotSpawner/Create_0.gml, unrelated to whether anything's built
+///        there) nor already occupied (a building is currently standing on
+///        it); if valid and affordable (at _plot's discounted cost -- see
+///        GetPlacementCost), purchases that cost, spawns the building,
+///        applies _plot's Distant-plot stat bonus if any (see
+///        ApplyPlotBonuses, BuildingDefinitions.gml), marks the plot
+///        occupied, consumes one blueprint, and records it to analytics.
+///        Every rejection is logged via show_debug_message and simply
+///        returns false -- caller decides what "stays in the UI" / "try
+///        again later" means for it.
 ///
 ///        Extracted from BlueprintController.EndDrag so both the
 ///        player's mouse-drag flow AND a programmatic caller (the AI --
 ///        see AI_TryPlaceBlueprints in AIControl.gml) can place buildings
-///        through identical cost/analytics/plot-blocking handling. EndDrag
+///        through identical cost/analytics/plot-occupancy handling. EndDrag
 ///        now just resolves _plot from the cursor and calls this.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @param {Asset.GMObject} _buildingType
@@ -85,7 +131,7 @@ function RemoveBlueprintOne(_team, _buildingType) {
 ///        rejection, not a crash.
 /// @returns {Bool} True if the building was placed.
 function TryPlaceBlueprint(_team, _buildingType, _plot) {
-    if (_plot == noone || _plot.team != _team || _plot.blocked) {
+    if (_plot == noone || _plot.team != _team || _plot.blocked || _plot.occupied) {
         show_debug_message($"TryPlaceBlueprint: no valid owned/empty plot for {object_get_name(_buildingType)} (team {_team}).");
         return false;
     }
@@ -96,17 +142,20 @@ function TryPlaceBlueprint(_team, _buildingType, _plot) {
         return false;
     }
 
-    if (!_def.cost.CanAfford(_team)) {
+    var _cost = GetPlacementCost(_def, _plot);
+    if (!_cost.CanAfford(_team)) {
         show_debug_message($"TryPlaceBlueprint: team {_team} can't afford {_def.name}.");
         return false;
     }
 
-    Purchase(_def.cost, _team);
+    Purchase(_cost, _team);
 
     var _building = instance_create_layer(_plot.x, _plot.y, "Instances", _buildingType);
     _building.team = _team; // overrides oBuildingParent's Create-time TEAM.PLAYER default -- see that file
 
-    _plot.blocked = true;
+    ApplyPlotBonuses(_building, _plot); // Distant-plot maxHealth/resourceLimit bonus, if any -- see BuildingDefinitions.gml
+
+    _plot.occupied = true;
 
     RemoveBlueprintOne(_team, _buildingType);
 
@@ -150,6 +199,19 @@ function BlueprintController(_team) constructor {
     page           = 0;
     dragging       = false;
     dragStackIndex = -1; // index into global.blueprints[team], set while dragging
+
+    // Slot hover tooltip -- 2026-07-08 request ("slightly tweaking the
+    // normal blueprint hover data"). Same dwell/fade timing as plot/
+    // building hover (PLOT_HOVER_DELAY_STEPS/FADE_STEPS,
+    // PlotHoverScripts.gml) and the same HoverCard+BuildingHoverExtras pair
+    // BuildingHoverController uses for placed buildings (BuildingHoverScripts.gml)
+    // -- see that file for why the two hover contexts share their drawing
+    // logic and differ only via the _isBlueprint flag.
+    hoverCard       = new HoverCard();
+    hoverExtras     = new BuildingHoverExtras();
+    hoverStackIndex = -1; // index into global.blueprints[team] currently being dwelt on, or -1
+    hoverTimer      = 0;  // real steps, same basis as PlotHoverController/BuildingHoverController
+    hoverAlpha      = 0;  // current fade level, 0-1
 
     /// @function GetOrigin()
     /// @description Top-left corner of the panel -- fixed GUI position
@@ -245,6 +307,116 @@ function BlueprintController(_team) constructor {
 
         var _plot = instance_position(mouse_x, mouse_y, oBuildingPlot);
         TryPlaceBlueprint(team, _buildingType, _plot);
+    }
+
+    /// @function IsMouseOverPanel()
+    /// @description True while the mouse (GUI-space) sits anywhere within
+    ///        the panel's full grid bounding rect -- not just over a FILLED
+    ///        slot, unlike TryBeginDrag/GetHoveredStackIndex. Used by
+    ///        PlotHoverSuppressed (PlotHoverScripts.gml) and
+    ///        BuildingHoverSuppressed (BuildingHoverScripts.gml) to keep
+    ///        plot/building world-space hover data from showing underneath
+    ///        this GUI-space panel -- see BuildingHoverScripts.gml's file
+    ///        header for why that conflict exists at all.
+    /// @returns {Bool}
+    static IsMouseOverPanel = function() {
+        var _origin  = GetOrigin();
+        var _size    = BLUEPRINT_SLOT_SIZE * BLUEPRINT_UI_SCALE;
+        var _padding = BLUEPRINT_SLOT_PADDING * BLUEPRINT_UI_SCALE;
+        var _width   = BLUEPRINT_GRID_COLS * (_size + _padding) + _padding;
+        var _height  = BLUEPRINT_GRID_ROWS * (_size + _padding) + _padding;
+
+        var _mx = device_mouse_x_to_gui(0);
+        var _my = device_mouse_y_to_gui(0);
+
+        return _mx >= _origin.x && _mx <= _origin.x + _width && _my >= _origin.y && _my <= _origin.y + _height;
+    }
+
+    /// @function GetHoveredStackIndex()
+    /// @description Resolves the mouse's current GUI position to a FILLED
+    ///        slot's stack index (into global.blueprints[team]), or -1 if
+    ///        the mouse isn't over a filled slot. Same hit-test as
+    ///        TryBeginDrag, but non-mutating (safe to call every Step just
+    ///        to check, not only on a mouse press).
+    /// @returns {Real}
+    static GetHoveredStackIndex = function() {
+        var _mx = device_mouse_x_to_gui(0);
+        var _my = device_mouse_y_to_gui(0);
+
+        for (var i = 0; i < BLUEPRINT_SLOTS_PER_PAGE; i++) {
+            var _stackIndex = GetStackIndexAtSlot(i);
+            if (_stackIndex == -1) continue;
+
+            var _rect = GetSlotRect(i);
+            if (_mx >= _rect.x1 && _mx <= _rect.x2 && _my >= _rect.y1 && _my <= _rect.y2) {
+                return _stackIndex;
+            }
+        }
+        return -1;
+    }
+
+    /// @function UpdateHover()
+    /// @description Call once per Step event (guarded by the caller against
+    ///        nothing else in particular -- dragging is checked internally
+    ///        below). Same dwell/fade/cursor-anchor structure as
+    ///        PlotHoverController.Step/BuildingHoverController.Step -- see
+    ///        those (PlotHoverScripts.gml/BuildingHoverScripts.gml) for the
+    ///        general pattern. Suppressed entirely while dragging (showing
+    ///        a tooltip for the slot you're mid-drag from would be noisy
+    ///        and it's already following the cursor as a dragged icon).
+    static UpdateHover = function() {
+        var _candidate = dragging ? -1 : GetHoveredStackIndex();
+
+        if (_candidate != hoverStackIndex) {
+            hoverStackIndex = _candidate;
+            hoverTimer      = 0;
+        } else if (_candidate != -1) {
+            hoverTimer += 1;
+        }
+
+        var _shouldShow  = (hoverStackIndex != -1) && (hoverTimer >= PLOT_HOVER_DELAY_STEPS);
+        var _targetAlpha = _shouldShow ? 1 : 0;
+        var _fadeStep    = 1 / PLOT_HOVER_FADE_STEPS;
+        hoverAlpha = (hoverAlpha < _targetAlpha)
+            ? min(_targetAlpha, hoverAlpha + _fadeStep)
+            : max(_targetAlpha, hoverAlpha - _fadeStep);
+
+        if (_shouldShow) {
+            var _stack = global.blueprints[team][hoverStackIndex];
+            var _def   = GetBuildingDefinition(_stack.buildingType);
+            if (_def == undefined) return;
+
+            // _isBlueprint = true -- flat resource limit (not "remaining/
+            // total") and the cost row along the bottom, per 2026-07-08
+            // request -- see BuildingHoverScripts.gml.
+            var _sizes = hoverExtras.Layout(_def, noone, true);
+            hoverCard.Show(_def.name, BuildingHoverDescriptionText(_def), 0, 0, _def.description, _sizes.topContentHeight, _sizes.bottomContentHeight);
+
+            var _mx    = device_mouse_x_to_gui(0);
+            var _my    = device_mouse_y_to_gui(0);
+            var _cardW = hoverCard.GetWidth();
+            var _cardH = hoverCard.GetHeight();
+
+            var _anchorLeft = (_mx < display_get_gui_width()  / 2);
+            var _anchorTop  = (_my < display_get_gui_height() / 2);
+
+            hoverCard.x = _anchorLeft ? (_mx + PLOT_HOVER_CURSOR_GAP) : (_mx - PLOT_HOVER_CURSOR_GAP - _cardW);
+            hoverCard.y = _anchorTop  ? (_my + PLOT_HOVER_CURSOR_GAP) : (_my - PLOT_HOVER_CURSOR_GAP - _cardH);
+
+            hoverCard.x = clamp(hoverCard.x, 0, display_get_gui_width()  - _cardW);
+            hoverCard.y = clamp(hoverCard.y, 0, display_get_gui_height() - _cardH);
+        }
+    }
+
+    /// @function DrawHoverCard()
+    /// @description Call once per Draw GUI event, separately from Draw()
+    ///        (the panel itself) so the caller can order it after every
+    ///        other HUD element -- see oUnitControl/Draw_64.gml. No-ops
+    ///        while fully faded out.
+    static DrawHoverCard = function() {
+        if (hoverAlpha <= 0) return;
+        hoverCard.Draw(hoverAlpha);
+        hoverExtras.Draw(hoverCard, hoverAlpha);
     }
 
     /// @function Draw()

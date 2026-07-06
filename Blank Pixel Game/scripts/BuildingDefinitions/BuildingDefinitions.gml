@@ -46,6 +46,14 @@
 ///               unbalanced placeholder, same status every cost/rate number
 ///               in this file already had -- there's no sheet-sourced
 ///               building HP yet).
+///        resourceLimit      {Real}           [optional] TOTAL lifetime
+///               units of productionResource this building may ever
+///               produce -- once reached, the building depletes and
+///               self-destroys (see BuildingUpdateProduction). Omit (the
+///               default, undefined) for buildings that produce forever
+///               (or don't produce at all) -- per the 2026-07-06
+///               "Resource_Infrastructure Buildings" doc, which only
+///               specifies limits for actual resource buildings.
 function BuildingDefinition(_data) constructor {
     name        = _data.name;
     description = _data.description;
@@ -54,6 +62,7 @@ function BuildingDefinition(_data) constructor {
 
     productionResource = variable_struct_exists(_data, "productionResource") ? _data.productionResource : undefined;
     productionRate      = variable_struct_exists(_data, "productionRate")     ? _data.productionRate     : 0;
+    resourceLimit       = variable_struct_exists(_data, "resourceLimit")      ? _data.resourceLimit      : undefined;
 
     trainsUnit       = variable_struct_exists(_data, "trainsUnit")       ? _data.trainsUnit       : undefined;
     unitsPerBuilding = variable_struct_exists(_data, "unitsPerBuilding") ? _data.unitsPerBuilding : 0;
@@ -108,7 +117,8 @@ function RegisterAllBuildingDefinitions() {
         sprite:              sWheatField,
         productionResource: "wheat",
         productionRate:      1, // 1 wheat/sec at 1x match speed
-        maxHealth:           150,
+        resourceLimit:       300, // per 2026-07-06 "Resource_Infrastructure Buildings" doc
+        maxHealth:           100, // per 2026-07-06 doc -- was 150
     }));
 
     RegisterBuildingDefinition(oPeasantWard, new BuildingDefinition({
@@ -192,8 +202,12 @@ function RegisterAllBuildingDefinitions() {
     // Remaining 4 tier-1 resource buildings -- cost + production rate are
     // real, sheet-sourced values (Item Costs sheet, "Production Buildings"
     // section), same status as Wheat Field's numbers above. maxHealth is
-    // NOT sheet-sourced (no building-HP column exists) -- placeholder,
-    // matching Wheat Field's 150 since these are the same tier/category.
+    // 100 and resourceLimit is 300 for all 5 tier-1 resource buildings
+    // (this one plus Wheat Field above) -- both per the 2026-07-06
+    // "Resource_Infrastructure Buildings" doc, which lists every Tier 1
+    // resource building at "Resource Limit: 300" (maxHealth isn't in that
+    // doc either, but per explicit 2026-07-06 direction: "each resource
+    // building should keep their 100 max health").
     RegisterBuildingDefinition(oWaterPump, new BuildingDefinition({
         name:               "Water Pump",
         description:        "A basic resource plot that produces water over time.",
@@ -201,7 +215,8 @@ function RegisterAllBuildingDefinitions() {
         sprite:              sWaterPump,
         productionResource: "water",
         productionRate:      1, // 1 water/sec at 1x match speed
-        maxHealth:           150,
+        resourceLimit:       300,
+        maxHealth:           100,
     }));
 
     RegisterBuildingDefinition(oSawmill, new BuildingDefinition({
@@ -211,7 +226,8 @@ function RegisterAllBuildingDefinitions() {
         sprite:              sSawmill,
         productionResource: "wood",
         productionRate:      1, // 1 wood/sec at 1x match speed
-        maxHealth:           150,
+        resourceLimit:       300,
+        maxHealth:           100,
     }));
 
     RegisterBuildingDefinition(oGoldMine, new BuildingDefinition({
@@ -221,7 +237,8 @@ function RegisterAllBuildingDefinitions() {
         sprite:              sGoldMine,
         productionResource: "gold",
         productionRate:      1, // 1 gold/sec at 1x match speed
-        maxHealth:           150,
+        resourceLimit:       300,
+        maxHealth:           100,
     }));
 
     RegisterBuildingDefinition(oIronMine, new BuildingDefinition({
@@ -231,7 +248,8 @@ function RegisterAllBuildingDefinitions() {
         sprite:              sIronMine,
         productionResource: "iron",
         productionRate:      1, // 1 iron/sec at 1x match speed
-        maxHealth:           150,
+        resourceLimit:       300,
+        maxHealth:           100,
     }));
 }
 
@@ -267,6 +285,8 @@ function BuildingApplyDefinition(_building) {
     _building.productionResource    = _def.productionResource;
     _building.productionRate        = _def.productionRate;
     _building.productionAccumulator = 0; // fractional progress toward the next whole unit -- see BuildingUpdateProduction
+    _building.resourceLimit         = _def.resourceLimit; // TOTAL lifetime units this instance may produce -- undefined = unlimited, see BuildingUpdateProduction
+    _building.producedTotal         = 0; // lifetime units produced so far -- compared against resourceLimit
 
     _building.trainsUnit       = _def.trainsUnit;
     _building.unitsPerBuilding = _def.unitsPerBuilding;
@@ -286,6 +306,46 @@ function BuildingApplyDefinition(_building) {
     _building.damageTaken = 0;
 }
 
+#macro PLOT_BONUS_DISTANT_MULTIPLIER 1.5 // +50% maxHealth (and, for production buildings, +50% resourceLimit) on Distant/"far" plots -- 2026-07-07 "plot bonuses" request, see ApplyPlotBonuses below
+
+/// @function ApplyPlotBonuses(_building, _plot)
+/// @description Applies the Distant-plot ("far", see PlotScripts.gml/
+///        oOuterPlotSpawner) stat bonuses from the 2026-07-07 "plot bonuses"
+///        request:
+///          - EVERY building placed on a Distant plot gets +50% maxHealth
+///            (PLOT_BONUS_DISTANT_MULTIPLIER), regardless of building type.
+///          - Production (resource) buildings ALSO get +50% resourceLimit.
+///            No explicit building-type check is needed for this half --
+///            training buildings never have a resourceLimit
+///            (BuildingApplyDefinition leaves it undefined for them), so the
+///            production-limit bonus naturally no-ops there, which is
+///            exactly the "only the health bonus is applied to training
+///            buildings" behavior the request asked for.
+///        No-ops entirely for Castle/Exterior/Blocked plots (anything with
+///        far == false). Placement-cost discounts (the OTHER half of the
+///        2026-07-07 request) are handled separately -- see
+///        GetPlacementCost, BlueprintScripts.gml.
+///
+///        Call AFTER the building's own Create event has already run
+///        BuildingApplyDefinition (i.e. right after instance_create_layer
+///        returns, since GameMaker runs a new instance's Create event
+///        synchronously before instance_create_layer returns) -- this
+///        function only multiplies whatever baseline BuildingApplyDefinition
+///        already set, it doesn't set up production/training state itself.
+/// @param {Id.Instance} _building A just-created building instance.
+/// @param {Id.Instance} _plot The oBuildingPlot it was placed on.
+function ApplyPlotBonuses(_building, _plot) {
+    if (!_plot.far) return;
+
+    _building.maxHealth = round(_building.maxHealth * PLOT_BONUS_DISTANT_MULTIPLIER);
+
+    if (_building.resourceLimit != undefined) {
+        _building.resourceLimit = round(_building.resourceLimit * PLOT_BONUS_DISTANT_MULTIPLIER);
+    }
+}
+
+#macro ECONOMIC_XP_DEPLETION 8 // "resource building depletes naturally" -- 2026-07-06 XP Age Progression doc, previously blocked (no depletion mechanic existed); see BuildingUpdateProduction
+
 /// @function BuildingUpdateProduction(_building)
 /// @description Delta-time-based resource production, scaled by
 ///        global.matchSpeed. Accumulates fractional progress on the
@@ -300,6 +360,19 @@ function BuildingApplyDefinition(_building) {
 ///        Call once per Step from a producing building (currently wired
 ///        from oResourceBuildingParent/Step_0.gml, so every resource
 ///        building gets this automatically).
+///
+///        Resource depletion (2026-07-06, "Resource_Infrastructure
+///        Buildings" doc): if this building has a resourceLimit, its
+///        production is capped at that TOTAL lifetime amount -- a tick
+///        that would push producedTotal past resourceLimit is clamped to
+///        exactly fill the remaining room instead of overshooting. The
+///        instant that cap is reached, the building awards its team
+///        ECONOMIC_XP_DEPLETION XP (unblocking the XP doc's Economic XP
+///        category, which had nothing to hook into before this) and
+///        self-destroys via instance_destroy -- same bare removal combat-
+///        death already used here (ApplyDamage, UnitCombatHelpers.gml),
+///        which also has no dedicated building-destroy cleanup step to
+///        mirror. No depletion VFX/SFX exists yet -- flag if one's wanted.
 /// @param {Id.Instance} _building
 function BuildingUpdateProduction(_building) {
     if (_building.productionRate <= 0 || _building.productionResource == undefined) return;
@@ -312,14 +385,34 @@ function BuildingUpdateProduction(_building) {
 
     _building.productionAccumulator -= _wholeUnits;
 
-    var _resources = global.resources[_building.team];
-    var _current    = struct_get(_resources, _building.productionResource);
-    struct_set(_resources, _building.productionResource, _current + _wholeUnits);
+    var _hasLimit    = _building.resourceLimit != undefined;
+    var _willDeplete = false;
+    if (_hasLimit) {
+        var _roomLeft = _building.resourceLimit - _building.producedTotal;
+        if (_wholeUnits >= _roomLeft) {
+            _wholeUnits  = _roomLeft; // don't overshoot the lifetime cap
+            _willDeplete = true;
+        }
+    }
 
-    AnalyticsRecordResourceProduced(_building.team, _building.productionResource, _wholeUnits);
+    if (_wholeUnits > 0) {
+        _building.producedTotal += _wholeUnits;
 
-    repeat (_wholeUnits) {
-        PlayResourceProducedEffect(_building, _building.productionResource);
+        var _resources = global.resources[_building.team];
+        var _current    = struct_get(_resources, _building.productionResource);
+        struct_set(_resources, _building.productionResource, _current + _wholeUnits);
+
+        AnalyticsRecordResourceProduced(_building.team, _building.productionResource, _wholeUnits);
+
+        repeat (_wholeUnits) {
+            PlayResourceProducedEffect(_building, _building.productionResource);
+        }
+    }
+
+    if (_willDeplete) {
+        GainXP(_building.team, ECONOMIC_XP_DEPLETION);
+        BuildingFreePlot(_building); // frees the plot (PlotScripts.gml) so it's buildable + clickable again -- 2026-07-06
+        instance_destroy(_building);
     }
 }
 

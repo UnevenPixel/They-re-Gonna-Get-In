@@ -192,9 +192,16 @@ function Guard_Step(_unit, _machine) {
         PLAY_AREA_CONTAIN_WEIGHT
     );
 
+    // oBuildingParent dropped from this collision list, 2026-07-06 --
+    // units no longer physically collide with buildings, only with real
+    // static geometry (oEnvironmentSolid). Steering_AvoidObstacles above
+    // still sees buildings (GatherNearbyObstacles, GatherScripts.gml, is
+    // unchanged) and steers around them cosmetically; a unit can now clip
+    // through one if avoidance doesn't fully route around it, which is
+    // accepted as harmless per that request.
     var _delta = _unit.controller.Apply();
     with(_unit){
-        move_and_collide(_delta.x, _delta.y, [oBuildingParent, oEnvironmentSolid]);
+        move_and_collide(_delta.x, _delta.y, [oEnvironmentSolid]);
     }
     _unit.agent.SyncFromInstance(_unit);
 
@@ -207,13 +214,7 @@ function Guard_Step(_unit, _machine) {
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Guard_Draw(_unit,_machine){
-    draw_set_valign(fa_bottom);
-    draw_set_halign(fa_center);
-    draw_set_alpha(1);
-    draw_set_color(c_white);
-    draw_text(_unit.x,_unit.y-32,"Waiting: " + string(_machine.data.waiting));
     
-    draw_line(_unit.x,_unit.y,_machine.data.waypoint.x,_machine.data.waypoint.y)
 }
 
 /// @function Guard_Exit(_unit, _machine)

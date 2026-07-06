@@ -24,6 +24,8 @@
 // exceed either limit," per the design spec.
 // -----------------------------------------------------------
 
+#macro STRATEGIC_XP_FIRST_DEPLOYMENT 5 // "First deployment of unit type" -- "XP Age Progression System" doc, 2026-07-06. Awarded once per team per unit type, the first time TrainingSpawnUnit ever spawns it -- see global.unitsDeployed (oMatchControl/Create_0.gml).
+
 /// @function CountTeamUnitsOfType(_team, _unitType)
 /// @description Counts live instances of one specific unit object type
 ///        belonging to _team. Deliberately narrower than GatherTeamUnits
@@ -179,6 +181,13 @@ function TrainingGetSpawnPoint(_building) {
 ///        it here is a minimal, self-contained fix; flagging it rather
 ///        than changing oUnitParent's Create to accept a team parameter,
 ///        which would be a bigger change touching every unit spawn path.
+///
+///        Also awards STRATEGIC_XP_FIRST_DEPLOYMENT the first time
+///        _building.team ever spawns this unit type, tracked via
+///        global.unitsDeployed[team] (oMatchControl/Create_0.gml) --
+///        "First deployment of unit type" from the 2026-07-06 "XP Age
+///        Progression System" doc. Every SUBSEQUENT spawn of that same
+///        type is a no-op here (checked via array_contains).
 /// @param {Id.Instance} _building
 function TrainingSpawnUnit(_building) {
     var _spawnPos = TrainingGetSpawnPoint(_building);
@@ -191,6 +200,11 @@ function TrainingSpawnUnit(_building) {
     _unit.fsm.ChangeState("defend");
 
     AnalyticsRecordUnitTrained(_building.team, _building.trainsUnit);
+
+    if (!array_contains(global.unitsDeployed[_building.team], _building.trainsUnit)) {
+        array_push(global.unitsDeployed[_building.team], _building.trainsUnit);
+        GainXP(_building.team, STRATEGIC_XP_FIRST_DEPLOYMENT);
+    }
 }
 
 /// @function TrainingUpdateQueue(_building)

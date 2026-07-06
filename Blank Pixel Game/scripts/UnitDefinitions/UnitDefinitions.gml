@@ -30,6 +30,14 @@
 ///        maxSpeed          {Real}
 ///        sprites           {Struct.AnimationLibrary} idle/walk/attack + extras.
 ///        availableOrders   {Array<String>} Order names this unit type can receive.
+///        tier              {Real} [optional, defaults to 1] Combat-XP tier
+///               (see GainXP callers in ApplyDamage, UnitCombatHelpers.gml) --
+///               +1/+3/+5 XP to the killer's team for Tier 1/2/3 kills, per
+///               the "XP Age Progression System" doc (2026-07-06). Every
+///               unit registered below is Tier 1 for now (2026-07-06
+///               clarification: "Current Unit's are all tier 1, as we are
+///               starting with that for the MVP build. We will add later
+///               tiers later.") -- there's no real tier design yet beyond that.
 ///        tags              {Array<String>} [optional, defaults to []] For search
 ///               scripts -- see UnitHasTag below.
 ///        passives          {Array<Struct>} [optional, defaults to []] Shape not
@@ -57,6 +65,7 @@ function UnitDefinition(_data) constructor {
     maxSpeed          = _data.maxSpeed;
     sprites           = _data.sprites;
     availableOrders   = _data.availableOrders;
+    tier              = variable_struct_exists(_data, "tier")     ? _data.tier     : 1;
     tags              = variable_struct_exists(_data, "tags")     ? _data.tags     : [];
     passives          = variable_struct_exists(_data, "passives") ? _data.passives : [];
     projectileObject  = variable_struct_exists(_data, "projectileObject") ? _data.projectileObject : undefined;
@@ -235,6 +244,7 @@ function RegisterAllUnitDefinitions() {
         maxSpeed:          1,
         sprites:           new AnimationLibrary(sPeasantIdle, sPeasantWalk, sPeasantAttack),
         availableOrders:   ["guard", "defend", "attack", "siege", "station"],
+        tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
         tags:              ["infantry", "melee", "cheap"],
         passives: [
             {name: "Stationed Effect", description: "+5% all resource production speed per peasant stationed."},
@@ -257,6 +267,7 @@ function RegisterAllUnitDefinitions() {
         maxSpeed:          2.2, // sheet: "one of, if not the fastest unit in the game"
         sprites:           new AnimationLibrary(sBombGoblinIdle, sBombGoblinWalk, sBombGoblinExplode),
         availableOrders:   ["guard", "defend", "attack", "siege", "station"],
+        tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
         tags:              ["infantry", "melee", "suicide", "fast"],
         passives: [
             {name: "Stationed Effect", description: "+15% speed boost to gold production per Bomb Goblin stationed."},
@@ -280,6 +291,7 @@ function RegisterAllUnitDefinitions() {
         maxSpeed:          0.6,
         sprites:           new AnimationLibrary(sMudGolemIdle, sMudGolemWalk, sMudGolemAttack),
         availableOrders:   ["guard", "defend", "attack", "siege", "station"],
+        tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
         tags:              ["infantry", "melee", "heavy", "tank"],
         passives: [
             {name: "Stationed Effect", description: "+5% HP to all units (stacks per Mud Golem stationed)."},
@@ -302,6 +314,7 @@ function RegisterAllUnitDefinitions() {
         maxSpeed:          1,
         sprites:           new AnimationLibrary(sSoldierIdle, sSoldierWalk, sSoldierAttack),
         availableOrders:   ["guard", "defend", "attack", "siege", "station"],
+        tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
         tags:              ["infantry", "melee"],
         passives: [
             {name: "Stationed Effect", description: "+5% damage & HP to all deployed units (stacks per Soldier stationed)."},
@@ -326,6 +339,7 @@ function RegisterAllUnitDefinitions() {
             {name: "projectile", sprite: sArcherProjectile}, // also set as projectileObject below (oArcherProjectile) -- this entry is just so the raw sprite is reachable off sprites.projectile too
         ]),
         availableOrders:   ["guard", "defend", "attack", "siege", "station"],
+        tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
         tags:              ["infantry", "ranged"],
         projectileObject:  oArcherProjectile, // "attack" order dispatches ranged-tagged units into "attackRanged" instead of "attack" -- see OrderWiring.gml
         passives: [
@@ -350,6 +364,7 @@ function RegisterAllUnitDefinitions() {
         maxSpeed:          0.9,
         sprites:           new AnimationLibrary(sKnightIdle, sKnightWalk, sKnightAttack),
         availableOrders:   ["guard", "defend", "attack", "siege", "station"],
+        tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
         tags:              ["infantry", "melee", "heavy"],
         passives: [
             {name: "Stationed Effect", description: "+5% unit production speed."},

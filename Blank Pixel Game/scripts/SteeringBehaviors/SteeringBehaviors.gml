@@ -53,6 +53,29 @@ function SteeringAgent(_x, _y, _maxSpeed = 3, _maxForce = 0.25, _mass = 1) const
         return knockback.LengthSquared() > (_threshold * _threshold);
     }
 
+    /// @function Brake(_friction)
+    /// @description Decays velocity toward zero. Call every step a unit is
+    ///        meant to be standing still (e.g. UnitIdleInPlace,
+    ///        UnitCombatHelpers.gml) -- "add no steering force" is NOT the
+    ///        same as "come to a stop": every Steering_* behavior naturally
+    ///        decelerates because it computes desired-minus-velocity, but
+    ///        skipping all of them just leaves velocity exactly as it was,
+    ///        forever, with nothing ever opposing it. Same
+    ///        power(friction, matchSpeed) idiom knockback already decays
+    ///        with (see SteeringController.Apply above), so this scales
+    ///        with match speed the same way -- friction^1 at 1x, friction^0
+    ///        == 1 (no decay) while paused.
+    /// @param {Real} [_friction] Fraction of velocity retained per step at
+    ///        1x match speed. Lower = stops faster.
+    /// @returns {Struct.SteeringAgent} self
+    static Brake = function(_friction = 0.8) {
+        velocity.Scale(power(_friction, global.matchSpeed));
+        if (velocity.LengthSquared() < 0.0001) {
+            velocity.Set(0, 0);
+        }
+        return self;
+    }
+
     /// @function SyncToInstance(_inst)
     /// Convenience: sync pos back to GML built-in x/y.
     /// @param {Id.Instance} _inst The instance whose x/y should be written to.

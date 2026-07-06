@@ -1,0 +1,1 @@
+CastleInit(id, TEAM.ENEMY);
