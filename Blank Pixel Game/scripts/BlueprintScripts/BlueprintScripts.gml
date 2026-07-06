@@ -117,8 +117,9 @@ function TryPlaceBlueprint(_team, _buildingType, _plot) {
 
 // -----------------------------------------------------------
 // BlueprintController -- the Blueprint UI panel: a paginated 5x2 grid of
-// 48x48 slots at the bottom of the screen. Drag a filled slot onto a plot
-// the dragging team owns to place that building, if it's affordable.
+// 48x48 slots (rendered/interacted at BLUEPRINT_UI_SCALE, see below),
+// anchored top-left at a fixed GUI position. Drag a filled slot onto a
+// plot the dragging team owns to place that building, if it's affordable.
 //
 // One instance per player-facing controller (currently created by
 // oUnitControl, mirroring how it owns selectionController/orderMenu). An
@@ -137,6 +138,9 @@ function TryPlaceBlueprint(_team, _buildingType, _plot) {
 #macro BLUEPRINT_GRID_COLS      5
 #macro BLUEPRINT_GRID_ROWS      2
 #macro BLUEPRINT_SLOTS_PER_PAGE 10 // BLUEPRINT_GRID_COLS * BLUEPRINT_GRID_ROWS
+#macro BLUEPRINT_UI_SCALE       2  // panel render/interact scale -- 2026-07-05 request; slot size/padding/icon draws all scale off this, single source of truth
+#macro BLUEPRINT_UI_ORIGIN_X    640 // fixed top-left anchor (2026-07-05 request) -- replaced the old bottom-centered GetOrigin()
+#macro BLUEPRINT_UI_ORIGIN_Y    810
 
 /// @function BlueprintController(_team)
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY -- whose blueprint
@@ -148,28 +152,32 @@ function BlueprintController(_team) constructor {
     dragStackIndex = -1; // index into global.blueprints[team], set while dragging
 
     /// @function GetOrigin()
-    /// @description Top-left corner of the panel, centered horizontally at
-    ///        the bottom of the GUI.
+    /// @description Top-left corner of the panel -- fixed GUI position
+    ///        (BLUEPRINT_UI_ORIGIN_X/Y), not derived from screen size.
+    ///        Previously centered horizontally at the bottom of the GUI;
+    ///        replaced with a fixed anchor per 2026-07-05 request.
     /// @returns {Struct.Vector2}
     static GetOrigin = function() {
-        var _panelW = BLUEPRINT_GRID_COLS * (BLUEPRINT_SLOT_SIZE + BLUEPRINT_SLOT_PADDING) + BLUEPRINT_SLOT_PADDING;
-        var _panelH = BLUEPRINT_GRID_ROWS * (BLUEPRINT_SLOT_SIZE + BLUEPRINT_SLOT_PADDING) + BLUEPRINT_SLOT_PADDING;
-        return new Vector2(
-            (display_get_gui_width() - _panelW) / 2,
-            display_get_gui_height() - _panelH - 8 // 8px margin off the bottom edge
-        );
+        return new Vector2(BLUEPRINT_UI_ORIGIN_X, BLUEPRINT_UI_ORIGIN_Y);
     }
 
     /// @function GetSlotRect(_slotIndex)
+    /// @description GUI-space rect for a slot, scaled by BLUEPRINT_UI_SCALE.
+    ///        This is the single place slot size/padding get scaled, so
+    ///        rendering (Draw) and interaction (TryBeginDrag) automatically
+    ///        stay in sync -- a slot always occupies exactly the area it's
+    ///        clickable in.
     /// @param {Real} _slotIndex 0..(BLUEPRINT_SLOTS_PER_PAGE - 1)
     /// @returns {Struct} { x1, y1, x2, y2 } GUI-space rect for that slot.
     static GetSlotRect = function(_slotIndex) {
-        var _origin = GetOrigin();
-        var _col = _slotIndex mod BLUEPRINT_GRID_COLS;
-        var _row = _slotIndex div BLUEPRINT_GRID_COLS;
-        var _x1  = _origin.x + BLUEPRINT_SLOT_PADDING + _col * (BLUEPRINT_SLOT_SIZE + BLUEPRINT_SLOT_PADDING);
-        var _y1  = _origin.y + BLUEPRINT_SLOT_PADDING + _row * (BLUEPRINT_SLOT_SIZE + BLUEPRINT_SLOT_PADDING);
-        return { x1: _x1, y1: _y1, x2: _x1 + BLUEPRINT_SLOT_SIZE, y2: _y1 + BLUEPRINT_SLOT_SIZE };
+        var _origin  = GetOrigin();
+        var _col     = _slotIndex mod BLUEPRINT_GRID_COLS;
+        var _row     = _slotIndex div BLUEPRINT_GRID_COLS;
+        var _size    = BLUEPRINT_SLOT_SIZE * BLUEPRINT_UI_SCALE;
+        var _padding = BLUEPRINT_SLOT_PADDING * BLUEPRINT_UI_SCALE;
+        var _x1  = _origin.x + _padding + _col * (_size + _padding);
+        var _y1  = _origin.y + _padding + _row * (_size + _padding);
+        return { x1: _x1, y1: _y1, x2: _x1 + _size, y2: _y1 + _size };
     }
 
     /// @function GetStackIndexAtSlot(_slotIndex)
@@ -258,7 +266,7 @@ function BlueprintController(_team) constructor {
             var _def   = GetBuildingDefinition(_stack.buildingType);
             if (_def == undefined) continue;
 
-            draw_sprite(_def.sprite, 0, (_rect.x1 + _rect.x2) / 2, (_rect.y1 + _rect.y2) / 2);
+            draw_sprite_ext(_def.sprite, 0, (_rect.x1 + _rect.x2) / 2, (_rect.y1 + _rect.y2) / 2, BLUEPRINT_UI_SCALE, BLUEPRINT_UI_SCALE, 0, c_white, 1);
 
             if (_stack.count > 1) {
                 draw_set_halign(fa_right);
@@ -273,7 +281,7 @@ function BlueprintController(_team) constructor {
             if (dragStackIndex >= 0 && dragStackIndex < array_length(_stacks)) {
                 var _def = GetBuildingDefinition(_stacks[dragStackIndex].buildingType);
                 if (_def != undefined) {
-                    draw_sprite(_def.sprite, 0, device_mouse_x_to_gui(0), device_mouse_y_to_gui(0));
+                    draw_sprite_ext(_def.sprite, 0, device_mouse_x_to_gui(0), device_mouse_y_to_gui(0), BLUEPRINT_UI_SCALE, BLUEPRINT_UI_SCALE, 0, c_white, 1);
                 }
             }
         }

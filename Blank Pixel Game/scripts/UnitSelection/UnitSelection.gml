@@ -98,6 +98,13 @@ function GetCommonOrders(_units) {
 // One instance for the player; create it once, persistent.
 // -----------------------------------------------------------
 
+// Below this GUI y (out of a 1920x1080 GUI, per 2026-07-05 request), the
+// screen is bottom-panel UI real estate (blueprint panel, etc.) rather
+// than the playfield -- a press that STARTS down there should never kick
+// off a world-space unit-selection drag, even over empty panel padding a
+// widget's own hit-test doesn't claim. See BeginDrag below.
+#macro SELECTION_DRAG_MIN_GUI_Y 812
+
 /// @function SelectionController(_unitObject, _team)
 /// @param {Asset.GMObject} _unitObject The object type (or parent) to
 ///        consider selectable, e.g. obj_unit.
@@ -117,9 +124,19 @@ function SelectionController(_unitObject, _team) constructor {
     isTargeting      = false;     // true while waiting for the player to click a target
 
     /// @function BeginDrag()
-    /// Call from a Left Pressed / mouse-down check in Step.
+    /// Call from a Left Pressed / mouse-down check in Step. No-ops (leaves
+    /// dragging false) if the press starts at or below
+    /// SELECTION_DRAG_MIN_GUI_Y -- that's bottom-panel UI space, not the
+    /// playfield, so a press there should never start a world-space
+    /// selection box, even over panel padding no widget's own hit-test
+    /// claims. Only where the drag STARTS is checked; a drag that begins
+    /// above the line and is dragged down past it is unaffected.
     /// @returns {Struct.SelectionController} self
     static BeginDrag = function() {
+        if (device_mouse_y_to_gui(0) >= SELECTION_DRAG_MIN_GUI_Y) {
+            return self;
+        }
+
         dragging   = true;
         dragStartX = mouse_x;
         dragStartY = mouse_y;

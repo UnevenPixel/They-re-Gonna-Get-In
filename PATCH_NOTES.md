@@ -1,5 +1,165 @@
 # Patch Notes
 
+## v0.0.2.23 — 2026-07-05 (uncommitted — working tree only, not yet committed)
+
+Fate Engine drum visuals quick-fix: real placeholder art + final GUI layout.
+
+### Changed
+
+- **`FateEngineDrumScripts.gml`**: `FateDrumRandomPlaceholderItem()` now draws from real Fate Engine art instead of the generic `sResourceIcons` stand-in -- a coin-flip between a "resource stack" item (`sFateEngineResources`, indexed by `global.resourceIconOrder`, same 10-frame order confirmed against `sResourceIcons`) and a "blueprint" item (a random registered building's own sprite, read generically off `global.__buildingDefRegistry` via `GetBuildingDefinition`/`ds_map_keys_to_array` so this never goes stale as buildings are added). All drum items are 48x48 at native size.
+  - New `FATE_DRUM_ITEM_SCALE` macro (2) -- every item now draws at 2x (96x96) inside `FateDrum.Draw()`, layered on top of the existing depth-based shrink. Callers keep working entirely in GUI space; the scale is invisible to them.
+- **`oFateEngineDrumTest`**: repositioned the 3 drums to the real GUI layout -- centered horizontally, anchored 338px up from the GUI bottom edge, at -104/0/+104 from center. Orbit `radius` bumped `48` → `56` (placeholder/tunable -- not specified, chosen because items now render up to 96x96 and looked cramped at the old radius). Now also draws `sFateEngineBody` at 2x scale, bottom-center-anchored flush with the GUI bottom edge, AFTER the drums so the body renders in front of them. Hover/click hit-test radius padded +48 to roughly account for the larger (96x96) visual footprint of items relative to the drum's geometric orbit radius -- still an approximation, not a real per-item bounding box.
+
+### Fixed (mid-session)
+
+- **`Blank Pixel Game.yyp` truncated again** (cut off mid-string inside `TextureGroups`, same underlying IDE-reopen cause as every previous occurrence) and **`oFateEngineDrumTest/Step_0.gml` was found truncated mid-statement** (cut off inside the `else if` on a stopped-drum click handler) partway through this batch -- both reconstructed from known-correct content and reverified.
+
+### Build
+
+- Windows export version bumped `0.0.2.22` → `0.0.2.23` — 4th-digit bump, same convention as last time.
+
+## v0.0.2.22 — 2026-07-05 (uncommitted — working tree only, not yet committed)
+
+Fate Engine, part 1: the drum render. First piece of the roguelike meta-progression slot machine (design discussed 2026-07-05) -- just the spinning-cylinder visual and lock-and-read mechanic, no session flow/odds/corruption yet.
+
+### Added
+
+- **New `FateEngineDrumScripts.gml`**: `FateEngineItem` (generic sprite/subimg/label struct -- deliberately reward-agnostic so the real reward table can hand a drum any resolved result later) and `FateDrum`, a faked-3D cylinder (classic 2D "carousel" trick: `FATE_DRUM_SLOT_COUNT` items spaced around a vertical ellipse, `depth = cos(angle)` and `offsetY = radius * sin(angle)` per slot). Only the front hemisphere (`depth > 0`) is drawn; the back hemisphere is where a slot's item gets silently swapped to a new one the instant it crosses in, so the reel appears to cycle through endless items without ever showing the swap (requirement 1).
+  - `FateDrum` is a plain struct driven by an owner's Step/Draw, same pattern as `BlueprintController`/`SelectionController` -- not a GM instance.
+  - `Spin()`/`Stop(_targetItem)` control state (`"stopped"`/`"spinning"`/`"stopping"`); stopping decelerates then snaps to the nearest slot boundary. `Stop` already accepts an optional `_targetItem` so the future weighted-reward task can force a specific landing result without touching this file again -- unused for now.
+  - `GetLockedItem()` returns whichever item sits at the front/landing position, but only once `state == "stopped"` -- this is the "read the item it locked to" requirement (2), meant for a hover tooltip (or eventually cash-out payout).
+  - Slots are populated by `FateDrumRandomPlaceholderItem()` -- a STUB that just cycles the 10 base-resource icons (`sResourceIcons`/`global.resourceIconOrder`). The real weighted reward table (resource building / training building / resource bundle / event, scaled by corruption) isn't designed yet -- this only exists so the spin/swap/lock mechanic is visually testable now.
+- **`oFateEngineDrumTest`** (new object, temporary) -- spawns 3 `FateDrum`s, spins them on room start, click a spinning drum to stop it / a stopped one to re-spin, hover a stopped drum to see its locked item's label. Wired into `rmTestGameplay`. Explicitly a throwaway harness -- remove once the real Fate Engine overlay (lock buttons, spin/cash-out flow) exists.
+
+### Build
+
+- Windows export version bumped `0.0.2.21` → `0.0.2.22` — 4th-digit bump, same convention as last time.
+
+## v0.0.2.21 — 2026-07-05 (uncommitted — working tree only, not yet committed)
+
+Resource buildings now fire a little particle burst every time they produce.
+
+### Added
+
+- **`oResourceProducedParticle`** (new object, `Effects` folder) -- a short-lived particle: drifts by its own `vx`/`vy`, gathers `RESOURCE_PARTICLE_GRAVITY`, fades out over `life`/`lifeMax`, then self-destroys. Draws either the resource's actual `sResourceIcons` frame (`kind == "icon"`) or a tiny flat-color square (`kind == "square"`) -- one object handles both since they share identical drift/fade/destroy behavior and only differ in what Draw does with them.
+- **New `ResourceParticleScripts.gml`**: `SpawnResourceProducedParticles(_building, _resource)` spawns 1 icon particle (drifts straight up) + `RESOURCE_PARTICLE_SQUARE_COUNT` (6) square particles (1-2px, random outward burst angle/speed with an upward bias, color randomly interpolated between `RESOURCE_PARTICLE_GOLD_COLOR` (gold, #FFD700) and `c_white` via `merge_color`) at the building's position.
+- **`PlayResourceProducedEffect` (`BuildingDefinitions.gml`) is no longer a debug-log stub** -- it now calls `SpawnResourceProducedParticles`, so every whole unit of resource `BuildingUpdateProduction` produces gets a real burst (still fires once per unit even when several are produced in the same frame).
+
+### Fixed (mid-session)
+
+- **`BuildingDefinitions.gml` was found truncated mid-edit** (cut off mid-word inside the new `PlayResourceProducedEffect` doc comment, missing the rest of the function) -- same underlying cause as the recurring `.yyp` truncation (the IDE open and saving alongside this session). Reconstructed from the known-correct content (this file's own just-written edit, not git history, since git predates this session's building/particle work) and reverified brace/paren balance. `Blank Pixel Game.yyp` needed the same fix again too, same procedure as every previous time.
+
+### Noted, not acted on
+
+- Per clarification: `blocked` correctly means "this plot can never be built on again" -- it's tied to a roguelike meta-progression mechanic (gaining more castle plots between runs), not a bug. The OTHER issue flagged last time (the `image_index = (!blocked) + (!inside)` formula in `oBuildingPlot/Step_0.gml` collides two unrelated states onto the same sprite frame) is still unresolved and independent of this clarification -- still holding off on touching it until you say what the 3 `sPlot` frames should actually represent.
+
+### Build
+
+- Windows export version bumped `0.0.2.20` → `0.0.2.21` — 4th-digit bump, same convention as last time.
+
+## v0.0.2.20 — 2026-07-05 (uncommitted — working tree only, not yet committed)
+
+Wheat Field cost corrected, and playtest blueprint seeding now covers every registered building.
+
+### Changed
+
+- **Wheat Field's cost corrected to the sheet's "Wheat Farm" row**: 20 water + 10 wood (was 15 wood + 10 coins, which pre-dated this exact sheet row being consulted). Starting resources (50 wood/water/iron/gold/wheat) already fully cover it.
+- **`oMatchControl`'s starting blueprint seed now gives each team one of every registered building** (Wheat Field, Peasant Ward, Boom Hut, Bog Foundry, Barracks, Archery Range, Round Table, Water Pump, Sawmill, Gold Mine, Iron Mine) instead of just 3x Wheat Field + 1x Peasant Ward -- playtest-only, per request. The final build will only start the player with one of each tier-1 RESOURCE blueprint specifically; noted in the comment so this doesn't get mistaken for the intended shipping loadout later.
+
+### Investigated (not yet fixed -- pending design confirmation)
+
+- **Why building plots visibly change appearance the instant a building is placed on them:** `oBuildingPlot/Step_0.gml` recomputes `image_index = (!blocked) + (!inside)` every single frame. `inside` (and `far`, unused here) are set once at plot spawn (`PlotScripts.gml`) and never change -- so in practice the only thing that ever changes this formula's result during a match is `blocked` flipping true the moment `TryPlaceBlueprint` places a building (`BlueprintScripts.gml`, `_plot.blocked = true`). That single flip always shifts `image_index` down by exactly 1 (since `!blocked` drops from 1 to 0), which is the visible "changes when built on" symptom.
+  - There's a second, independent bug in the same formula: it only has 3 output values (0/1/2) for 4 possible (blocked, inside) combinations, so two unrelated states collide onto the same frame -- an unblocked INSIDE plot and a blocked OUTSIDE plot both compute to `image_index = 1` and render identically.
+  - Sprite `sPlot` has exactly 3 frames, which just about fits the additive formula's range, but nothing documents what each frame is actually supposed to represent, and the raw PNGs don't make a confident semantic reading possible from code alone (frame 0 looks like a distinct paved/brick texture, frame 1 plain ground, frame 2 has a highlighted border). Not fixing this blind -- need to know the intended mapping (does "occupied" deserve its own dedicated frame regardless of inside/outside? should inside/outside still show through once blocked?) before touching it.
+
+### Build
+
+- Windows export version bumped `0.0.2.19` → `0.0.2.20` — 4th-digit bump, same convention as last time.
+
+## v0.0.2.19 — 2026-07-05 (uncommitted — working tree only, not yet committed)
+
+The remaining 4 tier-1 resource buildings are in: Water Pump, Sawmill, Gold Mine, Iron Mine.
+
+### Added
+
+- **`oWaterPump`, `oSawmill`, `oGoldMine`, `oIronMine`** -- new objects, all parented to `oResourceBuildingParent` (same inheritance chain as `oWheatField`: team/radius from `oBuildingParent`, then `BuildingApplyDefinition` + the Step-event production tick, all driven by the registered `BuildingDefinition` -- nothing building-specific in `Create_0.gml` beyond `event_inherited()`). Sprites (`sWaterPump`/`sSawmill`/`sGoldMine`/`sIronMine`) and their `Resource/` subfolders already existed in the project, pre-sized 48x48 with center origin to match every other building.
+- **4 new `BuildingDefinition` registrations** (`BuildingDefinitions.gml`) -- cost and production rate are REAL, sheet-sourced values from the Item Costs sheet's "Production Buildings" section, not placeholders:
+  - Water Pump: 20 wood → 1 water/sec.
+  - Sawmill: 40 water → 1 wood/sec.
+  - Gold Mine: 70 water + 30 iron → 1 gold/sec.
+  - Iron Mine: 30 water + 60 wood → 1 iron/sec.
+  - `maxHealth` is the one placeholder value (150, matching Wheat Field) -- the sheet has no building-HP column, same gap as every other building.
+- **Not seeded into starting blueprints.** Following the same precedent set by the 5 tier-1 training buildings (Boom Hut/Bog Foundry/Barracks/Archery Range/Round Table) -- only Wheat Field/Peasant Ward are in the `oMatchControl` test-seed list, so these 4 are fully defined/placeable but won't appear in a fresh match until the real blueprint-acquisition system exists (still not designed) or someone adds test seeding for them.
+
+### Known issues (flagged, not touched)
+
+- **The sheet's "Wheat Farm" row (20 water + 10 wood → 1 wheat/sec) doesn't match this project's already-implemented Wheat Field cost** (15 wood + 10 coins, per the `oMatchControl/Create_0.gml` comment). Out of scope for this request (only asked for the other 4), but worth a look since it means Wheat Field was built before this exact sheet section was consulted, or the sheet changed since.
+
+### Build
+
+- Windows export version bumped `0.0.2.18` → `0.0.2.19` — 4th-digit bump, same convention as last time.
+
+## v0.0.2.18 — 2026-07-05 (uncommitted — working tree only, not yet committed)
+
+Resource icon translation for Scribble text, plus the player's resource bar HUD.
+
+### Added
+
+- **New `ResourceUIScripts.gml`**, built around `global.resourceIconOrder` (wood, wheat, water, iron, gold, meat, bones, coal, weapons, coins -- a plain global array set once, not a `#macro`, since a macro array literal would re-allocate every read) matching `sResourceIcons`' 10 frames 1:1. xp/fateTokens intentionally have no icon (per request -- they sit outside the base resources).
+  - **`ResourceIconIndex(_resource)`** -- name to frame index (0-9), or -1 if not a base resource.
+  - **`ResourceIconTag(_resource)`** -- name to Scribble inline-sprite tag, `"[sResourceIcons,N]"`.
+  - **`CostToScribbleText(_cost)`** -- the actual translator requested: takes a `Cost` struct and returns a ready-to-draw Scribble string, one `"[sResourceIcons,N]<amount>"` run per non-zero base resource (double-space separated). Nothing calls this yet -- no tooltip/description UI reads `BuildingDefinition.description`/`UnitDefinition.description` today, so this is the primitive future tooltip work will use, not wired to a specific screen.
+  - **`DrawResourceBar(_team)`** -- renders all 10 icons in a row, first (Wood) icon centered at `(RESOURCE_BAR_ORIGIN_X, RESOURCE_BAR_ORIGIN_Y)` = (466, 1060), each next icon `RESOURCE_BAR_ICON_SPACING` (152px) to the right center-to-center, with `_team`'s live count drawn `RESOURCE_BAR_TEXT_GAP` (10px) off each icon's right EDGE (icon center + half its width + the gap), vertically centered on the icon. Wired into `oUnitControl/Draw_64.gml` as `DrawResourceBar(TEAM.PLAYER)`, alongside the other player-HUD draws.
+
+### Build
+
+- Windows export version bumped `0.0.2.17` → `0.0.2.18` — 4th-digit bump, same convention as last time.
+
+## v0.0.2.17 — 2026-07-05 (uncommitted — working tree only, not yet committed)
+
+Unit selection no longer starts from a press in the bottom UI panel area.
+
+### Changed
+
+- **`SelectionController.BeginDrag()` (`UnitSelection.gml`) now no-ops if the press starts at or below `SELECTION_DRAG_MIN_GUI_Y` (812, out of a 1920x1080 GUI, per request).** Below that line is bottom-panel UI real estate (the blueprint panel, etc.), not the playfield -- a press there should never start a world-space selection box, including over empty panel padding that a widget's own hit-test doesn't claim (`BlueprintController.TryBeginDrag` only claims filled slots, so gaps between/around slots were previously falling through to a normal selection drag).
+  - Since this codebase implements a plain click-select as a very-short drag (`EndDrag`'s `_isClick` heuristic), gating `BeginDrag` covers both drag-box selection AND single-click selection in one place -- a click starting below the line selects nothing, not just "doesn't start a box."
+  - Only the drag's START is checked, per request -- a drag that begins above the line and is dragged down past it while held is unaffected.
+  - Room-space `mouse_x`/`mouse_y` aren't usable for this check (camera-relative), so it reads `device_mouse_y_to_gui(0)`, the same GUI-space approach `BlueprintController` already uses for its own hit-testing.
+
+### Build
+
+- Windows export version bumped `0.0.2.16` → `0.0.2.17` — 4th-digit bump, same convention as last time.
+
+## v0.0.2.16 — 2026-07-05 (uncommitted — working tree only, not yet committed)
+
+Blueprint UI panel repositioned and enlarged, per request.
+
+### Changed
+
+- **`BlueprintController.GetOrigin()` (`BlueprintScripts.gml`) now returns a fixed top-left anchor** (`BLUEPRINT_UI_ORIGIN_X/Y` = 660, 830) instead of the old bottom-center-of-GUI calculation. No longer depends on `display_get_gui_width/height`.
+- **New `BLUEPRINT_UI_SCALE = 2` macro drives the whole panel's size.** `GetSlotRect` (the single source of truth both `Draw` and `TryBeginDrag` already read from) now multiplies `BLUEPRINT_SLOT_SIZE`/`BLUEPRINT_SLOT_PADDING` by this scale, so the clickable area and the drawn area stay identical automatically — nothing render-only or hit-test-only to keep in sync. Both `draw_sprite` calls (in-slot icon, dragged icon following the cursor) switched to `draw_sprite_ext` with `xscale`/`yscale` = `BLUEPRINT_UI_SCALE` so the building icons themselves scale up too, not just the slot borders.
+- **Not scaled: the stack-count text** (`draw_text` for `_stack.count`). Wasn't asked for, and scaling text needs `draw_text_transformed` instead of a quick multiply -- left as-is against the now-2x slots. Flagging in case it reads too small once you see it in place.
+
+### Build
+
+- Windows export version bumped `0.0.2.15` → `0.0.2.16` — 4th-digit bump, same convention as last time.
+
+## v0.0.2.15 — 2026-07-05 (uncommitted — working tree only, not yet committed)
+
+Fixed a pre-existing `Purchase` bug the AI's build-up state finally triggered.
+
+### Fixed
+
+- **`Purchase(_costStruct, _team)` (`Economy.gml`) deducted against the wrong struct.** `Purchase` is a plain top-level function, not a `Cost` method, so `self` inside its body is whatever the *caller's* `self` happened to be — not `_costStruct`. Since `Purchase` is always called several plain-call frames deep (`TryPlaceBlueprint`/`TrainingScripts` → `Purchase`), and those chains are frequently entered via a dot-call on some other struct (a `State` struct via `currentState.onStep(owner, self)` for the AI path, `BlueprintController` for the player drag-to-place path), `self` at the point `Purchase` ran was that unrelated struct, not the `Cost` instance. `struct_get(self, _res)` then returned `undefined` for every resource key (starting with `wood`, first in iteration order), and `_resAmt - _costAmt` threw the reported `DoSub : undefined value` the moment a purchase actually got past `CanAfford`.
+  - This was already present in `HEAD` before this session's XP/resource work touched the file — confirmed via `git show HEAD` — so it wasn't introduced by the new `xp`/`fateTokens` fields, it just needed a successful AI (or player) purchase to actually reach line 116 and fire. Likely the first time the AI's build-up state got resources + a valid plot at the same time.
+  - `CanAfford` (the `static` method a few lines up) does NOT have this bug — it's called via `_costStruct.CanAfford(_team)`, a proper dot-call, which correctly binds `self` to `_costStruct` for that call.
+  - Fix: read the cost amount off `_costStruct` explicitly (`struct_get(_costStruct, _res)`) instead of relying on the ambient `self`.
+  - Worth a smoke test of both the AI build-up path and the player's manual drag-to-place, since both were exposed to this and neither may have been confirmed to fully complete a real deduction before.
+
+### Build
+
+- Windows export version bumped `0.0.2.14` → `0.0.2.15` — 4th-digit bump, same convention as last time.
+
 ## v0.0.2.14 — 2026-07-04 (uncommitted — working tree only, not yet committed)
 
 Two new resources (XP, Fate Tokens) and a `GainXP` accumulator to drive them, plus a bug fix: three script files from the last two sessions' ranged-combat work were never actually registered with the project and would not have compiled.

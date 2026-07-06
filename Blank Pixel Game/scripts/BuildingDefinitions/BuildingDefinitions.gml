@@ -100,7 +100,11 @@ function RegisterAllBuildingDefinitions() {
     RegisterBuildingDefinition(oWheatField, new BuildingDefinition({
         name:               "Wheat Field",
         description:        "A basic resource plot that produces wheat over time.",
-        cost:               new Cost([new ResourceCost("wood", 15), new ResourceCost("coins", 10)]),
+        // Was 15 wood + 10 coins (pre-dated the sheet's "Wheat Farm" row
+        // being consulted for this exact building) -- corrected 2026-07-05
+        // to the real sheet-sourced cost, same as the other 4 resource
+        // buildings below.
+        cost:               new Cost([new ResourceCost("water", 20), new ResourceCost("wood", 10)]),
         sprite:              sWheatField,
         productionResource: "wheat",
         productionRate:      1, // 1 wheat/sec at 1x match speed
@@ -183,6 +187,51 @@ function RegisterAllBuildingDefinitions() {
         trainCost:        new Cost([new ResourceCost("wheat", 100), new ResourceCost("gold", 25), new ResourceCost("iron", 50)]),
         trainTime:        20,
         maxHealth:        220,
+    }));
+
+    // Remaining 4 tier-1 resource buildings -- cost + production rate are
+    // real, sheet-sourced values (Item Costs sheet, "Production Buildings"
+    // section), same status as Wheat Field's numbers above. maxHealth is
+    // NOT sheet-sourced (no building-HP column exists) -- placeholder,
+    // matching Wheat Field's 150 since these are the same tier/category.
+    RegisterBuildingDefinition(oWaterPump, new BuildingDefinition({
+        name:               "Water Pump",
+        description:        "A basic resource plot that produces water over time.",
+        cost:               new Cost([new ResourceCost("wood", 20)]),
+        sprite:              sWaterPump,
+        productionResource: "water",
+        productionRate:      1, // 1 water/sec at 1x match speed
+        maxHealth:           150,
+    }));
+
+    RegisterBuildingDefinition(oSawmill, new BuildingDefinition({
+        name:               "Sawmill",
+        description:        "A basic resource plot that produces wood over time.",
+        cost:               new Cost([new ResourceCost("water", 40)]),
+        sprite:              sSawmill,
+        productionResource: "wood",
+        productionRate:      1, // 1 wood/sec at 1x match speed
+        maxHealth:           150,
+    }));
+
+    RegisterBuildingDefinition(oGoldMine, new BuildingDefinition({
+        name:               "Gold Mine",
+        description:        "A basic resource plot that produces gold over time.",
+        cost:               new Cost([new ResourceCost("water", 70), new ResourceCost("iron", 30)]),
+        sprite:              sGoldMine,
+        productionResource: "gold",
+        productionRate:      1, // 1 gold/sec at 1x match speed
+        maxHealth:           150,
+    }));
+
+    RegisterBuildingDefinition(oIronMine, new BuildingDefinition({
+        name:               "Iron Mine",
+        description:        "A basic resource plot that produces iron over time.",
+        cost:               new Cost([new ResourceCost("water", 30), new ResourceCost("wood", 60)]),
+        sprite:              sIronMine,
+        productionResource: "iron",
+        productionRate:      1, // 1 iron/sec at 1x match speed
+        maxHealth:           150,
     }));
 }
 
@@ -275,13 +324,15 @@ function BuildingUpdateProduction(_building) {
 }
 
 /// @function PlayResourceProducedEffect(_building, _resource)
-/// @description STUB -- called exactly once per whole unit of resource
-///        produced (BuildingUpdateProduction may call this more than once
-///        in a single frame at high production rates). Replace with the
-///        real particle/sound/popup effect; for now just logs, so
-///        production is verifiable without real art/audio yet.
+/// @description Called exactly once per whole unit of resource produced
+///        (BuildingUpdateProduction may call this more than once in a
+///        single frame at high production rates -- each call gets its own
+///        particle burst). Spawns the resource-produced particle burst
+///        (SpawnResourceProducedParticles, ResourceParticleScripts.gml) at
+///        _building's position -- no sound/popup text yet, just the
+///        particles requested 2026-07-05.
 /// @param {Id.Instance} _building
 /// @param {String} _resource
 function PlayResourceProducedEffect(_building, _resource) {
-    show_debug_message($"+1 {_resource} produced by {object_get_name(_building.object_index)} ({_building}).");
+    SpawnResourceProducedParticles(_building, _resource);
 }

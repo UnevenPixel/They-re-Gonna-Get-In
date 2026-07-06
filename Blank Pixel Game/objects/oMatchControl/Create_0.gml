@@ -56,12 +56,11 @@ global.armyLimit = [6, 6];
 // iron, 50 gold, 50 wheat -- applied symmetrically to both teams, since
 // the AI opponent now needs the same economy as the player to actually
 // build/train (see AI_TryPlaceBlueprints/AI_TryTrainAtAllBuildings,
-// AIControl.gml). Everything else (meat/bones/coal/weapons/coins)
-// intentionally stays at 0 -- coins isn't part of the starting loadout, so
-// note that the Wheat Field blueprint below (15 wood + 10 coins) can't
-// actually be placed by either side until coins comes from somewhere (a
-// real acquisition/trading system isn't built yet); the Peasant Ward
-// blueprint (40 wheat + 40 water) is unaffected and fully testable.
+// AIControl.gml). Everything else (meat/bones/coal/weapons/coins) stays
+// at 0 -- coins isn't part of the starting loadout. Wheat Field's cost was
+// corrected 2026-07-05 to 20 water + 10 wood (see BuildingDefinitions.gml),
+// so it's now fully affordable from this starting loadout same as every
+// other tier-1 building here.
 for (var i = 0; i < 2; i++) {
     global.resources[i].wood  = 50;
     global.resources[i].water = 50;
@@ -70,14 +69,21 @@ for (var i = 0; i < 2; i++) {
     global.resources[i].wheat = 50;
 }
 
-// TEST DATA: a few Wheat Field / Peasant Ward blueprints per side so the
-// drag-to-place (player) and AI-placement (AI_TryPlaceBlueprints) flows
-// are both testable end-to-end before a real blueprint-acquisition
-// system exists. Remove/replace once that system is designed.
-AddBlueprint(TEAM.PLAYER, oWheatField, 3);
-AddBlueprint(TEAM.PLAYER, oPeasantWard, 1);
-AddBlueprint(TEAM.ENEMY, oWheatField, 3);
-AddBlueprint(TEAM.ENEMY, oPeasantWard, 1);
+// TEST DATA: one of every registered building blueprint per side, for
+// playtesting -- 2026-07-05 request. The final build only starts the
+// player with one of each of the 4 tier-1 RESOURCE blueprints specifically
+// (Water Pump/Sawmill/Gold Mine/Iron Mine, alongside Wheat Field); everything
+// else here is playtest-only until a real blueprint-acquisition system
+// exists (still not designed) -- remove/replace once that system is built.
+var _startingBlueprints = [
+    oWheatField, oPeasantWard, oBoomHut, oBogFoundry, oBarracks,
+    oArcheryRange, oRoundTable, oWaterPump, oSawmill, oGoldMine, oIronMine
+];
+for (var i = 0; i < 2; i++) {
+    for (var j = 0; j < array_length(_startingBlueprints); j++) {
+        AddBlueprint(i, _startingBlueprints[j], 1);
+    }
+}
 
 // Resets this match's local playtest-analytics counters -- see
 // AnalyticsScripts.gml.
