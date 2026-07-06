@@ -134,13 +134,13 @@ function TryPlaceBlueprint(_team, _buildingType, _plot) {
 // -----------------------------------------------------------
 
 #macro BLUEPRINT_SLOT_SIZE      48
-#macro BLUEPRINT_SLOT_PADDING   4
+#macro BLUEPRINT_SLOT_PADDING   1
 #macro BLUEPRINT_GRID_COLS      5
 #macro BLUEPRINT_GRID_ROWS      2
 #macro BLUEPRINT_SLOTS_PER_PAGE 10 // BLUEPRINT_GRID_COLS * BLUEPRINT_GRID_ROWS
 #macro BLUEPRINT_UI_SCALE       2  // panel render/interact scale -- 2026-07-05 request; slot size/padding/icon draws all scale off this, single source of truth
-#macro BLUEPRINT_UI_ORIGIN_X    640 // fixed top-left anchor (2026-07-05 request) -- replaced the old bottom-centered GetOrigin()
-#macro BLUEPRINT_UI_ORIGIN_Y    810
+#macro BLUEPRINT_UI_ORIGIN_X    660 // fixed top-left anchor (2026-07-05 request) -- replaced the old bottom-centered GetOrigin()
+#macro BLUEPRINT_UI_ORIGIN_Y    830
 
 /// @function BlueprintController(_team)
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY -- whose blueprint

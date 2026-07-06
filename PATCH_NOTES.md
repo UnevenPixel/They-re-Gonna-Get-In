@@ -1,5 +1,52 @@
 # Patch Notes
 
+## v0.0.2.26 — 2026-07-06 (uncommitted — working tree only, not yet committed)
+
+Two small visual fixes: resource-produced particles draw-order, and a smooth drum landing. Also folds in a few manual tuning tweaks made directly in the IDE tonight.
+
+### Tuned (manual)
+
+- **`FATE_DRUM_SLOT_COUNT`** (`FateEngineDrumScripts.gml`): `8` → `5`.
+- **`BLUEPRINT_UI_ORIGIN_X`/`_Y`** (`BlueprintScripts.gml`): `640`/`810` → `660`/`830`.
+- **`BLUEPRINT_SLOT_PADDING`** (`BlueprintScripts.gml`): `4` → `1`.
+
+### Changed
+
+- **`oResourceProducedParticle`**: now sets `depth = -room_height - 1` in `Create_0`. Most instances in this project sort with `depth = -y` (see `oUnitParent`), which only ever ranges from `-room_height` to `0` -- pushing particles past that most-negative end guarantees they draw on top of everything, regardless of where in the room they spawn.
+- **`FateDrum` (`FateEngineDrumScripts.gml`)**: landing is no longer an instant snap. Once deceleration (`"stopping"`) slows below the threshold, the drum now hands off to a new `"landing"` state that eases `spinAngle` toward the nearest slot boundary (`landingTarget`) over several steps (`FATE_DRUM_LAND_EASE_RATE`, new macro) instead of jumping there in one frame. The eased delta is normalized to the shortest way around the circle first, so if deceleration overshot slightly past the boundary, the drum "rubber-bands" back up to it rather than snapping forward to the next one -- per 2026-07-06 request. Snaps exactly to `landingTarget` (and applies `pendingResult`, same as before) once within `FATE_DRUM_LAND_SNAP_EPSILON` (0.5°).
+  - `oFateEngineDrumTest`'s click handler treats `"landing"` the same as `"spinning"`/`"stopping"` (no-op) -- you can't re-spin until the drum is fully `"stopped"`, same as before.
+
+### Build
+
+- Windows export version bumped `0.0.2.25` → `0.0.2.26` — 4th-digit bump, same convention as last time.
+
+## v0.0.2.25 — 2026-07-06 (uncommitted — working tree only, not yet committed)
+
+Fate Engine layout pass 3: drum position + hover/click hit-test fix.
+
+### Changed
+
+- **`oFateEngineDrumTest`**: drums shifted DOWN by their own whole height (orbit diameter, `2 * radius` = 112px) relative to the body -- only the drums moved, the body/overlay/rects didn't.
+- **Hover + click hit test switched from circular to rectangular** (`Draw_64`/`Step_0`, same fix in both): the old `point_distance(...) > radius + 48` circular test used a 104px radius, but drums are only 104px apart center-to-center, so adjacent drums' hit zones overlapped and could highlight/click more than one at once. Now tested as independent width/height bounds (`abs(dx) > halfW || abs(dy) > halfH`) -- half-width is a new, much narrower placeholder (44px, leaves a gap at the 52px half-spacing), half-height keeps the old generous tolerance (`radius + 48`) since items can still sit well above/below center via the depth-based offset.
+
+### Build
+
+- Windows export version bumped `0.0.2.24` → `0.0.2.25` — 4th-digit bump, same convention as last time.
+
+## v0.0.2.24 — 2026-07-06 (uncommitted — working tree only, not yet committed)
+
+Fate Engine layout pass 2: clear the UI bottom bar, add the modal-overlay dark backdrop, and give each drum a backing card.
+
+### Changed
+
+- **`oFateEngineDrumTest`**: whole engine (body + drums) shifted up 268px so it sits above the UI's bottom bar -- `bodyBottomY` (instance var, set in `Create_0`) now anchors `sFateEngineBody`'s bottom edge, and drum Y is derived from it (`bodyBottomY - 338`) instead of the raw GUI height.
+  - Added a full-screen dark overlay (`c_black` @ 0.6 alpha) drawn first, behind everything else, so the Fate Engine reads as a modal over the rest of the UI.
+  - Added a backing rectangle per drum -- `#E1D3EA`, 50x69, centered on the drum -- drawn after the overlay but before that drum's icons, so it sits behind the spinning items and in front of the dark backdrop.
+
+### Build
+
+- Windows export version bumped `0.0.2.23` → `0.0.2.24` — 4th-digit bump, same convention as last time.
+
 ## v0.0.2.23 — 2026-07-05 (uncommitted — working tree only, not yet committed)
 
 Fate Engine drum visuals quick-fix: real placeholder art + final GUI layout.
@@ -373,8 +420,4 @@ Early development pass: documentation cleanup, several load-bearing bug fixes, a
 ### Known issues (flagged, not yet addressed)
 
 - The `"station"` order appears in units' `availableOrders` but is never registered in `RegisterAllOrders()` — picking it currently does nothing.
-- A second, unused `UnitOrders` enum (GUARD/DEFEND/ATTACK/SIEGE/STATION) exists alongside the raw order-name strings actually used everywhere — a similar duplication to the team-representation issue that was just resolved, but not yet raised for a decision.
-
-### Build
-
-- Windows export version set to `0.0.1.0` to reflect actual development stage (was defaulted to `1.0.0.0`). Going forward: bump the 4th number for routine small changes; bump the 3rd number when patch notes are requested.
+- A second, unused `UnitOrders` enum (GUARD/DEFEND/ATTACK/SIEGE/STATION) exists alongside the raw order-name strings actually used everywhere — a similar duplicati

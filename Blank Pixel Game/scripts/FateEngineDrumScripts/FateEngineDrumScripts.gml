@@ -41,12 +41,14 @@
 // to think about the scale themselves.
 // -----------------------------------------------------------
 
-#macro FATE_DRUM_SLOT_COUNT    8    // items spaced evenly around the cylinder
-#macro FATE_DRUM_SPIN_SPEED    18   // degrees/step at 1x match speed while spinning
-#macro FATE_DRUM_STOP_DECEL    0.6  // degrees/step^2 shed from spin speed while stopping
-#macro FATE_DRUM_BACK_ZONE_MIN 150  // degrees -- a slot inside [MIN,MAX] is "at the back", hidden, and eligible to swap
-#macro FATE_DRUM_BACK_ZONE_MAX 210
-#macro FATE_DRUM_ITEM_SCALE    2    // GUI render scale for every item sprite (48x48 -> 96x96) -- 2026-07-05 request
+#macro FATE_DRUM_SLOT_COUNT       5    // items spaced evenly around the cylinder
+#macro FATE_DRUM_SPIN_SPEED       18   // degrees/step at 1x match speed while spinning
+#macro FATE_DRUM_STOP_DECEL       0.6  // degrees/step^2 shed from spin speed while stopping
+#macro FATE_DRUM_BACK_ZONE_MIN    150  // degrees -- a slot inside [MIN,MAX] is "at the back", hidden, and eligible to swap
+#macro FATE_DRUM_BACK_ZONE_MAX    210
+#macro FATE_DRUM_ITEM_SCALE       2    // GUI render scale for every item sprite (48x48 -> 96x96) -- 2026-07-05 request
+#macro FATE_DRUM_LAND_EASE_RATE   0.2  // fraction of the remaining angle-to-target closed per step at 1x match speed, while "landing"
+#macro FATE_DRUM_LAND_SNAP_EPSILON 0.5 // degrees -- close enough to the target to snap exactly and finish landing
 
 /// @function FateEngineItem(_sprite, _subimg, _label)
 /// @description One item shown on a Fate Engine drum -- just enough to
@@ -109,8 +111,9 @@ function FateDrum(_x, _y, _radius = 48) constructor {
 
     spinAngle     = 0;         // current overall rotation, degrees, 0-360
     spinSpeed     = 0;         // degrees/step, at 1x match speed
-    state         = "stopped"; // "stopped" | "spinning" | "stopping"
+    state         = "stopped"; // "stopped" | "spinning" | "stopping" | "landing"
     pendingResult = undefined; // Struct.FateEngineItem|Undefined -- see Stop()
+    landingTarget = undefined; // Real|Undefined -- the slot-boundary angle "landing" is easing toward, see Step()
 
     // One entry per slot: {item, wasInBackZone}. wasInBackZone gates the
     // swap-on-entry so a slot rerolls exactly ONCE per pass through the
@@ -141,12 +144,14 @@ function FateDrum(_x, _y, _radius = 48) constructor {
     }
 
     /// @function Stop(_targetItem)
-    /// @description Begins decelerating toward a stop. Once fully
-    ///        stopped, the drum snaps to land exactly on a slot (angle 0)
-    ///        -- see Step(). If _targetItem is given, that slot's item is
-    ///        forced to _targetItem the moment it lands, so a future
-    ///        weighted reward roll can dictate the actual result rather
-    ///        than leaving it to whatever was already spinning there.
+    /// @description Begins decelerating toward a stop. Once slow enough,
+    ///        the drum eases smoothly into landing exactly on a slot
+    ///        (angle 0) rather than snapping there instantly -- see
+    ///        Step()'s "landing" state. If _targetItem is given, that
+    ///        slot's item is forced to _targetItem the moment it lands, so
+    ///        a future weighted reward roll can dictate the actual result
+    ///        rather than leaving it to whatever was already spinning
+    ///        there.
     /// @param {Struct.FateEngineItem} [_targetItem]
     static Stop = function(_targetItem = undefined) {
         if (state != "spinning") return;
@@ -156,89 +161,29 @@ function FateDrum(_x, _y, _radius = 48) constructor {
 
     /// @function Step()
     /// @description Call once per Step while this drum exists. Advances
-    ///        rotation, handles the stopping snap (+ applying
-    ///        pendingResult), and refreshes any slot that just entered
-    ///        the hidden back zone.
+    ///        rotation, hands off from "stopping" to a "landing" ease
+    ///        once slow enough (see below), and refreshes any slot that
+    ///        just entered the hidden back zone.
     static Step = function() {
         if (state == "spinning") {
             spinAngle += spinSpeed * global.matchSpeed;
         } else if (state == "stopping") {
             spinSpeed -= FATE_DRUM_STOP_DECEL * global.matchSpeed;
 
-            // Once slow enough, snap to the nearest slot boundary and stop
-            // outright rather than crawling asymptotically toward it --
-            // simple placeholder deceleration, tune freely later.
+            // Once slow enough, stop decelerating and hand off to
+            // "landing" rather than snapping straight to the nearest slot
+            // boundary -- an instant snap reads as a jerk/pop. landingTarget
+            // is fixed the moment we enter "landing"; Step's "landing"
+            // branch eases spinAngle toward it every frame after.
             if (spinSpeed <= FATE_DRUM_STOP_DECEL * 4) {
                 var _spacing = 360 / FATE_DRUM_SLOT_COUNT;
-                spinAngle = round(spinAngle / _spacing) * _spacing;
-                spinSpeed = 0;
-                state     = "stopped";
-
-                if (pendingResult != undefined) {
-                    for (var i = 0; i < FATE_DRUM_SLOT_COUNT; i++) {
-                        if (GetSlotAngle(i) == 0) {
-                            slots[i].item = pendingResult;
-                            break;
-                        }
-                    }
-                    pendingResult = undefined;
-                }
+                landingTarget = round(spinAngle / _spacing) * _spacing;
+                spinSpeed     = 0;
+                state         = "landing";
             } else {
                 spinAngle += spinSpeed * global.matchSpeed;
             }
-        }
-
-        spinAngle = ((spinAngle mod 360) + 360) mod 360;
-
-        for (var i = 0; i < FATE_DRUM_SLOT_COUNT; i++) {
-            var _slot       = slots[i];
-            var _theta      = GetSlotAngle(i);
-            var _inBackZone = (_theta >= FATE_DRUM_BACK_ZONE_MIN && _theta <= FATE_DRUM_BACK_ZONE_MAX);
-
-            if (_inBackZone && !_slot.wasInBackZone) {
-                _slot.item = FateDrumRandomPlaceholderItem();
-            }
-            _slot.wasInBackZone = _inBackZone;
-        }
-    }
-
-    /// @function Draw()
-    /// @description Draws every slot currently in the front hemisphere
-    ///        (depth > 0), positioned/scaled/faded by its depth so the
-    ///        drum reads as a spinning cylinder rather than a flat list.
-    ///        Every item is drawn at FATE_DRUM_ITEM_SCALE (2x) on top of
-    ///        its depth-based shrink -- e.g. a 48x48 item at full front
-    ///        depth draws at 96x96, per 2026-07-05 request. Text (hover
-    ///        tooltips etc.) is a separate concern for the caller and is
-    ///        NOT scaled by this.
-    static Draw = function() {
-        for (var i = 0; i < FATE_DRUM_SLOT_COUNT; i++) {
-            var _theta = GetSlotAngle(i);
-            var _rad   = degtorad(_theta);
-            var _depth = cos(_rad); // +1 front (landing) .. -1 back (hidden)
-            if (_depth <= 0) continue; // back hemisphere -- not drawn, conceptually behind the drum's own front face
-
-            var _offsetY = radius * sin(_rad);
-            var _scale   = FATE_DRUM_ITEM_SCALE * (0.35 + 0.65 * _depth); // shrinks toward the top/bottom edge, never all the way to 0
-            var _item    = slots[i].item;
-
-            draw_sprite_ext(_item.sprite, _item.subimg, x, y + _offsetY, _scale, _scale, 0, c_white, _depth);
-        }
-    }
-
-    /// @function GetLockedItem()
-    /// @description The item currently at the front/landing position.
-    ///        Only meaningful once the drum has actually stopped -- while
-    ///        spinning or decelerating there's no single stable answer,
-    ///        so this returns undefined. This is what a hover tooltip (or
-    ///        eventually cash-out) should read.
-    /// @returns {Struct.FateEngineItem|Undefined}
-    static GetLockedItem = function() {
-        if (state != "stopped") return undefined;
-
-        for (var i = 0; i < FATE_DRUM_SLOT_COUNT; i++) {
-            if (GetSlotAngle(i) == 0) return slots[i].item;
-        }
-        return undefined; // shouldn't happen once state == "stopped", but don't hard-crash if it does
-    }
-}
+        } else if (state == "landing") {
+            // Ease the remaining gap to landingTarget down every step
+            // (2026-07-06 request: smooth landing instead of a hard snap).
+            // The gap is normalized to (-180, 180] first so the 

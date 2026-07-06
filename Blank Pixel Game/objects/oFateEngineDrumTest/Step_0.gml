@@ -11,12 +11,7 @@ if (mouse_check_button_pressed(mb_left)) {
 
     for (var i = 0; i < array_length(drums); i++) {
         var _drum = drums[i];
-        if (point_distance(_mx, _my, _drum.x, _drum.y) > _drum.radius + 48) continue; // +48: same visual-footprint tolerance as the Draw_64 hover check
-
-        if (_drum.state == "spinning") {
-            _drum.Stop();
-        } else if (_drum.state == "stopped") {
-            _drum.Spin();
-        }
-    }
-}
+        // Rectangular hit test (not circular) -- see Draw_64 for why: a
+        // circular radius wide enough to cover a drum's vertical footprint
+        // also reached into neighboring drums horizontally, since they're
+        // only 
