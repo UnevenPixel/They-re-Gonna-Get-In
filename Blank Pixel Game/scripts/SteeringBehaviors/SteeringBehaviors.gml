@@ -460,4 +460,35 @@ function Steering_AvoidObstacles(_agent, _obstacles, _feelerLength = 80) {
         : Vector2FromAngle(_agent.Heading() + 90, _agent.maxSpeed);
 
     // Scale urgency by how close the obstacle is.
-    var _ur
+    var _urgency = clamp(1 - (_minDist / _feelerLength), 0, 1);
+    return _avoidDir.Subtract(_agent.velocity).Scale(_urgency);
+}
+
+// -----------------------------------------------------------
+// Boundary containment
+// -----------------------------------------------------------
+
+/// @function Steering_Contain(_agent, _rect, _margin)
+/// Soft boundary: seek back toward the rect's center as the unit
+/// approaches an edge. _margin is how far from the edge the pull
+/// begins. Returns zero force when comfortably inside.
+/// _rect: { x1, y1, x2, y2 }
+/// @param {Struct.SteeringAgent} _agent
+/// @param {Struct}               _rect
+/// @param {Real}                 [_margin]
+/// @returns {Struct.Vector2} steering force
+function Steering_Contain(_agent, _rect, _margin = 40) {
+    var _cx = (_rect.x1 + _rect.x2) * 0.5;
+    var _cy = (_rect.y1 + _rect.y2) * 0.5;
+    var _px = _agent.pos.x;
+    var _py = _agent.pos.y;
+
+    var _nearEdge = (_px < _rect.x1 + _margin)
+                 || (_px > _rect.x2 - _margin)
+                 || (_py < _rect.y1 + _margin)
+                 || (_py > _rect.y2 - _margin);
+
+    if (!_nearEdge) return new Vector2(0, 0);
+
+    return Steering_Seek(_agent, new Vector2(_cx, _cy));
+}

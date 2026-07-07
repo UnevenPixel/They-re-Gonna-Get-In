@@ -333,4 +333,138 @@ function RegisterAllUnitDefinitions() {
         description:       "Straps on a bomb and sprints at the enemy. Dies on detonation.",
         cost:              new Cost([new ResourceCost("gold", 8)]),
         maxHealth:         6,
-        attackDamage:      
+        attackDamage:      20, // sheet lists this as "20 AOE" -- see NOTE below, AoE + self-destruct-on-hit aren't real systems yet
+        attackRange:       20,
+        attackLeashRange:  260,
+        attackHitFrame:    2,
+        attackCooldownMax: 40,
+        attackAggroRadius: 80,
+        siegeSweepRadius:  140,
+        maxSpeed:          2.2, // sheet: "one of, if not the fastest unit in the game"
+        sprites:           new AnimationLibrary(sBombGoblinIdle, sBombGoblinWalk, sBombGoblinExplode),
+        icon:              sBombGoblinIcon,
+        smallSprite:       sBombGoblinSmall,
+        palette:           sBombGolbinPallete, // NOTE: sprite asset name is misspelled "Golbin" (not "Goblin") -- that's the actual existing asset name on disk/in the .yyp, not a typo introduced here; flag if you want it renamed (every other sBombGoblin* asset uses the correct spelling).
+        availableOrders:   ["guard", "defend", "attack", "siege", "station"],
+        tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
+        tags:              ["infantry", "melee", "suicide", "fast"],
+        stationCost:       15, // Gold, per data sheet -- user-supplied 2026-07-11
+        passives: [
+            {name: "Stationed Effect", description: "+15% speed boost to gold production per Bomb Goblin stationed."},
+            {name: "Deployed Effect",  description: "One of, if not the fastest unit in the game. Reaches the enemy quickly and inflicts AoE damage, but dies after use."},
+            {name: "Notes",           description: "Their AoE damage also hits friendly units -- NOT implemented; there's no AoE damage or self-destruct-on-hit logic yet, UnitTryDealDamage (UnitCombatHelpers.gml) is still a TODO stub for ALL units."},
+        ],
+    }));
+
+    RegisterUnitDefinition(oMudGolemUnit, new UnitDefinition({
+        name:              "Mud Golem",
+        description:       "A lumbering construct of mud and stone.",
+        cost:              new Cost([new ResourceCost("water", 40)]),
+        maxHealth:         100,
+        attackDamage:      5,
+        attackRange:       36,
+        attackLeashRange:  300,
+        attackHitFrame:    5,
+        attackCooldownMax: 90,
+        attackAggroRadius: 90,
+        siegeSweepRadius:  200,
+        maxSpeed:          0.6,
+        sprites:           new AnimationLibrary(sMudGolemIdle, sMudGolemWalk, sMudGolemAttack),
+        icon:              sMudGolemIcon,
+        smallSprite:       sMudGolemSmall,
+        palette:           sMudGolemPallete,
+        availableOrders:   ["guard", "defend", "attack", "siege", "station"],
+        tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
+        tags:              ["infantry", "melee", "heavy", "tank"],
+        stationCost:       25, // Gold, per data sheet -- user-supplied 2026-07-11
+        passives: [
+            {name: "Stationed Effect", description: "+5% HP to all units (stacks per Mud Golem stationed)."},
+            {name: "Deployed Effect",  description: "Upon death, the ground becomes muddy, applying 80% slow for 5 seconds. NOT implemented -- no on-death effect hook exists yet (nothing in this codebase runs on unit death at all)."},
+        ],
+    }));
+
+    RegisterUnitDefinition(oSoldierUnit, new UnitDefinition({
+        name:              "Soldier",
+        description:       "Standard melee infantry.",
+        cost:              new Cost([new ResourceCost("wheat", 25), new ResourceCost("wood", 25), new ResourceCost("iron", 25)]),
+        maxHealth:         20,
+        attackDamage:      5,
+        attackRange:       32,
+        attackLeashRange:  320,
+        attackHitFrame:    3,
+        attackCooldownMax: 55,
+        attackAggroRadius: 100,
+        siegeSweepRadius:  170,
+        maxSpeed:          1,
+        sprites:           new AnimationLibrary(sSoldierIdle, sSoldierWalk, sSoldierAttack),
+        icon:              sSoldierIcon,
+        smallSprite:       sSoldierSmall,
+        palette:           sSoldierPallete,
+        availableOrders:   ["guard", "defend", "attack", "siege", "station"],
+        tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
+        tags:              ["infantry", "melee"],
+        stationCost:       30, // Gold, per data sheet -- user-supplied 2026-07-11
+        passives: [
+            {name: "Stationed Effect", description: "+5% damage & HP to all deployed units (stacks per Soldier stationed)."},
+            {name: "Deployed Effect",  description: "Melee combat."},
+        ],
+    }));
+
+    RegisterUnitDefinition(oArcherUnit, new UnitDefinition({
+        name:              "Archer",
+        description:       "Ranged infantry armed with a bow.",
+        cost:              new Cost([new ResourceCost("wheat", 50), new ResourceCost("gold", 25), new ResourceCost("wood", 25)]),
+        maxHealth:         10,
+        attackDamage:      3,
+        attackRange:       96, // stand-in for "ranged" under the current melee-only attack state -- see NOTE below
+        attackLeashRange:  380,
+        attackHitFrame:    4,
+        attackCooldownMax: 70,
+        attackAggroRadius: 140,
+        siegeSweepRadius:  160,
+        maxSpeed:          1,
+        sprites:           new AnimationLibrary(sArcherIdle, sArcherWalk, sArcherAttack, [
+            {name: "projectile", sprite: sArcherProjectile}, // also set as projectileObject below (oArcherProjectile) -- this entry is just so the raw sprite is reachable off sprites.projectile too
+        ]),
+        icon:              sArcherIcon,
+        smallSprite:       sArcherSmall,
+        palette:           sArcherPallete,
+        availableOrders:   ["guard", "defend", "attack", "siege", "station"],
+        tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
+        tags:              ["infantry", "ranged"],
+        projectileObject:  oArcherProjectile, // "attack" order dispatches ranged-tagged units into "attackRanged" instead of "attack" -- see OrderWiring.gml
+        stationCost:       15, // Gold, per data sheet -- user-supplied 2026-07-11
+        passives: [
+            {name: "Stationed Effect", description: "Ranged attacks from the wall."},
+            {name: "Deployed Effect",  description: "Ranged attacks."},
+            {name: "Notes",           description: "Upkeep (Stationed): 1 Wheat / 3 sec per data sheet -- still NOT implemented, no upkeep/drain system exists yet. Ranged combat itself IS now real (attackRanged state, UnitStateAttackRanged.gml + oArcherProjectile) -- attackRange is still a judgment call, not sheet-sourced."},
+        ],
+    }));
+
+    RegisterUnitDefinition(oKnightUnit, new UnitDefinition({
+        name:              "Knight",
+        description:       "Heavy melee infantry, effective against production buildings.",
+        cost:              new Cost([new ResourceCost("wheat", 100), new ResourceCost("gold", 25), new ResourceCost("iron", 50)]),
+        maxHealth:         25,
+        attackDamage:      6,
+        attackRange:       34,
+        attackLeashRange:  340,
+        attackHitFrame:    4,
+        attackCooldownMax: 65,
+        attackAggroRadius: 110,
+        siegeSweepRadius:  180,
+        maxSpeed:          0.9,
+        sprites:           new AnimationLibrary(sKnightIdle, sKnightWalk, sKnightAttack),
+        icon:              sKnightIcon,
+        smallSprite:       sKnightSmall,
+        palette:           sKnightPallete,
+        availableOrders:   ["guard", "defend", "attack", "siege", "station"],
+        tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
+        tags:              ["infantry", "melee", "heavy"],
+        stationCost:       50, // Gold, per data sheet -- user-supplied 2026-07-11
+        passives: [
+            {name: "Stationed Effect", description: "+5% unit production speed."},
+            {name: "Deployed Effect",  description: "Bonus damage against production buildings. NOT implemented -- Attack_Step (UnitStateAttackMelee.gml) doesn't distinguish building types, and UnitTryDealDamage is a TODO stub for every unit regardless of target type."},
+        ],
+    }));
+}

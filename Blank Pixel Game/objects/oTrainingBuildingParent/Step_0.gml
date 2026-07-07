@@ -3,4 +3,4 @@
 // child (oPeasantWard, etc.) gets this for free; buildings with an empty
 // queue simply no-op here every frame.
 event_inherited();
-Tra
+TrainingUpdateQueue(self);

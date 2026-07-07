@@ -222,4 +222,8 @@ function Guard_Draw(_unit,_machine){
 ///        it's no longer counted as occupied for other units picking a position.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
-function Guard_Exit(_un
+function Guard_Exit(_unit, _machine) {
+    // Release the claimed waypoint so it's no longer counted as
+    // occupied for other units picking their next position.
+    _unit.guardWaypointClaimed = undefined;
+}

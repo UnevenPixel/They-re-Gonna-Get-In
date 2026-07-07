@@ -116,4 +116,34 @@ function GetDiscountedCost(_cost, _fraction) {
         var _name = _names[i];
         var _amt  = struct_get(_cost, _name);
         if (!is_real(_amt)) continue; // skips CanAfford -- a static method, not a resource field, but struct_get_names can still list it
-        struct_set(_
+        struct_set(_discounted, _name, round(_amt * (1 - _fraction)));
+    }
+    return _discounted;
+}
+
+/// @function Purchase(_costStruct, _team)
+/// @description Attempts to purchase an item using a supplied Cost struct. If the
+///        team can afford it, deducts the cost from global.resources.
+/// @param {Struct.Cost} _costStruct Cost struct describing what's being bought.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Bool} True if the purchase succeeded, false if it was rejected (not
+///        a Cost struct, or the team couldn't afford it).
+function Purchase(_costStruct,_team){
+    if (!is_instanceof(_costStruct,Cost)){
+        return false;
+    }
+    if _costStruct.CanAfford(_team){
+        var _varNames = struct_get_names(global.resources[_team]);
+        for(var i = 0; i < struct_names_count(global.resources[_team]); i ++){
+            var _res = _varNames[i];
+            var _resAmt = struct_get(global.resources[_team],_res);
+            var _costAmt = struct_get(_costStruct,_res);
+            struct_set(global.resources[_team],_res,_resAmt - _costAmt);
+            if (_costAmt > 0) AnalyticsRecordResourceSpent(_team, _res, _costAmt);
+        }
+        return true;
+    }
+    else{
+        return false;
+    }
+}

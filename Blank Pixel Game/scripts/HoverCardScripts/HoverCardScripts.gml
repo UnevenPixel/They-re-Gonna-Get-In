@@ -406,4 +406,98 @@ function HoverCard() constructor {
     /// @description This card's real on-screen width (HOVER_CARD_SCALE
     ///        applied) -- constant regardless of which sprite is currently
     ///        selected, since all 3 share the same native width.
-    /// @returns {R
+    /// @returns {Real}
+    static GetWidth = function() {
+        return HoverCardScaledWidth();
+    }
+
+    /// @function GetHeight()
+    /// @description This card's real on-screen height (HOVER_CARD_SCALE
+    ///        applied), for whichever sprite Show() most recently picked.
+    /// @returns {Real}
+    static GetHeight = function() {
+        return sprite_get_height(sprite) * HOVER_CARD_SCALE;
+    }
+
+    /// @function GetContentTopY()
+    /// @description 2026-07-08 addition. The Y coordinate immediately below
+    ///        the name plate, BEFORE topContentHeight's offset is applied --
+    ///        i.e. exactly where a specialized overlay's own top content
+    ///        (e.g. BuildingHoverScripts.gml's icon row) should start
+    ///        drawing. Body text itself starts topContentHeight px further
+    ///        down than this -- see Draw(). Only meaningful after Show()
+    ///        has been called (reads x/y, which Show() sets).
+    /// @returns {Real}
+    static GetContentTopY = function() {
+        return y + (HOVER_CARD_NAME_HEIGHT + HOVER_CARD_BODY_MARGIN_TOP) * HOVER_CARD_SCALE;
+    }
+
+    /// @function GetContentBottomY()
+    /// @description 2026-07-08 addition. The Y coordinate immediately below
+    ///        this card's LAST drawn content -- the flavor window if
+    ///        hasFlavor, otherwise the body text -- i.e. exactly where a
+    ///        specialized overlay's own bottom content (e.g. a blueprint
+    ///        tooltip's cost row) should start drawing. Duplicates the same
+    ///        math Draw() uses internally so external callers never have to
+    ///        keep a second copy in sync by hand. Only meaningful after
+    ///        Show() has been called.
+    /// @returns {Real}
+    static GetContentBottomY = function() {
+        var _bodyY = GetContentTopY() + topContentHeight;
+
+        if (hasFlavor) {
+            var _windowY = _bodyY + bodyText.get_height() + HOVER_CARD_FLAVOR_GAP_TOP * HOVER_CARD_SCALE;
+            return _windowY + sprite_get_height(sHoverCardDataWindow) * HOVER_CARD_SCALE;
+        }
+
+        return _bodyY + bodyText.get_height();
+    }
+
+    /// @function Draw(_alpha)
+    /// @description Call once per Draw GUI event. Draws nothing while
+    ///        hidden or fully transparent. Name plate text is horizontally
+    ///        CENTERED within the card's width (2026-07-07 request),
+    ///        vertically anchored at HOVER_CARD_NAME_OFFSET_Y native px
+    ///        (scaled) relative to the card's top-left -- body/flavor text
+    ///        are UNCHANGED, still left-aligned, per the same request
+    ///        ("keep the rest of the text as it is"). Body text starts HOVER_CARD_BODY_MARGIN_TOP
+    ///        (scaled) px below the name plate strip -- PLUS topContentHeight
+    ///        (2026-07-08 addition, 0 unless Show() was given one) for a
+    ///        specialized overlay's own content drawn above it (see
+    ///        GetContentTopY()) -- left-top aligned, wrapped to
+    ///        HoverCardBodyWrapWidth(). If hasFlavor, draws
+    ///        sHoverCardDataWindow HOVER_CARD_FLAVOR_GAP_TOP (scaled) px
+    ///        below the body text, with the italic flavor text inset
+    ///        HOVER_CARD_FLAVOR_PADDING_X/Y (scaled) inside it. Every text
+    ///        element draws via DrawCardTextWithShadow (1px drop shadow,
+    ///        F1DEB6 main color).
+    /// @param {Real} [_alpha] 0-1 fade level, applied to the card sprite
+    ///        (draw_sprite_ext), the flavor window sprite, and every text
+    ///        element (Scribble's .blend()). Defaults to fully opaque.
+    static Draw = function(_alpha = 1) {
+        if (!visible || _alpha <= 0) return;
+
+        draw_sprite_ext(sprite, 0, x, y, HOVER_CARD_SCALE, HOVER_CARD_SCALE, 0, c_white, _alpha);
+
+        // Centered horizontally (2026-07-07 request) -- nameText's fa_center
+        // alignment means this X is the text's horizontal CENTER point, so
+        // it's the card's own horizontal center, not HOVER_CARD_NAME_OFFSET_X
+        // (that offset is now unused -- see its macro comment above).
+        DrawCardTextWithShadow(nameText, x + (HOVER_CARD_WIDTH * HOVER_CARD_SCALE) / 2, y + HOVER_CARD_NAME_OFFSET_Y * HOVER_CARD_SCALE, _alpha);
+
+        var _bodyX = x + HOVER_CARD_BODY_MARGIN_X * HOVER_CARD_SCALE;
+        var _bodyY = GetContentTopY() + topContentHeight;
+        DrawCardTextWithShadow(bodyText, _bodyX, _bodyY, _alpha);
+
+        if (hasFlavor) {
+            var _windowX = x + HOVER_CARD_BODY_MARGIN_X * HOVER_CARD_SCALE;
+            var _windowY = _bodyY + bodyText.get_height() + HOVER_CARD_FLAVOR_GAP_TOP * HOVER_CARD_SCALE;
+
+            draw_sprite_ext(sHoverCardDataWindow, 0, _windowX, _windowY, HOVER_CARD_SCALE, HOVER_CARD_SCALE, 0, c_white, _alpha);
+
+            var _flavorX = _windowX + HOVER_CARD_FLAVOR_PADDING_X * HOVER_CARD_SCALE;
+            var _flavorY = _windowY + HOVER_CARD_FLAVOR_PADDING_Y * HOVER_CARD_SCALE;
+            DrawCardTextWithShadow(flavorText, _flavorX, _flavorY, _alpha);
+        }
+    }
+}

@@ -23,4 +23,17 @@
   "physicsObject":false,
   "physicsRestitution":0.1,
   "physicsSensor":false,
-  "physic
+  "physicsShape":1,
+  "physicsShapePoints":[],
+  "physicsStartAwake":true,
+  "properties":[],
+  "resourceType":"GMObject",
+  "resourceVersion":"2.0",
+  "solid":false,
+  "spriteId":{
+    "name":"sEnemyCastleWallMask",
+    "path":"sprites/sEnemyCastleWallMask/sEnemyCastleWallMask.yy",
+  },
+  "spriteMaskId":null,
+  "visible":false,
+}

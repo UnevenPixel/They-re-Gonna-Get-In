@@ -186,4 +186,85 @@ function FateDrum(_x, _y, _radius = 48) constructor {
         } else if (state == "landing") {
             // Ease the remaining gap to landingTarget down every step
             // (2026-07-06 request: smooth landing instead of a hard snap).
-            // The gap is normalized to (-180, 180] first so the 
+            // The gap is normalized to (-180, 180] first so the drum always
+            // eases along the SHORT way around -- since decel can overshoot
+            // slightly past the nearest boundary, that short way is
+            // sometimes backward ("rubber-banding" back up to the slot it
+            // just passed), which is expected and fine here.
+            var _delta = landingTarget - spinAngle;
+            while (_delta > 180)  _delta -= 360;
+            while (_delta <= -180) _delta += 360;
+
+            if (abs(_delta) <= FATE_DRUM_LAND_SNAP_EPSILON) {
+                spinAngle = landingTarget;
+                state     = "stopped";
+                landingTarget = undefined;
+
+                if (pendingResult != undefined) {
+                    for (var i = 0; i < FATE_DRUM_SLOT_COUNT; i++) {
+                        if (GetSlotAngle(i) == 0) {
+                            slots[i].item = pendingResult;
+                            break;
+                        }
+                    }
+                    pendingResult = undefined;
+                }
+            } else {
+                spinAngle += _delta * FATE_DRUM_LAND_EASE_RATE * global.matchSpeed;
+            }
+        }
+
+        spinAngle = ((spinAngle mod 360) + 360) mod 360;
+
+        for (var i = 0; i < FATE_DRUM_SLOT_COUNT; i++) {
+            var _slot       = slots[i];
+            var _theta      = GetSlotAngle(i);
+            var _inBackZone = (_theta >= FATE_DRUM_BACK_ZONE_MIN && _theta <= FATE_DRUM_BACK_ZONE_MAX);
+
+            if (_inBackZone && !_slot.wasInBackZone) {
+                _slot.item = FateDrumRandomPlaceholderItem();
+            }
+            _slot.wasInBackZone = _inBackZone;
+        }
+    }
+
+    /// @function Draw()
+    /// @description Draws every slot currently in the front hemisphere
+    ///        (depth > 0), positioned/scaled/faded by its depth so the
+    ///        drum reads as a spinning cylinder rather than a flat list.
+    ///        Every item is drawn at FATE_DRUM_ITEM_SCALE (2x) on top of
+    ///        its depth-based shrink -- e.g. a 48x48 item at full front
+    ///        depth draws at 96x96, per 2026-07-05 request. Text (hover
+    ///        tooltips etc.) is a separate concern for the caller and is
+    ///        NOT scaled by this.
+    static Draw = function() {
+        for (var i = 0; i < FATE_DRUM_SLOT_COUNT; i++) {
+            var _theta = GetSlotAngle(i);
+            var _rad   = degtorad(_theta);
+            var _depth = cos(_rad); // +1 front (landing) .. -1 back (hidden)
+            if (_depth <= 0) continue; // back hemisphere -- not drawn, conceptually behind the drum's own front face
+
+            var _offsetY = radius * sin(_rad);
+            var _scale   = FATE_DRUM_ITEM_SCALE * (0.35 + 0.65 * _depth); // shrinks toward the top/bottom edge, never all the way to 0
+            var _item    = slots[i].item;
+
+            draw_sprite_ext(_item.sprite, _item.subimg, x, y + _offsetY, _scale, _scale, 0, c_white, _depth);
+        }
+    }
+
+    /// @function GetLockedItem()
+    /// @description The item currently at the front/landing position.
+    ///        Only meaningful once the drum has actually stopped -- while
+    ///        spinning or decelerating there's no single stable answer,
+    ///        so this returns undefined. This is what a hover tooltip (or
+    ///        eventually cash-out) should read.
+    /// @returns {Struct.FateEngineItem|Undefined}
+    static GetLockedItem = function() {
+        if (state != "stopped") return undefined;
+
+        for (var i = 0; i < FATE_DRUM_SLOT_COUNT; i++) {
+            if (GetSlotAngle(i) == 0) return slots[i].item;
+        }
+        return undefined; // shouldn't happen once state == "stopped", but don't hard-crash if it does
+    }
+}

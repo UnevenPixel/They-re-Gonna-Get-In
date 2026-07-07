@@ -271,4 +271,36 @@ function ChooseCombatTarget(_unit, _radius = undefined, _castlePos = undefined) 
     var _bestScore = -infinity;
 
     for (var i = 0; i < _count; i++) {
-        var _c = _list[| i]
+        var _c = _list[| i];
+        if (_c == _unit) continue;
+        if (_c.team == _unit.team) continue;
+
+        var _dist = point_distance(_unit.x, _unit.y, _c.x, _c.y);
+
+        var _healthFrac = (variable_instance_exists(_c, "maxHealth") && _c.maxHealth > 0)
+            ? (GetDamageTaken(_c) / _c.maxHealth)
+            : 0;
+        var _attackStat = variable_instance_exists(_c, "attackDamage") ? _c.attackDamage : 0;
+        var _proxScore  = 1 - clamp(_dist / _radius, 0, 1);
+        var _activity   = _CombatTargetActivityScore(_c);
+
+        var _score = (_healthFrac * COMBAT_TARGET_WEIGHT_HEALTH)
+                   + (_attackStat * COMBAT_TARGET_WEIGHT_ATTACK)
+                   + (_proxScore  * COMBAT_TARGET_WEIGHT_PROXIMITY)
+                   + (_activity   * COMBAT_TARGET_WEIGHT_ACTIVITY);
+
+        if (_castlePos != undefined) {
+            var _distToCastle = point_distance(_c.x, _c.y, _castlePos.x, _castlePos.y);
+            var _castleProx   = 1 - clamp(_distToCastle / _radius, 0, 1);
+            _score += _castleProx * COMBAT_TARGET_WEIGHT_CASTLE;
+        }
+
+        if (_score > _bestScore) {
+            _bestScore = _score;
+            _best      = _c;
+        }
+    }
+
+    ds_list_destroy(_list);
+    return _best;
+}

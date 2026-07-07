@@ -84,4 +84,19 @@ for (var i = 0; i < 2; i++) {
 // TEST DATA: one of every registered building blueprint per side, for
 // playtesting -- 2026-07-05 request. The final build only starts the
 // player with one of each of the 4 tier-1 RESOURCE blueprints specifically
-// (Water Pump/Sawmill/Gold Mine/Iron 
+// (Water Pump/Sawmill/Gold Mine/Iron Mine, alongside Wheat Field); everything
+// else here is playtest-only until a real blueprint-acquisition system
+// exists (still not designed) -- remove/replace once that system is built.
+var _startingBlueprints = [
+    oWheatField, oPeasantWard, oBoomHut, oBogFoundry, oBarracks,
+    oArcheryRange, oRoundTable, oWaterPump, oSawmill, oGoldMine, oIronMine
+];
+for (var i = 0; i < 2; i++) {
+    for (var j = 0; j < array_length(_startingBlueprints); j++) {
+        AddBlueprint(i, _startingBlueprints[j], 1);
+    }
+}
+
+// Resets this match's local playtest-analytics counters -- see
+// AnalyticsScripts.gml.
+AnalyticsInit();

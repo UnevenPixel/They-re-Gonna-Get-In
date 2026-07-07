@@ -58,3 +58,27 @@ if (selectionController.isTargeting) {
 // state above, so the player can still scroll the view while dragging a
 // selection box, mid-order-menu, etc.
 UpdateCameraPan();
+
+// XP bar HUD -- milestone reveals + token tosses, independent of
+// everything above. 2026-07-06 request.
+xpBarWidget.Step();
+
+// Un-occupied building plot hover data -- independent of everything above
+// except that it reads selectionController/blueprintController's state to
+// suppress itself while the player is targeting/dragging. 2026-07-06 request.
+plotHoverController.Step(selectionController, blueprintController);
+
+// Placed building hover data -- same suppression inputs as plot hover
+// above, plus its own check against the Blueprint UI panel (see
+// BuildingHoverScripts.gml). 2026-07-08 request.
+buildingHoverController.Step(selectionController, blueprintController);
+
+// Blueprint UI slot hover data (tooltip) -- 2026-07-08 request. Separate
+// from blueprintController.Draw()'s panel rendering; suppressed internally
+// while dragging (BlueprintScripts.gml's UpdateHover).
+blueprintController.UpdateHover();
+
+// Top-left single-unit-selected info card -- 2026-07-11 request. Instant
+// show/hide tied to selectionController.selected, independent of mouse
+// position/dwell -- see UnitSelectHoverController (UnitHoverScripts.gml).
+unitSelectHoverController.Step(selectionController);

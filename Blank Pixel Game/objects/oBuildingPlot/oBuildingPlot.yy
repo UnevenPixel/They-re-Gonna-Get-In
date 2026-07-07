@@ -31,4 +31,15 @@
     {"$GMObjectProperty":"v2","%Name":"far","filters":[],"listItems":[],"multiselect":false,"name":"far","rangeEnabled":false,"rangeMax":10.0,"rangeMin":0.0,"resourceType":"GMObjectProperty","resourceVersion":"2.0","value":"False","varType":3,},
     {"$GMObjectProperty":"v2","%Name":"blocked","filters":[],"listItems":[],"multiselect":false,"name":"blocked","rangeEnabled":false,"rangeMax":10.0,"rangeMin":0.0,"resourceType":"GMObjectProperty","resourceVersion":"2.0","value":"False","varType":3,},
     {"$GMObjectProperty":"v2","%Name":"occupied","filters":[],"listItems":[],"multiselect":false,"name":"occupied","rangeEnabled":false,"rangeMax":10.0,"rangeMin":0.0,"resourceType":"GMObjectProperty","resourceVersion":"2.0","value":"False","varType":3,},
-    {"$GMObjectProperty":"v2","%Name":"team","filters":[],"listItems":[],"multiselect":false,"name":"team","rangeEnabled":false,"rangeMax":10.0,"rangeMin":0.0,"resourceType":"GMObjectPr
+    {"$GMObjectProperty":"v2","%Name":"team","filters":[],"listItems":[],"multiselect":false,"name":"team","rangeEnabled":false,"rangeMax":10.0,"rangeMin":0.0,"resourceType":"GMObjectProperty","resourceVersion":"2.0","value":"0","varType":1,},
+  ],
+  "resourceType":"GMObject",
+  "resourceVersion":"2.0",
+  "solid":false,
+  "spriteId":{
+    "name":"sPlot",
+    "path":"sprites/sPlot/sPlot.yy",
+  },
+  "spriteMaskId":null,
+  "visible":true,
+}
