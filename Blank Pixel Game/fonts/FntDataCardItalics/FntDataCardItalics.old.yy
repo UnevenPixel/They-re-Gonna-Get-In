@@ -138,6 +138,4 @@
     "name":"Default",
     "path":"texturegroups/Default",
   },
-  "TTFName":"",
-  "usesSDF":false,
-}
+  "TTFName

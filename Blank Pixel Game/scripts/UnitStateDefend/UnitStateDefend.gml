@@ -112,42 +112,4 @@ function Defend_Step(_unit, _machine) {
         _target = _waypoints[_machine.data.waypointIndex];
     }
 
-    var _obstacles = GatherNearbyObstacles(_unit);
-
-    _unit.controller.Begin();
-    _unit.controller.Add(Steering_Arrive(_unit.agent, _target, DEFEND_ARRIVE_RADIUS), 1.2);
-    _unit.controller.Add(Steering_AvoidObstacles(_unit.agent, _obstacles, 80),        1.8);
-    _unit.controller.Add(
-        Steering_Contain(_unit.agent, global.playAreaRect, PLAY_AREA_CONTAIN_MARGIN),
-        PLAY_AREA_CONTAIN_WEIGHT
-    );
-
-    // oBuildingParent dropped from this collision list, 2026-07-06 --
-    // units no longer physically collide with buildings, only with real
-    // static geometry (oEnvironmentSolid). Steering_AvoidObstacles above
-    // still sees buildings (GatherNearbyObstacles, GatherScripts.gml, is
-    // unchanged) and steers around them cosmetically; a unit can now clip
-    // through one if avoidance doesn't fully route around it, which is
-    // accepted as harmless per that request. (The building itself being
-    // "defended" is never in this list to begin with -- patrol waypoints
-    // already sit outside it -- so this only affects buildings a unit
-    // might pass near while patrolling.)
-    var _delta = _unit.controller.Apply();
-    with(_unit){
-        move_and_collide(_delta.x, _delta.y, [oEnvironmentSolid]);
-    }
-    _unit.agent.SyncFromInstance(_unit);
-
-    UnitUpdateSprite(_unit);
-}
-
-/// @function Defend_Exit(_unit, _machine)
-/// @description StateMachine onExit for "defend". Clears defendTarget so it
-///        doesn't linger if the unit re-enters a different defend assignment later.
-/// @param {Id.Instance} _unit
-/// @param {Struct.StateMachine} _machine
-function Defend_Exit(_unit, _machine) {
-    // Clear the stored waypoints and target so they don't linger if the
-    // unit re-enters a different defend assignment later.
-    _unit.defendTarget = noone;
-}
+    var _obstacles = G

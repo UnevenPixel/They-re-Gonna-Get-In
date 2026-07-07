@@ -216,18 +216,4 @@ function AnalyticsRecordResourceSpent(_team, _resource, _amt) {
 ///        length, not simulated game time, and deliberately keeps
 ///        counting through a matchSpeed-0 pause for the same reason.
 ///        Call once per Step (wired from oMatchControl/Step_0.gml).
-///        Steam stat: "match_time_seconds" (Integer, LIFETIME total
-///        across every match played -- read-add-set, same idiom as every
-///        other Record function here, NOT a per-match overwrite).
-function AnalyticsUpdateMatchTime() {
-    global.analyticsMatchTimeSeconds += delta_time / 1000000;
-
-    // Deliberately NOT calling steam_set_stat_int every Step even once
-    // uncommented -- that's an enormous number of API calls over a play
-    // session for one slowly-growing number. Batch it instead: call
-    // something like the block below periodically (e.g. once every N
-    // seconds via its own timer, or once at whatever "match over" ends up
-    // being) rather than every frame.
-    // var _stat = "match_time_seconds";
-    // steam_set_stat_int(_stat, steam_get_stat_int(_stat) + round(delta_time / 1000000));
-}
+///        Steam stat: "match_time_seconds" (Intege

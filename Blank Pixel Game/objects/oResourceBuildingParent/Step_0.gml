@@ -4,4 +4,4 @@
 // free; buildings with no production registered (productionRate 0) simply
 // no-op here every frame.
 event_inherited();
-BuildingUpdateProduction(self);
+Buildin

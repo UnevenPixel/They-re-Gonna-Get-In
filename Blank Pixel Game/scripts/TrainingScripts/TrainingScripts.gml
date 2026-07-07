@@ -221,25 +221,4 @@ function TrainingSpawnUnit(_building) {
 ///        later. Deliberate simplification; flag if you'd rather partial
 ///        progress persist across an empty gap.
 ///
-///        No-op if nothing is queued, or if trainTime isn't configured
-///        (<= 0 would otherwise loop forever). Call once per Step from a
-///        training building (wired from
-///        oTrainingBuildingParent/Step_0.gml, so every training building
-///        gets this automatically).
-/// @param {Id.Instance} _building
-function TrainingUpdateQueue(_building) {
-    if (_building.trainQueue <= 0 || _building.trainTime <= 0) return;
-
-    var _dt = delta_time / 1000000; // microseconds -> seconds, same idiom as BuildingUpdateProduction
-    _building.trainProgress += global.matchSpeed * _dt;
-
-    while (_building.trainQueue > 0 && _building.trainProgress >= _building.trainTime) {
-        _building.trainProgress -= _building.trainTime;
-        _building.trainQueue    -= 1;
-        TrainingSpawnUnit(_building);
-    }
-
-    if (_building.trainQueue <= 0) {
-        _building.trainProgress = 0;
-    }
-}
+/

@@ -5,6 +5,4 @@ PaletteSwapInit(); // caches shPaletteSwap's sampler/uniform handles once -- 202
 
 // Steamworks requires steam_shutdown() to NOT be called when the game is
 // ending because of game_restart() (Steam stays "running" across a
-// restart). Set this true immediately before any future game_restart()
-// call, then back to false right after -- see the Game End event.
-global.isGameRestarting = false;
+// restart). Set this true immediately before a

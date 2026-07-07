@@ -14,15 +14,4 @@ if (mouse_check_button_pressed(mb_left)) {
         // Rectangular hit test (not circular) -- see Draw_64 for why: a
         // circular radius wide enough to cover a drum's vertical footprint
         // also reached into neighboring drums horizontally, since they're
-        // only 104px apart center-to-center.
-        var _halfW = 44;
-        var _halfH = _drum.radius + 48;
-        if (abs(_mx - _drum.x) > _halfW || abs(_my - _drum.y) > _halfH) continue;
-
-        if (_drum.state == "spinning") {
-            _drum.Stop();
-        } else if (_drum.state == "stopped") {
-            _drum.Spin();
-        }
-    }
-}
+        // only 

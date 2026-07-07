@@ -22,18 +22,4 @@
   "physicsLinearDamping":0.1,
   "physicsObject":false,
   "physicsRestitution":0.1,
-  "physicsSensor":false,
-  "physicsShape":1,
-  "physicsShapePoints":[],
-  "physicsStartAwake":true,
-  "properties":[],
-  "resourceType":"GMObject",
-  "resourceVersion":"2.0",
-  "solid":false,
-  "spriteId":{
-    "name":"sCastleWallMask",
-    "path":"sprites/sCastleWallMask/sCastleWallMask.yy",
-  },
-  "spriteMaskId":null,
-  "visible":false,
-}
+  "physicsSensor":f
