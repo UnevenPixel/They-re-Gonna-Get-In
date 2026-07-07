@@ -71,6 +71,54 @@ function CostToScribbleText(_cost) {
     return _text;
 }
 
+/// @function CostToScribbleTextWithDiscount(_baseCost, _discountCost, _discountAvailable, _team)
+/// @description Builds the blueprint hover's cost row -- one
+///        "[icon]BasePrice (DiscountPrice)" run per non-zero base resource,
+///        in global.resourceIconOrder order -- 2026-07-09 request. The base
+///        price and the parenthesized discount price are colored
+///        INDEPENDENTLY of each other:
+///          - Base price renders in PLOT_HOVER_BAD_COLOR_TAG (red,
+///            PlotHoverScripts.gml) if _team can't currently afford that
+///            amount, default color otherwise.
+///          - Discount price renders in BLUEPRINT_DISCOUNT_UNAVAILABLE_COLOR_TAG
+///            (dark gray, BlueprintScripts.gml) whenever _discountAvailable is
+///            false -- i.e. no currently open plot would actually grant this
+///            building's discount, so the number is purely informational/
+///            theoretical right now -- regardless of whether _team could
+///            afford it. Only when _discountAvailable is true does it fall
+///            back to the same red-if-unaffordable/default-otherwise check
+///            the base price uses.
+/// @param {Struct.Cost} _baseCost Typically _def.cost.
+/// @param {Struct.Cost} _discountCost Typically GetDiscountedCost(_def.cost, PLOT_BONUS_DISCOUNT_FRACTION).
+/// @param {Bool} _discountAvailable Whether any currently open plot grants the discount -- see GetBestAvailablePlacementCost (BlueprintScripts.gml).
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY -- indexes global.resources.
+/// @returns {String}
+function CostToScribbleTextWithDiscount(_baseCost, _discountCost, _discountAvailable, _team) {
+    var _text = "";
+    for (var i = 0; i < array_length(global.resourceIconOrder); i++) {
+        var _resource   = global.resourceIconOrder[i];
+        var _baseAmount = struct_get(_baseCost, _resource);
+        if (_baseAmount <= 0) continue;
+
+        var _discountAmount = struct_get(_discountCost, _resource);
+        var _haveAmount     = struct_get(global.resources[_team], _resource);
+
+        var _baseRun = string(_baseAmount);
+        if (_haveAmount < _baseAmount) _baseRun = $"[{PLOT_HOVER_BAD_COLOR_TAG}]{_baseRun}[/c]";
+
+        var _discountRun = string(_discountAmount);
+        if (!_discountAvailable) {
+            _discountRun = $"[{BLUEPRINT_DISCOUNT_UNAVAILABLE_COLOR_TAG}]{_discountRun}[/c]";
+        } else if (_haveAmount < _discountAmount) {
+            _discountRun = $"[{PLOT_HOVER_BAD_COLOR_TAG}]{_discountRun}[/c]";
+        }
+
+        if (_text != "") _text += "  ";
+        _text += $"{ResourceIconTag(_resource)}{_baseRun} ({_discountRun})";
+    }
+    return _text;
+}
+
 // -----------------------------------------------------------
 // Resource bar HUD -- a single row of all 10 base-resource icons with the
 // team's current count next to each. No drag/click state (unlike

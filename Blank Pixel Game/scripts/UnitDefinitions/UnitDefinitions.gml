@@ -29,6 +29,36 @@
 ///        siegeSweepRadius  {Real}
 ///        maxSpeed          {Real}
 ///        sprites           {Struct.AnimationLibrary} idle/walk/attack + extras.
+///        icon              {Asset.GMSprite} [optional, defaults to undefined]
+///               Small (8x8) UI icon shown inline before this unit's name in
+///               text, e.g. BuildingHoverDescriptionText's "Trains [icon]
+///               Peasant" (BuildingHoverScripts.gml) -- see UnitIconTag
+///               below, which turns this into a Scribble inline-sprite tag.
+///               2026-07-09 addition -- every unit registered below sets
+///               this to its own sXIcon sprite.
+///        smallSprite       {Asset.GMSprite} [optional, defaults to undefined]
+///               A ~16x20, bottom-center-anchored "small" full-body sprite,
+///               distinct from sprites.idle (which is sized for in-world
+///               rendering, not a UI window) -- used inside the Item/Unit
+///               Window on the building hover card (BuildingHoverItemIcon,
+///               BuildingHoverScripts.gml). 2026-07-09 addition, replacing
+///               that window's earlier (undersized-for-purpose) use of
+///               sprites.idle -- every unit registered below sets this to
+///               its own sXSmall sprite.
+///        palette           {Asset.GMSprite} [optional, defaults to undefined]
+///               A 1px-wide, 2-frame "Pallete" sprite (matching this
+///               project's existing spelling of that asset name, e.g.
+///               sPeasantPallete) -- frame 0 lists the unit's original
+///               swappable colors (one texel per row), frame 1 lists the
+///               SAME row's replacement, used by shPaletteSwap to recolor
+///               TEAM.ENEMY instances of this unit (PaletteSwapScripts.gml).
+///               2026-07-10 addition -- undefined for any unit that doesn't
+///               have a Pallete sprite yet (as of this writing, only Mud
+///               Golem doesn't -- Bomb Goblin's exists under the misspelled
+///               asset name sBombGolbinPallete, used as-is below);
+///               PaletteSwapDrawUnit skips shading entirely when this is
+///               undefined, so that unit just draws unshaded on both teams
+///               until its Pallete sprite exists.
 ///        availableOrders   {Array<String>} Order names this unit type can receive.
 ///        tier              {Real} [optional, defaults to 1] Combat-XP tier
 ///               (see GainXP callers in ApplyDamage, UnitCombatHelpers.gml) --
@@ -50,6 +80,21 @@
 ///               unit's UnitDefinition. Leave unset for melee units; a
 ///               "ranged"-tagged unit with no projectileObject just logs and
 ///               no-ops when it tries to fire (SpawnProjectile), it won't crash.
+///        stationCost       {Real} [optional, defaults to 0] Gold cost to
+///               station/deploy this unit type, per the "Project Azurite
+///               Data Sheets" (2026-07-03) "Station Deploy Cost (GOLD)"
+///               column -- 2026-07-11 addition, unit hover card request.
+///               Previously flagged as sheet data with no home in this
+///               struct (see the passives field comment above, and
+///               RegisterAllUnitDefinitions' note) since station/deploy
+///               economy doesn't exist as a system yet -- this field is
+///               STILL purely informational display data for
+///               UnitHoverStationFlavorText (UnitHoverScripts.gml); nothing
+///               deducts gold or gates a station action on it. NOT copied
+///               onto live instances by UnitApplyDefinition -- nothing
+///               reads it off an instance, every consumer already has the
+///               UnitDefinition in hand (GetUnitDefinition), so duplicating
+///               it there would just be dead data to keep in sync.
 function UnitDefinition(_data) constructor {
     name              = _data.name;
     description       = _data.description;
@@ -64,11 +109,15 @@ function UnitDefinition(_data) constructor {
     siegeSweepRadius  = _data.siegeSweepRadius;
     maxSpeed          = _data.maxSpeed;
     sprites           = _data.sprites;
+    icon              = variable_struct_exists(_data, "icon")        ? _data.icon        : undefined;
+    smallSprite       = variable_struct_exists(_data, "smallSprite") ? _data.smallSprite : undefined;
+    palette           = variable_struct_exists(_data, "palette")    ? _data.palette     : undefined;
     availableOrders   = _data.availableOrders;
     tier              = variable_struct_exists(_data, "tier")     ? _data.tier     : 1;
     tags              = variable_struct_exists(_data, "tags")     ? _data.tags     : [];
     passives          = variable_struct_exists(_data, "passives") ? _data.passives : [];
     projectileObject  = variable_struct_exists(_data, "projectileObject") ? _data.projectileObject : undefined;
+    stationCost       = variable_struct_exists(_data, "stationCost") ? _data.stationCost : 0;
 }
 
 // -----------------------------------------------------------
@@ -108,6 +157,23 @@ function GetUnitDefinition(_objectIndex) {
 function UnitHasTag(_unit, _tag) {
     var _def = GetUnitDefinition(_unit.object_index);
     return (_def != undefined) && array_contains(_def.tags, _tag);
+}
+
+/// @function UnitIconTag(_unitDef)
+/// @description Translates a UnitDefinition's icon sprite into the Scribble
+///        inline-sprite tag that renders it -- "[spriteName,0]", mirroring
+///        ResourceIconTag's shape (ResourceUIScripts.gml) but resolved via
+///        sprite_get_name since each unit has its OWN distinct icon sprite
+///        asset (sPeasantIcon, sArcherIcon, etc.) rather than one shared
+///        frame-strip like sResourceIcons -- so there's no fixed index table
+///        to look up, just the sprite's own asset name. 2026-07-09 addition,
+///        for "icon before the unit's name" (BuildingHoverDescriptionText,
+///        BuildingHoverScripts.gml).
+/// @param {Struct.UnitDefinition} _unitDef
+/// @returns {String} The tag, or "" if _unitDef.icon is undefined.
+function UnitIconTag(_unitDef) {
+    if (_unitDef.icon == undefined) return "";
+    return $"[{sprite_get_name(_unitDef.icon)},0]";
 }
 
 /// @function GetDamageTaken(_instance)
@@ -161,7 +227,8 @@ function GetCurrentHealth(_instance) {
 /// @function UnitApplyDefinition(_unit)
 /// @description Looks up _unit's UnitDefinition by object_index and copies
 ///        every static stat onto the instance -- health cap, attack stats,
-///        sprites, availableOrders, and agent.maxSpeed. Also stamps
+///        sprites, palette (2026-07-10 addition, for PaletteSwapDrawUnit),
+///        availableOrders, and agent.maxSpeed. Also stamps
 ///        unitData.unitType so a stationed unit knows which definition to
 ///        reapply when it's redeployed back to "guard" (oUnitStationed,
 ///        not built yet, should hold nothing but a UnitDataBlock and call
@@ -197,6 +264,8 @@ function UnitApplyDefinition(_unit) {
     _unit.sprWalk   = _def.sprites.walk;
     _unit.sprAttack = _def.sprites.attack;
 
+    _unit.palette = _def.palette; // undefined for units with no Pallete sprite yet -- PaletteSwapDrawUnit (PaletteSwapScripts.gml) handles that gracefully
+
     _unit.availableOrders = _def.availableOrders;
 }
 
@@ -223,12 +292,15 @@ function RegisterAllUnitDefinitions() {
     // passives below stores each unit's sheet "Stationed Effect"/"Deployed
     // Effect" text as inert data, per this struct's existing documented
     // convention (see passives field comment above) -- no station/deploy
-    // system exists yet, so none of this executes. Station Deploy Cost
-    // (GOLD) and per-unit Upkeep (Stationed) from the sheet have no home in
-    // either UnitDefinition or BuildingDefinition yet and are deliberately
-    // NOT added as fields here -- flagging rather than guessing at a shape
-    // for a system that isn't designed (station/deploy economy, upkeep
-    // drain). See PATCH_NOTES.md for the full list of what's flagged.
+    // system exists yet, so none of this executes. Per-unit Upkeep
+    // (Stationed) from the sheet still has no home in either UnitDefinition
+    // or BuildingDefinition and is deliberately NOT added as a field --
+    // flagging rather than guessing at a shape for a system that isn't
+    // designed (upkeep drain). Station Deploy Cost (GOLD), however, now
+    // has a home -- stationCost below, 2026-07-11, real sheet values
+    // supplied directly by the user for the unit hover card request
+    // (Peasant 20 / Bomb Goblin 15 / Mud Golem 25 / Soldier 30 / Archer 15
+    // / Knight 50) -- still purely display data, nothing deducts it yet.
     RegisterUnitDefinition(oPeasantUnit, new UnitDefinition({
         name:              "Peasant",
         description:       "A basic conscript. Cheap, unremarkable, expendable.",
@@ -243,9 +315,13 @@ function RegisterAllUnitDefinitions() {
         siegeSweepRadius:  160,
         maxSpeed:          1,
         sprites:           new AnimationLibrary(sPeasantIdle, sPeasantWalk, sPeasantAttack),
+        icon:              sPeasantIcon,
+        smallSprite:       sPeasantSmall,
+        palette:           sPeasantPallete,
         availableOrders:   ["guard", "defend", "attack", "siege", "station"],
         tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
         tags:              ["infantry", "melee", "cheap"],
+        stationCost:       20, // Gold, per data sheet -- user-supplied 2026-07-11
         passives: [
             {name: "Stationed Effect", description: "+5% all resource production speed per peasant stationed."},
             {name: "Deployed Effect",  description: "Weak melee."},
@@ -266,9 +342,13 @@ function RegisterAllUnitDefinitions() {
         siegeSweepRadius:  140,
         maxSpeed:          2.2, // sheet: "one of, if not the fastest unit in the game"
         sprites:           new AnimationLibrary(sBombGoblinIdle, sBombGoblinWalk, sBombGoblinExplode),
+        icon:              sBombGoblinIcon,
+        smallSprite:       sBombGoblinSmall,
+        palette:           sBombGolbinPallete, // NOTE: sprite asset name is misspelled "Golbin" (not "Goblin") -- that's the actual existing asset name on disk/in the .yyp, not a typo introduced here; flag if you want it renamed (every other sBombGoblin* asset uses the correct spelling).
         availableOrders:   ["guard", "defend", "attack", "siege", "station"],
         tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
         tags:              ["infantry", "melee", "suicide", "fast"],
+        stationCost:       15, // Gold, per data sheet -- user-supplied 2026-07-11
         passives: [
             {name: "Stationed Effect", description: "+15% speed boost to gold production per Bomb Goblin stationed."},
             {name: "Deployed Effect",  description: "One of, if not the fastest unit in the game. Reaches the enemy quickly and inflicts AoE damage, but dies after use."},
@@ -290,9 +370,13 @@ function RegisterAllUnitDefinitions() {
         siegeSweepRadius:  200,
         maxSpeed:          0.6,
         sprites:           new AnimationLibrary(sMudGolemIdle, sMudGolemWalk, sMudGolemAttack),
+        icon:              sMudGolemIcon,
+        smallSprite:       sMudGolemSmall,
+        palette:           sMudGolemPallete,
         availableOrders:   ["guard", "defend", "attack", "siege", "station"],
         tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
         tags:              ["infantry", "melee", "heavy", "tank"],
+        stationCost:       25, // Gold, per data sheet -- user-supplied 2026-07-11
         passives: [
             {name: "Stationed Effect", description: "+5% HP to all units (stacks per Mud Golem stationed)."},
             {name: "Deployed Effect",  description: "Upon death, the ground becomes muddy, applying 80% slow for 5 seconds. NOT implemented -- no on-death effect hook exists yet (nothing in this codebase runs on unit death at all)."},
@@ -313,9 +397,13 @@ function RegisterAllUnitDefinitions() {
         siegeSweepRadius:  170,
         maxSpeed:          1,
         sprites:           new AnimationLibrary(sSoldierIdle, sSoldierWalk, sSoldierAttack),
+        icon:              sSoldierIcon,
+        smallSprite:       sSoldierSmall,
+        palette:           sSoldierPallete,
         availableOrders:   ["guard", "defend", "attack", "siege", "station"],
         tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
         tags:              ["infantry", "melee"],
+        stationCost:       30, // Gold, per data sheet -- user-supplied 2026-07-11
         passives: [
             {name: "Stationed Effect", description: "+5% damage & HP to all deployed units (stacks per Soldier stationed)."},
             {name: "Deployed Effect",  description: "Melee combat."},
@@ -338,10 +426,14 @@ function RegisterAllUnitDefinitions() {
         sprites:           new AnimationLibrary(sArcherIdle, sArcherWalk, sArcherAttack, [
             {name: "projectile", sprite: sArcherProjectile}, // also set as projectileObject below (oArcherProjectile) -- this entry is just so the raw sprite is reachable off sprites.projectile too
         ]),
+        icon:              sArcherIcon,
+        smallSprite:       sArcherSmall,
+        palette:           sArcherPallete,
         availableOrders:   ["guard", "defend", "attack", "siege", "station"],
         tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
         tags:              ["infantry", "ranged"],
         projectileObject:  oArcherProjectile, // "attack" order dispatches ranged-tagged units into "attackRanged" instead of "attack" -- see OrderWiring.gml
+        stationCost:       15, // Gold, per data sheet -- user-supplied 2026-07-11
         passives: [
             {name: "Stationed Effect", description: "Ranged attacks from the wall."},
             {name: "Deployed Effect",  description: "Ranged attacks."},
@@ -363,9 +455,13 @@ function RegisterAllUnitDefinitions() {
         siegeSweepRadius:  180,
         maxSpeed:          0.9,
         sprites:           new AnimationLibrary(sKnightIdle, sKnightWalk, sKnightAttack),
+        icon:              sKnightIcon,
+        smallSprite:       sKnightSmall,
+        palette:           sKnightPallete,
         availableOrders:   ["guard", "defend", "attack", "siege", "station"],
         tier:              1, // MVP: every unit is Tier 1 for now, per 2026-07-06 clarification -- no real tier design yet
         tags:              ["infantry", "melee", "heavy"],
+        stationCost:       50, // Gold, per data sheet -- user-supplied 2026-07-11
         passives: [
             {name: "Stationed Effect", description: "+5% unit production speed."},
             {name: "Deployed Effect",  description: "Bonus damage against production buildings. NOT implemented -- Attack_Step (UnitStateAttackMelee.gml) doesn't distinguish building types, and UnitTryDealDamage is a TODO stub for every unit regardless of target type."},

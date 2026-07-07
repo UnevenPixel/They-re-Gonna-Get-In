@@ -56,31 +56,44 @@
 //     resourceLimit) -- a Distant-plot building's resourceLimit may already
 //     be +50% boosted by ApplyPlotBonuses (BuildingDefinitions.gml,
 //     2026-07-07), so this correctly reflects its actual current cap, not
-//     the un-boosted base value. No cost row (already paid for).
+//     the un-boosted base value. Health reads the same way (GetCurrentHealth
+//     off the live instance) -- see BuildingHoverHealthText. No cost row
+//     (already paid for).
 //   - Blueprint slot (BlueprintController, driven by its own Step/Draw
 //     wiring, BlueprintScripts.gml): resource-limit reads as just the flat
 //     BuildingDefinition.resourceLimit (no instance exists yet, nothing
-//     produced), PLUS a cost row along the card's bottom (icon+amount per
-//     resource, reusing CostToScribbleText/ResourceUIScripts.gml). That
-//     cost row shows the building's BASE cost (BuildingDefinition.cost) --
-//     NOT a plot-discounted cost (GetPlacementCost, BlueprintScripts.gml),
-//     since no specific plot has been chosen yet at blueprint-hover time.
-//     Flagging: the final charged price may differ once an actual plot is
-//     picked, given the 2026-07-07 plot-discount mechanic.
+//     produced); health reads as the flat BuildingDefinition.maxHealth.
+//     PLUS a cost row along the card's bottom, one "[icon]Base (Discount)"
+//     run per resource (CostToScribbleTextWithDiscount, ResourceUIScripts.gml
+//     -- 2026-07-09, replacing an interim single-price version from earlier
+//     that same day). Base price and the parenthesized discount price color
+//     red INDEPENDENTLY of each other by _team's current affordability; the
+//     discount price additionally renders in
+//     BLUEPRINT_DISCOUNT_UNAVAILABLE_COLOR_TAG (dark gray, BlueprintScripts.gml)
+//     whenever no currently open plot would actually grant the discount
+//     (GetBestAvailablePlacementCost's discountAvailable), regardless of its
+//     own affordability. The card's own TITLE (the building name) still
+//     renders red if the building can't be placed anywhere right now at all
+//     (no open owned plot, or unaffordable even at the cheapest available
+//     price) -- unchanged from the interim version, still driven by
+//     GetBestAvailablePlacementCost's blended cost + anyPlotAvailable.
 //
-// "What it does" (the card's normal body text, e.g. "Produces Wheat"/
-// "Trains Peasant") is auto-generated from BuildingDefinition fields, not
-// authored -- see BuildingHoverDescriptionText. The flavor window reuses
-// BuildingDefinition.description -- an EXISTING field that was already
-// defined on every registered building (BuildingDefinitions.gml) but never
-// actually DISPLAYED anywhere before this pass (confirmed via a project-
-// wide grep for ".description" -- it only appeared in the file that
-// defines it). Rather than add a redundant new field for "flavor text",
-// this pass just wires that already-authored-but-dormant field up as the
-// flavor text. Per the 2026-07-08 request ("I will provide the flavor text
-// later when I find the document containing them"), these existing
-// descriptions are PLACEHOLDER flavor text until the real, document-
-// sourced versions arrive -- don't treat current wording as final.
+// "What it does" (the card's normal body text, e.g. "Produces [icon]Wheat"/
+// "Trains [icon]Peasant") is auto-generated from BuildingDefinition fields,
+// not authored -- see BuildingHoverDescriptionText. 2026-07-09 follow-up:
+// the resource/unit name is now preceded by that resource's/unit's own icon
+// (ResourceIconTag for resources, the new UnitIconTag for units --
+// UnitDefinitions.gml). The flavor window reuses BuildingDefinition.
+// description -- an EXISTING field that was already defined on every
+// registered building (BuildingDefinitions.gml) but never actually
+// DISPLAYED anywhere before this pass (confirmed via a project-wide grep
+// for ".description" -- it only appeared in the file that defines it).
+// Rather than add a redundant new field for "flavor text", this pass just
+// wires that already-authored-but-dormant field up as the flavor text. Per
+// the 2026-07-08 request ("I will provide the flavor text later when I find
+// the document containing them"), these existing descriptions are
+// PLACEHOLDER flavor text until the real, document-sourced versions arrive
+// -- don't treat current wording as final.
 //
 // Suppression / mutual exclusion: a building can never be hovered while
 // its plot shows plot-hover data, because PlotHoverController only
@@ -128,22 +141,24 @@ function BuildingHoverTitleCase(_word) {
 /// @function BuildingHoverDescriptionText(_def)
 /// @description The hover card's NORMAL body text -- a short, auto-
 ///        generated statement of what this building type mechanically
-///        does, e.g. "Produces Wheat" / "Trains Peasant". Distinct from
-///        the flavor window (BuildingDefinition.description) -- see file
-///        header. Singular unit names are used as-is ("Trains Peasant",
-///        not "Trains Peasants") to avoid inventing English pluralization
-///        rules that would break on irregular names; flag if plural reads
-///        better and is worth the risk.
+///        does, e.g. "Produces [icon]Wheat" / "Trains [icon]Peasant".
+///        Distinct from the flavor window (BuildingDefinition.description)
+///        -- see file header. 2026-07-09 request: the resource/unit name is
+///        preceded by its own icon (ResourceIconTag/UnitIconTag). Singular
+///        unit names are used as-is ("Trains Peasant", not "Trains
+///        Peasants") to avoid inventing English pluralization rules that
+///        would break on irregular names; flag if plural reads better and
+///        is worth the risk.
 /// @param {Struct.BuildingDefinition} _def
 /// @returns {String}
 function BuildingHoverDescriptionText(_def) {
     if (_def.productionResource != undefined) {
-        return $"Produces {BuildingHoverTitleCase(_def.productionResource)}";
+        return $"Produces {ResourceIconTag(_def.productionResource)}{BuildingHoverTitleCase(_def.productionResource)}";
     }
 
     if (_def.trainsUnit != undefined) {
         var _unitDef = GetUnitDefinition(_def.trainsUnit);
-        return (_unitDef != undefined) ? $"Trains {_unitDef.name}" : "Trains a unit";
+        return (_unitDef != undefined) ? $"Trains {UnitIconTag(_unitDef)}{_unitDef.name}" : "Trains a unit";
     }
 
     // Neither production nor training (e.g. a future "facility" building,
@@ -207,16 +222,42 @@ function BuildingHoverResourceLimitText(_def, _building, _isBlueprint) {
     return $"{_building.resourceLimit - _building.producedTotal}/{_building.resourceLimit}";
 }
 
+/// @function BuildingHoverHealthText(_def, _building, _isBlueprint)
+/// @description The label drawn on a second line under the Item/Unit
+///        Window, right below the production-amount line (2026-07-09
+///        request: "under production amount's, add in health as well") --
+///        unlike BuildingHoverResourceLimitText, this is NOT conditional on
+///        productionResource -- every building has a maxHealth, so this
+///        always returns a real value whenever the Item/Unit Window itself
+///        is showing anything at all (see BuildingHoverExtras.Layout).
+///        Blueprint hover shows just the flat BuildingDefinition.maxHealth
+///        ("100"); placed-building hover shows "remaining/max" (e.g.
+///        "80/100") via GetCurrentHealth (UnitDefinitions.gml -- already
+///        generic over units AND buildings despite the name), read off the
+///        LIVE INSTANCE so a Distant-plot-boosted building's already-larger
+///        maxHealth (ApplyPlotBonuses, BuildingDefinitions.gml) is reflected
+///        correctly, same reasoning as BuildingHoverResourceLimitText.
+/// @param {Struct.BuildingDefinition} _def
+/// @param {Id.Instance|Constant.NoOne} _building A placed building
+///        instance, or noone when _isBlueprint is true.
+/// @param {Bool} _isBlueprint
+/// @returns {String}
+function BuildingHoverHealthText(_def, _building, _isBlueprint) {
+    if (_isBlueprint) return string(_def.maxHealth);
+    return $"{GetCurrentHealth(_building)}/{_building.maxHealth}";
+}
+
 /// @function BuildingHoverItemIcon(_def)
 /// @description Resolves the sprite/frame to draw inside the Item/Unit
 ///        Window (sHoverCardUnitWindow) -- a resource icon
 ///        (sResourceIcons, via ResourceIconIndex, ResourceUIScripts.gml)
-///        for production buildings, or the trained unit's idle sprite
-///        (UnitDefinition.sprites.idle, frame 0) for training buildings.
-///        Unit idle sprites weren't authored with this 28x28 native window
-///        in mind -- if a unit's sprite is much bigger it may overflow the
-///        window frame; flag if any look wrong in-engine, this pass didn't
-///        check every unit's actual sprite dimensions.
+///        for production buildings, or the trained unit's SMALL sprite
+///        (UnitDefinition.smallSprite, frame 0) for training buildings.
+///        2026-07-09 follow-up: previously used the unit's idle (walk-cycle)
+///        sprite, which wasn't sized for this 28x28 window; now uses the
+///        purpose-built "small" variant instead (see
+///        BuildingHoverExtras.Layout/Draw for the vertical-centering math
+///        this enables).
 /// @param {Struct.BuildingDefinition} _def
 /// @returns {Struct|Undefined} { sprite, image } or undefined if this
 ///        building type neither produces nor trains anything.
@@ -227,7 +268,7 @@ function BuildingHoverItemIcon(_def) {
 
     if (_def.trainsUnit != undefined) {
         var _unitDef = GetUnitDefinition(_def.trainsUnit);
-        return (_unitDef != undefined) ? { sprite: _unitDef.sprites.idle, image: 0 } : undefined;
+        return (_unitDef != undefined) ? { sprite: _unitDef.smallSprite, image: 0 } : undefined;
     }
 
     return undefined;
@@ -247,13 +288,14 @@ function BuildingHoverItemIcon(_def) {
 function BuildingHoverExtras() constructor {
     __id = global.__buildingHoverExtrasNextId++;
 
-    hasTimerText   = false;
-    hasLimitText   = false;
-    hasItemIcon    = false;
-    showCostRow    = false;
-    buildingSprite = noone;
-    itemIconSprite = noone;
-    itemIconImage  = 0;
+    hasTimerText    = false;
+    hasLimitText    = false;
+    hasItemIcon     = false;
+    showCostRow     = false;
+    buildingSprite  = noone;
+    itemIconSprite  = noone;
+    itemIconImage   = 0;
+    itemIconOffsetY = 0; // 2026-07-09: vertical draw offset for the item icon ONLY, see Layout/Draw -- 0 for the resource-icon case (already centered via the window's own middle-center origin), (spriteHeight/2)*HOVER_CARD_SCALE for the unit smallSprite case (bottom-center-anchored, so this centers it in the window instead)
 
     timerText = scribble("", $"__buildingHoverExtras{__id}Timer__")
         .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
@@ -268,7 +310,7 @@ function BuildingHoverExtras() constructor {
         .align(fa_left, fa_top)
         .wrap(HoverCardBodyWrapWidth());
 
-    /// @function Layout(_def, _building, _isBlueprint)
+    /// @function Layout(_def, _building, _isBlueprint, _team)
     /// @description Sets this frame's text content and computes how much
     ///        extra vertical space the icon row (top) and cost row
     ///        (bottom, blueprint only) need -- feed the result straight
@@ -277,9 +319,18 @@ function BuildingHoverExtras() constructor {
     /// @param {Id.Instance|Constant.NoOne} _building A placed building
     ///        instance, or noone when _isBlueprint is true.
     /// @param {Bool} _isBlueprint
+    /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY -- 2026-07-09 addition,
+    ///        needed for the blueprint-only cost row's best-available-cost
+    ///        lookup (GetBestAvailablePlacementCost, BlueprintScripts.gml)
+    ///        and per-resource affordability coloring
+    ///        (CostToScribbleTextWithDiscount, ResourceUIScripts.gml).
+    ///        Unused when _isBlueprint is false, but still required since
+    ///        this is one shared function -- callers always have a team
+    ///        handy (BlueprintController owns one; BuildingHoverController
+    ///        passes the hovered building's own instance team).
     /// @returns {Struct} { topContentHeight, bottomContentHeight } -- both
     ///        already-scaled on-screen px, see HoverCard.Show()'s doc.
-    static Layout = function(_def, _building, _isBlueprint) {
+    static Layout = function(_def, _building, _isBlueprint, _team) {
         buildingSprite = _def.sprite;
 
         var _timerString = BuildingHoverTimerText(_def, _building, _isBlueprint);
@@ -290,19 +341,46 @@ function BuildingHoverExtras() constructor {
                 .align(fa_center, fa_top);
         }
 
-        var _limitString = BuildingHoverResourceLimitText(_def, _building, _isBlueprint);
-        hasLimitText = (_limitString != "");
-        if (hasLimitText) {
-            limitText = scribble(_limitString, $"__buildingHoverExtras{__id}Limit__")
-                .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
-                .align(fa_center, fa_top);
-        }
-
         var _icon = BuildingHoverItemIcon(_def);
         hasItemIcon = (_icon != undefined);
+        itemIconOffsetY = 0;
         if (hasItemIcon) {
             itemIconSprite = _icon.sprite;
             itemIconImage  = _icon.image;
+
+            // Unit smallSprite is bottom-center anchored (see
+            // BuildingHoverItemIcon's doc) -- drawing it at the window's own
+            // center Y would put its BOTTOM half below the window instead of
+            // centering it. Offsetting the draw Y downward by half the
+            // sprite's own height re-centers it: window center Y + half
+            // sprite height = the Y the bottom-anchor should sit at for the
+            // sprite's vertical MIDPOINT to land on the window's center.
+            // Resource icons (sResourceIcons, middle-center origin) need no
+            // offset -- they already center correctly at the window's center.
+            if (_def.trainsUnit != undefined) {
+                itemIconOffsetY = (sprite_get_height(itemIconSprite) / 2) * HOVER_CARD_SCALE;
+            }
+        }
+
+        // -- Production-amount + health label, under the Item/Unit Window.
+        // 2026-07-09 request: health is now ALWAYS shown here (every
+        // building has a maxHealth, unlike resourceLimit which only applies
+        // to production buildings) -- production amount stays on its own
+        // line above health when applicable, each prefixed with its own icon
+        // (sUIHammer/sUIHeart) so the two numbers are never ambiguous next to
+        // each other. --
+        var _limitString  = BuildingHoverResourceLimitText(_def, _building, _isBlueprint);
+        var _healthString = BuildingHoverHealthText(_def, _building, _isBlueprint);
+
+        hasLimitText = hasItemIcon; // the label block only makes sense under an actual icon
+        if (hasLimitText) {
+            var _limitCombined = (_limitString != "")
+                ? $"[sUIHammer,0]{_limitString}\n[sUIHeart,0]{_healthString}"
+                : $"[sUIHeart,0]{_healthString}";
+
+            limitText = scribble(_limitCombined, $"__buildingHoverExtras{__id}Limit__")
+                .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
+                .align(fa_center, fa_top);
         }
 
         // -- Icon row height: tallest of the 3 columns. Building Window is
@@ -330,11 +408,20 @@ function BuildingHoverExtras() constructor {
         var _rowHeight = max(_buildingColHeight, _timerColHeight, _itemColHeight);
         var _topContentHeight = _rowHeight + (BUILDING_HOVER_ICON_ROW_GAP_TOP * HOVER_CARD_SCALE) + (BUILDING_HOVER_ROW_TO_BODY_GAP * HOVER_CARD_SCALE);
 
-        // -- Cost row (blueprint hover only) --
+        // -- Cost row (blueprint hover only). 2026-07-09 follow-up: shows
+        // BOTH the base price and the parenthesized discount price side by
+        // side ("[icon]Base (Discount)"), each colored red independently by
+        // _team's current affordability -- and the discount price additionally
+        // forced to BLUEPRINT_DISCOUNT_UNAVAILABLE_COLOR_TAG (dark gray,
+        // BlueprintScripts.gml) whenever no currently open plot would
+        // actually grant the discount (GetBestAvailablePlacementCost's
+        // discountAvailable), regardless of whether it'd be affordable. --
         showCostRow = _isBlueprint;
         var _bottomContentHeight = 0;
         if (showCostRow) {
-            var _costString = CostToScribbleText(_def.cost);
+            var _best         = GetBestAvailablePlacementCost(_team, _def);
+            var _discountCost = GetDiscountedCost(_def.cost, PLOT_BONUS_DISCOUNT_FRACTION);
+            var _costString   = CostToScribbleTextWithDiscount(_def.cost, _discountCost, _best.discountAvailable, _team);
             showCostRow = (_costString != ""); // a free building has nothing to show -- no such building exists today, but don't reserve dead space if one ever does
             if (showCostRow) {
                 costText = scribble(_costString, $"__buildingHoverExtras{__id}Cost__")
@@ -401,7 +488,10 @@ function BuildingHoverExtras() constructor {
             var _itemCenterY = _rowTopY + (sprite_get_height(sHoverCardUnitWindow) / 2) * HOVER_CARD_SCALE;
 
             draw_sprite_ext(sHoverCardUnitWindow, 0, _itemCenterX, _itemCenterY, HOVER_CARD_SCALE, HOVER_CARD_SCALE, 0, c_white, _alpha);
-            draw_sprite_ext(itemIconSprite, itemIconImage, _itemCenterX, _itemCenterY, HOVER_CARD_SCALE, HOVER_CARD_SCALE, 0, c_white, _alpha);
+            // itemIconOffsetY re-centers a bottom-anchored unit smallSprite
+            // within the window -- 0 for the middle-anchored resource icon
+            // case, see Layout's comment on why.
+            draw_sprite_ext(itemIconSprite, itemIconImage, _itemCenterX, _itemCenterY + itemIconOffsetY, HOVER_CARD_SCALE, HOVER_CARD_SCALE, 0, c_white, _alpha);
 
             if (hasLimitText) {
                 var _limitTextY = _rowTopY + (sprite_get_height(sHoverCardUnitWindow) * HOVER_CARD_SCALE) + (BUILDING_HOVER_ICON_LABEL_GAP_Y * HOVER_CARD_SCALE);
@@ -454,6 +544,16 @@ function BuildingHoverController() constructor {
     hoverTimer  = 0;     // real steps (NOT global.matchSpeed), same basis as PlotHoverController
     alpha       = 0;     // current fade level, 0-1
 
+    // 2026-07-11 addition -- paired unit hover card (UnitHoverScripts.gml),
+    // shown alongside this card whenever the hovered building trains a
+    // unit. hasUnitCard gates both Draw() and whether PositionHoverCardPair
+    // treats unitCard as a real secondary or not (noone -- see that
+    // function's doc for why passing noone reproduces the original
+    // single-card math exactly).
+    unitCard    = new HoverCard();
+    unitExtras  = new UnitHoverExtras();
+    hasUnitCard = false;
+
     /// @function Step(_selectionController, _blueprintController)
     /// @description Call once per Step event. Same dwell/fade/positioning
     ///        structure as PlotHoverController.Step -- see that function's
@@ -486,22 +586,31 @@ function BuildingHoverController() constructor {
         if (_shouldShow) {
             var _def = GetBuildingDefinition(hoverTarget.object_index);
 
-            var _sizes = extras.Layout(_def, hoverTarget, false);
+            var _sizes = extras.Layout(_def, hoverTarget, false, hoverTarget.team);
             card.Show(_def.name, BuildingHoverDescriptionText(_def), 0, 0, _def.description, _sizes.topContentHeight, _sizes.bottomContentHeight);
 
-            var _mx    = device_mouse_x_to_gui(0);
-            var _my    = device_mouse_y_to_gui(0);
-            var _cardW = card.GetWidth();
-            var _cardH = card.GetHeight();
+            // Paired unit card -- 2026-07-11 request, only for training
+            // buildings. No live unit instance to read from (a training
+            // building isn't tied to any one specific trained unit), so
+            // _liveUnit is always noone here (max HP only); no cost row
+            // (already placed, nothing to produce) -- see UnitHoverScripts.gml.
+            hasUnitCard = (_def.trainsUnit != undefined);
+            if (hasUnitCard) {
+                var _unitDef = GetUnitDefinition(_def.trainsUnit);
+                hasUnitCard = (_unitDef != undefined);
+                if (hasUnitCard) {
+                    ShowUnitHoverCard(unitCard, unitExtras, _unitDef, noone, false);
+                }
+            }
 
-            var _anchorLeft = (_mx < display_get_gui_width()  / 2);
-            var _anchorTop  = (_my < display_get_gui_height() / 2);
+            var _mx = device_mouse_x_to_gui(0);
+            var _my = device_mouse_y_to_gui(0);
 
-            card.x = _anchorLeft ? (_mx + PLOT_HOVER_CURSOR_GAP) : (_mx - PLOT_HOVER_CURSOR_GAP - _cardW);
-            card.y = _anchorTop  ? (_my + PLOT_HOVER_CURSOR_GAP) : (_my - PLOT_HOVER_CURSOR_GAP - _cardH);
-
-            card.x = clamp(card.x, 0, display_get_gui_width()  - _cardW);
-            card.y = clamp(card.y, 0, display_get_gui_height() - _cardH);
+            // 2026-07-11: anchoring is computed against BOTH cards together
+            // (PositionHoverCardPair, HoverCardScripts.gml) when a unit card
+            // is showing -- passing noone otherwise reproduces the original
+            // single-card anchor/clamp math exactly.
+            PositionHoverCardPair(_mx, _my, card, hasUnitCard ? unitCard : noone);
         }
     }
 
@@ -512,5 +621,10 @@ function BuildingHoverController() constructor {
         if (alpha <= 0) return;
         card.Draw(alpha);
         extras.Draw(card, alpha);
+
+        if (hasUnitCard) {
+            unitCard.Draw(alpha);
+            unitExtras.Draw(unitCard, alpha);
+        }
     }
 }

@@ -65,6 +65,7 @@ function RemoveBlueprintOne(_team, _buildingType) {
 }
 
 #macro PLOT_BONUS_DISCOUNT_FRACTION 0.5 // 50% off placement cost -- 2026-07-07 "plot bonuses" request, see GetPlacementCost below
+#macro BLUEPRINT_DISCOUNT_UNAVAILABLE_COLOR_TAG "c_dkgray" // 2026-07-09 request: the blueprint cost row's parenthesized discount price renders in this color whenever no currently open plot would actually grant the discount -- see CostToScribbleTextWithDiscount (ResourceUIScripts.gml)
 
 /// @function GetPlacementCost(_def, _plot)
 /// @description The actual Cost to charge for placing _def's building type
@@ -95,13 +96,56 @@ function RemoveBlueprintOne(_team, _buildingType) {
 /// @param {Id.Instance} _plot An oBuildingPlot instance.
 /// @returns {Struct.Cost}
 function GetPlacementCost(_def, _plot) {
+    return BuildingGetsDiscountOnPlot(_def, _plot) ? GetDiscountedCost(_def.cost, PLOT_BONUS_DISCOUNT_FRACTION) : _def.cost;
+}
+
+/// @function BuildingGetsDiscountOnPlot(_def, _plot)
+/// @description The actual discount-eligibility rule GetPlacementCost
+///        applies, factored out (2026-07-09) so GetBestAvailablePlacementCost
+///        below can reuse the exact same condition instead of re-deriving it
+///        and risking drift between the two.
+/// @param {Struct.BuildingDefinition} _def
+/// @param {Id.Instance} _plot An oBuildingPlot instance.
+/// @returns {Bool}
+function BuildingGetsDiscountOnPlot(_def, _plot) {
     var _isResourceBuilding = _def.productionResource != undefined;
     var _isTrainingBuilding = _def.trainsUnit != undefined;
+    return (_isResourceBuilding && !_plot.inside) || (_isTrainingBuilding && _plot.inside);
+}
 
-    var _discounted = (_isResourceBuilding && !_plot.inside)
-        || (_isTrainingBuilding && _plot.inside);
+/// @function GetBestAvailablePlacementCost(_team, _def)
+/// @description Scans every oBuildingPlot _team owns that's currently
+///        PLACEABLE (not blocked, not occupied) and returns the cheapest
+///        cost _def's building type could actually be placed for right now,
+///        plus whether any such plot exists at all -- 2026-07-09 request
+///        ("can't afford the blueprint anywhere, including any plots that
+///        would give it a discount"). Since GetPlacementCost's discount is a
+///        binary per-building-type/plot-side switch, never a partial or
+///        blended amount (see BuildingGetsDiscountOnPlot), "cheapest
+///        available" collapses to just: the discounted cost if AT LEAST ONE
+///        available plot would grant it, otherwise the full base cost, as
+///        long as at least one available plot exists of any kind at all.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @param {Struct.BuildingDefinition} _def
+/// @returns {Struct} { anyPlotAvailable: Bool, discountAvailable: Bool, cost: Struct.Cost }
+///        discountAvailable (2026-07-09 addition) -- whether at least one
+///        currently open plot would actually grant _def's discount, exposed
+///        separately from `cost` so callers that need to show BOTH the base
+///        and discounted price side by side (see CostToScribbleTextWithDiscount,
+///        ResourceUIScripts.gml) don't have to re-scan plots themselves.
+function GetBestAvailablePlacementCost(_team, _def) {
+    var _anyPlotAvailable            = false;
+    var _discountEligiblePlotAvailable = false;
 
-    return _discounted ? GetDiscountedCost(_def.cost, PLOT_BONUS_DISCOUNT_FRACTION) : _def.cost;
+    with (oBuildingPlot) {
+        if (team == _team && !blocked && !occupied) {
+            _anyPlotAvailable = true;
+            if (BuildingGetsDiscountOnPlot(_def, self)) _discountEligiblePlotAvailable = true;
+        }
+    }
+
+    var _cost = _discountEligiblePlotAvailable ? GetDiscountedCost(_def.cost, PLOT_BONUS_DISCOUNT_FRACTION) : _def.cost;
+    return { anyPlotAvailable: _anyPlotAvailable, discountAvailable: _discountEligiblePlotAvailable, cost: _cost };
 }
 
 /// @function TryPlaceBlueprint(_team, _buildingType, _plot)
@@ -201,17 +245,31 @@ function BlueprintController(_team) constructor {
     dragStackIndex = -1; // index into global.blueprints[team], set while dragging
 
     // Slot hover tooltip -- 2026-07-08 request ("slightly tweaking the
-    // normal blueprint hover data"). Same dwell/fade timing as plot/
-    // building hover (PLOT_HOVER_DELAY_STEPS/FADE_STEPS,
-    // PlotHoverScripts.gml) and the same HoverCard+BuildingHoverExtras pair
+    // normal blueprint hover data"). Same HoverCard+BuildingHoverExtras pair
     // BuildingHoverController uses for placed buildings (BuildingHoverScripts.gml)
     // -- see that file for why the two hover contexts share their drawing
-    // logic and differ only via the _isBlueprint flag.
+    // logic and differ only via the _isBlueprint flag. UNLIKE plot/building
+    // hover, this shows INSTANTLY (no dwell delay) -- 2026-07-09 request
+    // ("remove the delay to show info") -- still fades in/out over
+    // PLOT_HOVER_FADE_STEPS rather than popping, but there's no dwell timer
+    // to gate it anymore (see UpdateHover below; the old hoverTimer field
+    // this used for that gate has been removed entirely, it served no other
+    // purpose).
     hoverCard       = new HoverCard();
     hoverExtras     = new BuildingHoverExtras();
     hoverStackIndex = -1; // index into global.blueprints[team] currently being dwelt on, or -1
-    hoverTimer      = 0;  // real steps, same basis as PlotHoverController/BuildingHoverController
     hoverAlpha      = 0;  // current fade level, 0-1
+
+    // 2026-07-11 addition -- paired unit hover card (UnitHoverScripts.gml),
+    // shown alongside hoverCard whenever the hovered blueprint trains a
+    // unit, WITH a cost-to-produce row (unlike the placed-building context,
+    // BuildingHoverController -- this building doesn't exist yet, so
+    // showing what the trained unit costs to produce is actually useful
+    // here). See BuildingHoverController's identical fields for the general
+    // pattern this mirrors.
+    unitHoverCard   = new HoverCard();
+    unitHoverExtras = new UnitHoverExtras();
+    hasUnitHoverCard = false;
 
     /// @function GetOrigin()
     /// @description Top-left corner of the panel -- fixed GUI position
@@ -356,25 +414,17 @@ function BlueprintController(_team) constructor {
     }
 
     /// @function UpdateHover()
-    /// @description Call once per Step event (guarded by the caller against
-    ///        nothing else in particular -- dragging is checked internally
-    ///        below). Same dwell/fade/cursor-anchor structure as
-    ///        PlotHoverController.Step/BuildingHoverController.Step -- see
-    ///        those (PlotHoverScripts.gml/BuildingHoverScripts.gml) for the
-    ///        general pattern. Suppressed entirely while dragging (showing
-    ///        a tooltip for the slot you're mid-drag from would be noisy
-    ///        and it's already following the cursor as a dragged icon).
+    /// @description Call once per Step event. Shows INSTANTLY the moment the
+    ///        mouse sits over a filled slot -- no dwell delay, unlike plot/
+    ///        building hover (2026-07-09 request) -- but still fades in/out
+    ///        over PLOT_HOVER_FADE_STEPS rather than popping. Suppressed
+    ///        entirely while dragging (showing a tooltip for the slot you're
+    ///        mid-drag from would be noisy and it's already following the
+    ///        cursor as a dragged icon).
     static UpdateHover = function() {
-        var _candidate = dragging ? -1 : GetHoveredStackIndex();
+        hoverStackIndex = dragging ? -1 : GetHoveredStackIndex();
 
-        if (_candidate != hoverStackIndex) {
-            hoverStackIndex = _candidate;
-            hoverTimer      = 0;
-        } else if (_candidate != -1) {
-            hoverTimer += 1;
-        }
-
-        var _shouldShow  = (hoverStackIndex != -1) && (hoverTimer >= PLOT_HOVER_DELAY_STEPS);
+        var _shouldShow  = (hoverStackIndex != -1);
         var _targetAlpha = _shouldShow ? 1 : 0;
         var _fadeStep    = 1 / PLOT_HOVER_FADE_STEPS;
         hoverAlpha = (hoverAlpha < _targetAlpha)
@@ -386,25 +436,48 @@ function BlueprintController(_team) constructor {
             var _def   = GetBuildingDefinition(_stack.buildingType);
             if (_def == undefined) return;
 
+            // Can this building be placed ANYWHERE right now, at all --
+            // 2026-07-09 request. GetBestAvailablePlacementCost scans this
+            // team's currently open (unblocked, unoccupied) plots and
+            // returns the cheapest cost achievable among them; "placeable
+            // anywhere" requires BOTH that at least one such plot exists AND
+            // that its cost is actually affordable. If not, the card's
+            // title (the building's own name) renders in red instead of the
+            // default color -- reusing the same PLOT_HOVER_BAD_COLOR_TAG
+            // Scribble color tag PlotHoverBonusText uses (PlotHoverScripts.gml).
+            var _best            = GetBestAvailablePlacementCost(team, _def);
+            var _canPlaceAnywhere = _best.anyPlotAvailable && _best.cost.CanAfford(team);
+            var _titleText = _canPlaceAnywhere ? _def.name : $"[{PLOT_HOVER_BAD_COLOR_TAG}]{_def.name}[/c]";
+
             // _isBlueprint = true -- flat resource limit (not "remaining/
             // total") and the cost row along the bottom, per 2026-07-08
-            // request -- see BuildingHoverScripts.gml.
-            var _sizes = hoverExtras.Layout(_def, noone, true);
-            hoverCard.Show(_def.name, BuildingHoverDescriptionText(_def), 0, 0, _def.description, _sizes.topContentHeight, _sizes.bottomContentHeight);
+            // request -- see BuildingHoverScripts.gml. The cost row itself
+            // independently re-derives the same best-available cost (via
+            // GetBestAvailablePlacementCost inside Layout) for its own
+            // per-resource red/default coloring.
+            var _sizes = hoverExtras.Layout(_def, noone, true, team);
+            hoverCard.Show(_titleText, BuildingHoverDescriptionText(_def), 0, 0, _def.description, _sizes.topContentHeight, _sizes.bottomContentHeight);
 
-            var _mx    = device_mouse_x_to_gui(0);
-            var _my    = device_mouse_y_to_gui(0);
-            var _cardW = hoverCard.GetWidth();
-            var _cardH = hoverCard.GetHeight();
+            // Paired unit card -- 2026-07-11 request, only for training
+            // buildings. No live unit instance (nothing's been trained
+            // yet), WITH the cost-to-produce row (showCostRow = true) --
+            // see UnitHoverScripts.gml and this struct's field comments.
+            hasUnitHoverCard = (_def.trainsUnit != undefined);
+            if (hasUnitHoverCard) {
+                var _unitDef = GetUnitDefinition(_def.trainsUnit);
+                hasUnitHoverCard = (_unitDef != undefined);
+                if (hasUnitHoverCard) {
+                    ShowUnitHoverCard(unitHoverCard, unitHoverExtras, _unitDef, noone, true);
+                }
+            }
 
-            var _anchorLeft = (_mx < display_get_gui_width()  / 2);
-            var _anchorTop  = (_my < display_get_gui_height() / 2);
+            var _mx = device_mouse_x_to_gui(0);
+            var _my = device_mouse_y_to_gui(0);
 
-            hoverCard.x = _anchorLeft ? (_mx + PLOT_HOVER_CURSOR_GAP) : (_mx - PLOT_HOVER_CURSOR_GAP - _cardW);
-            hoverCard.y = _anchorTop  ? (_my + PLOT_HOVER_CURSOR_GAP) : (_my - PLOT_HOVER_CURSOR_GAP - _cardH);
-
-            hoverCard.x = clamp(hoverCard.x, 0, display_get_gui_width()  - _cardW);
-            hoverCard.y = clamp(hoverCard.y, 0, display_get_gui_height() - _cardH);
+            // 2026-07-11: anchoring computed against both cards together
+            // when a unit card is showing -- see PositionHoverCardPair
+            // (HoverCardScripts.gml).
+            PositionHoverCardPair(_mx, _my, hoverCard, hasUnitHoverCard ? unitHoverCard : noone);
         }
     }
 
@@ -417,6 +490,11 @@ function BlueprintController(_team) constructor {
         if (hoverAlpha <= 0) return;
         hoverCard.Draw(hoverAlpha);
         hoverExtras.Draw(hoverCard, hoverAlpha);
+
+        if (hasUnitHoverCard) {
+            unitHoverCard.Draw(hoverAlpha);
+            unitHoverExtras.Draw(unitHoverCard, hoverAlpha);
+        }
     }
 
     /// @function Draw()

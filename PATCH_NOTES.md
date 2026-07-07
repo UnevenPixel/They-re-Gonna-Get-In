@@ -1,5 +1,97 @@
 # Patch Notes
 
+## v0.0.2.51 — 2026-07-11 (uncommitted — working tree only, not yet committed)
+
+New unit hover card -- a second, paired card showing a trained unit type's own stats/passives, alongside a training building's blueprint/placed-building card, or standalone in the top-left corner when a single unit is selected.
+
+### Added
+
+- **`UnitHoverScripts.gml` (new file)** -- the unit hover card, shown in 3 contexts:
+  - Paired with a training building's blueprint-UI card (`BlueprintController.UpdateHover`) -- max HP only, WITH a cost-to-produce row along the bottom.
+  - Paired with a training building's placed-instance hover card (`BuildingHoverController.Step`) -- max HP only, no cost row (nothing left to produce).
+  - Standalone, fixed in the GUI's top-left corner, whenever exactly one unit is selected (new `UnitSelectHoverController`, wired into `oUnitControl`) -- shows that unit's own live remaining/max HP, no cost row, appears/disappears instantly with selection state (no dwell or fade -- it's tied to a deliberate player action, not a hover).
+  - Layout (shared by all 3): the unit's full-size sprite (`UnitDefinition.sprites.idle`, NOT the smaller `smallSprite`) centered inside an `sHoverCardBuildingWindow`-sized box using the same bottom-anchor centering math as the existing Item/Unit Window; literal "HP: X" / "DMG: Y" text lines beside the box; the "Deployed Effect" passive description as the card's main body; and, in the card's usual flavor-text position, "Station/Deploy Cost: [gold icon]\<amount\>" followed by the "Stationed Effect" passive description -- rendered in the normal (non-italic) font rather than the usual italic flavor font, per the request.
+- **`UnitDefinition.stationCost` field** (`UnitDefinitions.gml`) -- Gold cost to station/deploy each unit, per the "Project Azurite Data Sheets" (2026-07-03) column that was previously flagged as having no home in this struct. Real values supplied directly by the user this pass: Peasant 20, Bomb Goblin 15, Mud Golem 25, Soldier 30, Archer 15, Knight 50. Still purely display data for the hover card above -- nothing deducts gold or gates a station action on it yet (no station/deploy economy system exists).
+- **`HoverCard.Show()` gained an optional trailing `_flavorFont` param** (`HoverCardScripts.gml`) -- defaults to the existing italic `HOVER_CARD_FLAVOR_FONT`, so every existing caller is unaffected; the unit hover card is the first to pass `HOVER_CARD_BODY_FONT` instead, repurposing the flavor window for non-italic content.
+- **`PositionHoverCardPair(_mx, _my, _primaryCard, _secondaryCard, _cardGap)`** (`HoverCardScripts.gml`) -- positions a primary card and an optional paired secondary card as one anchored group: the quadrant-flip and screen-edge clamp are computed against their COMBINED width/height, per the request ("anchoring... should be in relation to both cards, not just the core building card"), rather than clamping each independently in a way that could separate them. The primary card always sits nearest the cursor; the secondary extends further away. Passing `noone` for the secondary reproduces the exact single-card math every hover controller used before this pass -- `BuildingHoverController.Step` and `BlueprintController.UpdateHover` both now route through this shared function instead of each keeping their own copy of the old anchor/clamp math.
+
+### Assumptions / scope boundaries (flag if wrong)
+
+- **"HP"/"DMG" are drawn as literal text labels**, not icons like `BuildingHoverExtras`' `sUIHeart`/`sUIHammer` -- the request explicitly wrote them as text ("written as HP and DMG").
+- **The unit card's stat text is vertically centered against the image box**, and the box sits flush against the card's left margin (mirroring the building icon row's position) -- neither exact alignment was specified, flagging for a visual sanity check in-engine.
+- **The gap between the two paired cards (`HOVER_CARD_PAIR_GAP`, 8px) matches the existing mouse-to-card gap** (`PLOT_HOVER_CURSOR_GAP`) by coincidence, not because they're the same concept -- kept as separate macros in case they should diverge later.
+- **The single-unit-selected card ignores team** -- it shows for any selected unit regardless of TEAM.PLAYER/TEAM.ENEMY, matching this project's existing "hover data is informational, not ownership-gated" precedent (BuildingHoverController). Flag if enemy units shouldn't reveal this when selected (note: today only the player's own units are selectable at all, per `SelectionController(oUnitParent, TEAM.PLAYER)` in `oUnitControl/Create_0.gml`, so this is currently moot in practice).
+- **Discovered while implementing this (unrelated to this feature): `UnitDefinitions.gml` currently sets `palette: sMudGolemPallete` for Mud Golem**, contradicting the v0.0.2.49/v0.0.2.50 patch notes' statement that "only Mud Golem doesn't have a Pallete sprite yet." The sprite now exists on disk and is already wired in -- the patch notes text is simply stale, no code fix needed. Flagging so the discrepancy doesn't cause confusion later.
+
+### Build
+
+- Windows export version bumped `0.0.2.50` → `0.0.2.51` -- 4th-digit bump, same convention as last time.
+
+## v0.0.2.50 — 2026-07-11 (uncommitted — working tree only, not yet committed)
+
+Fixed AI/enemy units not recoloring at all under `shPaletteSwap` (v0.0.2.49).
+
+### Fixed
+
+- **`PaletteSwapDrawUnit` (`PaletteSwapScripts.gml`) was reading the wrong elements out of `sprite_get_uvs()`'s return array.** The original code assumed an 8-element TL/TR/BR/BL corner layout and read indices `[4]`/`[5]` as the bottom-right UV corner. GameMaker's actual documented layout is a 4-element `(left, top, right, bottom)` rect at indices `[0..3]` — indices `[4..7]` are unrelated trim-crop metadata (pixels trimmed from the sprite's left/top edge, plus width/height fractions retained on the page), not a second corner. Since this project's palette sprites have no transparent margin to trim, `[4]`/`[5]` were simply `0` for every unit, collapsing `u_paletteFromRect`/`u_paletteToRect` to `(u0, v0, 0, 0)` — the shader was sampling far outside each sprite's actual region on the texture page, so the from-color read at every row was garbage and never matched a drawn pixel closely enough to trigger a swap. Net effect: the shader ran every frame but silently did nothing, which is why AI/enemy units looked completely unrecolored. Fixed by reading indices `[2]`/`[3]` (the real right/bottom) instead. Both `PaletteSwapScripts.gml` and `shPaletteSwap.fsh`'s header comment are corrected and now document the real `sprite_get_uvs()` layout so this isn't re-introduced.
+
+### Assumptions / scope boundaries (flag if wrong)
+
+- **`sSoldierPallete` and `sKnightPallete` use byte-for-byte identical source images** (same two PNG files, verified via direct pixel inspection) — Soldier and Knight currently recolor to the exact same replacement palette. This predates this fix and wasn't introduced by it; flagging in case it's an asset-authoring copy/paste that should actually be two distinct palettes.
+
+### Build
+
+- Windows export version bumped `0.0.2.49` → `0.0.2.50` — 4th-digit bump, same convention as last time.
+
+## v0.0.2.49 — 2026-07-10 (uncommitted — working tree only, not yet committed)
+
+New `shPaletteSwap` shader for team-based unit recoloring — AI opponent units draw with swapped colors, player units draw unedited.
+
+### Added
+
+- **`shPaletteSwap` (`shaders/shPaletteSwap/`)** — a search-based palette-swap shader. Each unit type gets its own 1px-wide, 2-frame "Pallete" sprite (matching this project's existing spelling of that asset name): frame 0 lists the unit's original swappable colors (one texel per row), frame 1 lists that same row's replacement. Per fragment, the shader linearly scans frame 0's rows for a close-enough color match (`distance() < u_tolerance`) against the current pixel and, if found, substitutes the same row's frame-1 color; unmatched pixels (skin tones, outlines, anything not explicitly listed) pass through unchanged. Both palette frames are bound as separate texture stages (`u_paletteFrom`/`u_paletteTo`, point-filtered, no repeat) rather than one shared image, since GameMaker doesn't guarantee sprite frames land adjacent on a texture page. Follows this project's existing `shDitherDissolve` conventions: PascalCase shader name, uniform/sampler handles resolved once (not per draw), a `show_debug_message` warning if any handle resolves invalid, and a fixed-constant-bound for-loop with an early `break` to work around GLSL ES 1.0's compile-time-constant loop-bound restriction (`MAX_PALETTE_ROWS = 16`, today's real max is 7 rows — Soldier/Knight).
+- **`UnitDefinition.palette` field** (`UnitDefinitions.gml`) — optional, defaults to `undefined`. Set for 5 of 6 units: `sPeasantPallete`, `sArcherPallete`, `sSoldierPallete`, `sKnightPallete`, and Bomb Goblin's `sBombGolbinPallete` (see Assumptions below re: that spelling). Mud Golem has no Pallete sprite yet and is intentionally left unset. Copied onto the live instance by `UnitApplyDefinition` alongside every other stat.
+- **`PaletteSwapScripts.gml` (new file)** — `PaletteSwapInit()` caches `shPaletteSwap`'s sampler/uniform handles once, wired into `oGameControl`'s Create event alongside the other `RegisterAll*()` calls. `PaletteSwapDrawUnit(_unit)` replaces the bare `draw_self()` in `oUnitParent/Draw_0.gml`: draws unshaded for `TEAM.PLAYER` units and any unit with no `palette` set, and binds `shPaletteSwap` (resolving each palette frame's actual sub-rectangle on its texture page via `sprite_get_uvs()`, not raw 0-1 UVs) for `TEAM.ENEMY` units that have one. Per the request, the player's units always draw with unedited/frame-0-aligned colors — no shader involved for that team at all.
+
+### Assumptions / scope boundaries (flag if wrong)
+
+- **`sBombGolbinPallete` is a pre-existing misspelled asset name** ("Golbin" not "Goblin") — used as-is, not renamed, since every other `sBombGoblin*` asset in the project uses the correct spelling. Flagged inline in `UnitDefinitions.gml` in case you want it renamed in-editor.
+- **Assumes palette sprites are never stored rotated on their texture page** (GameMaker's "Allow sprite rotating" is off project-wide, per current settings) — `sprite_get_uvs()`'s corner extraction in `shPaletteSwap.fsh`'s comment block explains why a rotated palette sprite would sample the wrong axis and scramble colors. Flag if that setting ever changes.
+- **`PALETTE_SWAP_TOLERANCE` (0.02) and `MAX_PALETTE_ROWS`/`PALETTE_SWAP_MAX_ROWS` (16)** are tunable constants (`PaletteSwapScripts.gml` and `shPaletteSwap.fsh` respectively) — the two row-count constants are kept in sync by convention only, no automatic check enforces it. Bump both together if a future unit needs more than 16 palette rows.
+- **Mud Golem renders unshaded on both teams** until it gets a Pallete sprite — `PaletteSwapDrawUnit` degrades gracefully rather than crashing or defaulting to a placeholder recolor.
+
+### Build
+
+- Windows export version bumped `0.0.2.48` → `0.0.2.49` — 4th-digit bump, same convention as last time.
+
+## v0.0.2.48 — 2026-07-09 (uncommitted — working tree only, not yet committed)
+
+Four blueprint/building-hover follow-ups: unit small-sprite centering, instant + affordability-aware blueprint hover, a health row under production amount, and icons before resource/unit names.
+
+### Changed
+
+- **`BuildingHoverItemIcon` (`BuildingHoverScripts.gml`) now uses each unit's new `smallSprite`** (`UnitDefinition.smallSprite`, e.g. `sPeasantSmall`) instead of `sprites.idle` inside the Item/Unit Window. Since unit sprites are bottom-center anchored, `BuildingHoverExtras.Layout`/`Draw` now compute `itemIconOffsetY` (half the sprite's own height) and draw the icon that far below the window's center -- centers the sprite in the window regardless of its exact height. Resource icons (`sResourceIcons`, middle-center anchored) get no offset, unchanged.
+- **Blueprint slot hover (`BlueprintController.UpdateHover`, `BlueprintScripts.gml`) now shows instantly** -- the dwell-delay gate (`PLOT_HOVER_DELAY_STEPS`) is gone for this context only; it still fades in/out over `PLOT_HOVER_FADE_STEPS` rather than popping. The `hoverTimer` field this used for the delay has been removed (served no other purpose). Plot hover and placed-building hover are UNCHANGED -- they still require the 1-second dwell.
+- **Blueprint hover cost row now shows "[icon]Base (Discount)" per resource**, base price and the parenthesized discount price colored INDEPENDENTLY of each other (new `CostToScribbleTextWithDiscount`, `ResourceUIScripts.gml`): each renders red if `_team` can't currently afford that specific amount. The discount price additionally renders in dark gray (new `BLUEPRINT_DISCOUNT_UNAVAILABLE_COLOR_TAG`, `BlueprintScripts.gml`) whenever no currently open plot would actually grant the discount, overriding the red/default check -- it's purely informational in that case, not a real price. `GetBestAvailablePlacementCost(_team, _def)` (`BlueprintScripts.gml`) now also exposes `discountAvailable` alongside its existing `anyPlotAvailable`/`cost`, so this and the title-red check (below) don't have to re-scan plots separately. The card's own title (the building's name) still renders red if the building can't be placed ANYWHERE right now -- no open owned plot, or unaffordable even at the cheapest available price.
+- **`GetPlacementCost` (`BlueprintScripts.gml`) refactored**, no behavior change -- its discount-eligibility check is now a shared `BuildingGetsDiscountOnPlot(_def, _plot)` function, reused by `GetBestAvailablePlacementCost` so the two can't drift out of sync.
+- **New health row under the production-amount label.** `BuildingHoverHealthText(_def, _building, _isBlueprint)` (`BuildingHoverScripts.gml`) always returns a value (every building has `maxHealth`, unlike the production-amount line which only applies to resource buildings) -- blueprint hover shows the flat `maxHealth`, placed-building hover shows `remaining/max` via `GetCurrentHealth`. Rendered as a second line under the existing production-amount line (or the only line, for training buildings), each prefixed with its own icon: `sUIHammer` for production, `sUIHeart` for health.
+- **Icons now precede resource/unit names.** `BuildingHoverDescriptionText`'s auto-generated body text ("Produces Wheat" / "Trains Peasant") now reads "Produces [icon]Wheat" / "Trains [icon]Peasant". New `UnitIconTag(_unitDef)` (`UnitDefinitions.gml`) mirrors `ResourceIconTag`'s shape but resolves via `sprite_get_name` since each unit has its own distinct icon sprite asset rather than one shared frame-strip.
+
+### Added
+
+- **`UnitDefinition` gained two new optional fields**, set for all 6 registered units: `icon` (the unit's small 8x8 `sXIcon` sprite, used by `UnitIconTag`) and `smallSprite` (the unit's ~16x20 bottom-anchored `sXSmall` sprite, used by `BuildingHoverItemIcon`).
+
+### Assumptions / scope boundaries (flag if wrong)
+
+- **`sPeasantIcon`'s origin is Top Left (0,0)**, while every other unit icon (`sArcherIcon`/`sBombGoblinIcon`/`sKnightIcon`/`sMudGolemIcon`/`sSoldierIcon`) and `sResourceIcons` are Middle Center. Scribble's inline sprite tags draw each sprite at its own origin, so `sPeasantIcon` will likely render visibly offset (shifted down-right by ~4px) relative to every other icon rendered the same way. Did NOT change the sprite asset myself -- flagging for you to fix `sPeasantIcon`'s origin in-editor if this is unintentional (looked like an oversight, not a deliberate choice).
+- "Placeable anywhere" (for the title-red check) only looks at plots the hovering team already owns and can see today (unblocked, unoccupied) -- it doesn't account for plots that might unblock later, nor does it consider AI/enemy-side plots (irrelevant per-team by design).
+- Health/production text still renders in the card's standard text color regardless of cost-row coloring -- only the cost row's own base/discount amounts and the title get the red/gray treatment.
+- The discount price shown is always `GetDiscountedCost(_def.cost, PLOT_BONUS_DISCOUNT_FRACTION)` -- the flat 50% math -- not scoped to any specific plot; "is the discount available at all right now" and "what would the discount amount be" are deliberately kept separate, since the discount fraction itself doesn't vary by plot, only its availability does.
+
+### Build
+
+- Windows export version bumped `0.0.2.47` → `0.0.2.48` — 4th-digit bump, same convention as last time.
+
 ## v0.0.2.47 — 2026-07-08 (uncommitted — working tree only, not yet committed)
 
 Added building hover tooltips in two contexts: hovering a placed building in-world, and hovering a filled blueprint slot in the Blueprint UI.

@@ -163,6 +163,77 @@ function ChooseHoverCardSprite(_requiredHeight) {
     return sHoverCardTall;
 }
 
+#macro HOVER_CARD_PAIR_GAP 8 // already-scaled on-screen px between a primary card and its paired secondary card -- 2026-07-11 addition, PositionHoverCardPair. Same value as PLOT_HOVER_CURSOR_GAP (PlotHoverScripts.gml) -- not reusing that macro directly since it's conceptually "mouse-to-card" distance, not "card-to-card", even though they happen to match today.
+
+/// @function PositionHoverCardPair(_mx, _my, _primaryCard, _secondaryCard, _cardGap)
+/// @description Positions _primaryCard (and _secondaryCard, if given) as a
+///        single anchored group -- 2026-07-11 addition, first needed by the
+///        unit hover card pairing with a training building's own hover card
+///        (UnitHoverScripts.gml, BuildingHoverScripts.gml,
+///        BlueprintScripts.gml). Same quadrant-anchor-away-from-cursor +
+///        screen-edge clamp every existing hover card already uses
+///        (PlotHoverController, BuildingHoverController,
+///        BlueprintController.UpdateHover), but the anchor-flip and clamp
+///        are computed against the COMBINED width/height of both cards
+///        instead of just one -- per the "anchoring... should be in
+///        relation to both cards, not just the core building card" request
+///        -- so the pair can't get clamped in a way that separates them or
+///        pushes one off-screen while the other stays put.
+///        _primaryCard always sits on the side NEAREST the cursor (same
+///        gap every single-card hover controller already used);
+///        _secondaryCard sits immediately beyond it, further from the
+///        cursor, both cards' tops aligned. Mutates both cards' .x/.y
+///        fields directly -- same convention every hover controller
+///        already follows. Caller must call Show() on both cards first
+///        (this reads their current GetWidth()/GetHeight()).
+///        Passing _secondaryCard = noone collapses this to EXACTLY the
+///        original single-card positioning math every existing caller used
+///        (_totalWidth/_totalHeight reduce to just the primary card's own
+///        size) -- BuildingHoverController and BlueprintController.UpdateHover
+///        both now route their non-training-building case through this same
+///        function rather than keeping a separate duplicate of the old math.
+/// @param {Real} _mx GUI-space mouse X.
+/// @param {Real} _my GUI-space mouse Y.
+/// @param {Struct.HoverCard} _primaryCard
+/// @param {Struct.HoverCard|Constant.NoOne} _secondaryCard noone if there's
+///        nothing to pair this frame (e.g. a non-training building/blueprint).
+/// @param {Real} [_cardGap] Already-scaled on-screen px between the two
+///        cards. Defaults to HOVER_CARD_PAIR_GAP.
+function PositionHoverCardPair(_mx, _my, _primaryCard, _secondaryCard, _cardGap = HOVER_CARD_PAIR_GAP) {
+    var _hasSecondary = (_secondaryCard != noone);
+
+    var _primaryW   = _primaryCard.GetWidth();
+    var _primaryH   = _primaryCard.GetHeight();
+    var _secondaryW = _hasSecondary ? _secondaryCard.GetWidth()  : 0;
+    var _secondaryH = _hasSecondary ? _secondaryCard.GetHeight() : 0;
+
+    var _totalWidth  = _primaryW + (_hasSecondary ? (_cardGap + _secondaryW) : 0);
+    var _totalHeight = max(_primaryH, _secondaryH);
+
+    var _anchorLeft = (_mx < display_get_gui_width()  / 2);
+    var _anchorTop  = (_my < display_get_gui_height() / 2);
+
+    var _groupX = _anchorLeft ? (_mx + PLOT_HOVER_CURSOR_GAP) : (_mx - PLOT_HOVER_CURSOR_GAP - _totalWidth);
+    var _groupY = _anchorTop  ? (_my + PLOT_HOVER_CURSOR_GAP) : (_my - PLOT_HOVER_CURSOR_GAP - _totalHeight);
+
+    _groupX = clamp(_groupX, 0, display_get_gui_width()  - _totalWidth);
+    _groupY = clamp(_groupY, 0, display_get_gui_height() - _totalHeight);
+
+    // Primary always sits nearest the cursor -- which physical side that is
+    // flips with _anchorLeft, since _groupX already points at whichever edge
+    // is "away from the cursor" for this quadrant.
+    if (_anchorLeft) {
+        _primaryCard.x = _groupX;
+        if (_hasSecondary) _secondaryCard.x = _groupX + _primaryW + _cardGap;
+    } else {
+        if (_hasSecondary) _secondaryCard.x = _groupX;
+        _primaryCard.x = _hasSecondary ? (_groupX + _secondaryW + _cardGap) : _groupX;
+    }
+
+    _primaryCard.y = _groupY;
+    if (_hasSecondary) _secondaryCard.y = _groupY;
+}
+
 /// @function DrawCardTextWithShadow(_element, _x, _y, _alpha)
 /// @description Draws a Scribble text element twice -- once
 ///        HOVER_CARD_SHADOW_OFFSET px down in HOVER_CARD_SHADOW_COLOR, then
@@ -250,7 +321,7 @@ function HoverCard() constructor {
         .align(fa_left, fa_top)
         .wrap(HoverCardFlavorWrapWidth());
 
-    /// @function Show(_name, _body, _x, _y, _flavor, _topContentHeight, _bottomContentHeight)
+    /// @function Show(_name, _body, _x, _y, _flavor, _topContentHeight, _bottomContentHeight, _flavorFont)
     /// @description Sets this card's content and GUI-space position, picks
     ///        the smallest sprite that fits everything currently shown,
     ///        and marks the card visible. Safe to call every frame the
@@ -283,8 +354,17 @@ function HoverCard() constructor {
     ///        flavor window (or body text, if no flavor) -- e.g. a blueprint
     ///        tooltip's cost row, drawn by the caller starting at
     ///        GetContentBottomY(). Defaults to 0.
+    /// @param {String} [_flavorFont] 2026-07-11 addition (unit hover card
+    ///        request) -- font override for the flavor window's text.
+    ///        Defaults to HOVER_CARD_FLAVOR_FONT (italic), so every existing
+    ///        caller (plot/building/blueprint hover) is byte-for-byte
+    ///        unaffected. UnitHoverScripts.gml's unit card is the first
+    ///        caller to pass HOVER_CARD_BODY_FONT instead -- that card
+    ///        repurposes the "usual flavor text window" to show Station/
+    ///        Deploy Cost + the stationed passive as plain (non-italic) data
+    ///        rather than actual flavor text, per that request.
     /// @returns {Struct.HoverCard} self
-    static Show = function(_name, _body, _x, _y, _flavor = "", _topContentHeight = 0, _bottomContentHeight = 0) {
+    static Show = function(_name, _body, _x, _y, _flavor = "", _topContentHeight = 0, _bottomContentHeight = 0, _flavorFont = HOVER_CARD_FLAVOR_FONT) {
         nameText = scribble(_name, $"__hoverCard{__id}Name__")
             .starting_format(HOVER_CARD_NAME_FONT, HOVER_CARD_TEXT_COLOR)
             .align(fa_center, fa_middle); // 2026-07-07 request: centered -- must match the constructor's nameText above
@@ -297,7 +377,7 @@ function HoverCard() constructor {
         hasFlavor = (_flavor != "");
         if (hasFlavor) {
             flavorText = scribble(_flavor, $"__hoverCard{__id}Flavor__")
-                .starting_format(HOVER_CARD_FLAVOR_FONT, HOVER_CARD_TEXT_COLOR)
+                .starting_format(_flavorFont, HOVER_CARD_TEXT_COLOR)
                 .align(fa_left, fa_top)
                 .wrap(HoverCardFlavorWrapWidth());
         }

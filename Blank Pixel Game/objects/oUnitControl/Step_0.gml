@@ -77,3 +77,8 @@ buildingHoverController.Step(selectionController, blueprintController);
 // from blueprintController.Draw()'s panel rendering; suppressed internally
 // while dragging (BlueprintScripts.gml's UpdateHover).
 blueprintController.UpdateHover();
+
+// Top-left single-unit-selected info card -- 2026-07-11 request. Instant
+// show/hide tied to selectionController.selected, independent of mouse
+// position/dwell -- see UnitSelectHoverController (UnitHoverScripts.gml).
+unitSelectHoverController.Step(selectionController);
