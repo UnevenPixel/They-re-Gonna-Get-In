@@ -1,5 +1,17 @@
 # Patch Notes
 
+## v0.0.3.0 — 2026-07-11 (uncommitted — working tree only, not yet committed)
+
+Version bump only — player-facing patch notes requested, covering everything since v0.0.2.0. Per the 3rd-digit-bump-on-requested-patch-notes convention (see v0.0.1.0/v0.0.2.10's Build notes).
+
+### Added
+
+- **`PUBLIC_PATCH_NOTES.md` (new file, repo root)** — the launch-title-facing summary covering v0.0.2.0 through v0.0.2.51, organized by player-visible category (Build & Economy, Combat, The Computer Opponent, Interface & Info) rather than chronologically. Written from this file's existing entries; every internal system/function/asset name was translated to its player-facing effect, per CLAUDE.md's public-notes convention. Purely additive/no-op for the game itself.
+
+### Build
+
+- Windows export version bumped `0.0.2.51` → `0.0.3.0` — 3rd-digit bump (patch notes explicitly requested this time, unlike the routine 4th-digit bumps every prior entry back to v0.0.2.1 used).
+
 ## v0.0.2.51 — 2026-07-11 (uncommitted — working tree only, not yet committed)
 
 New unit hover card -- a second, paired card showing a trained unit type's own stats/passives, alongside a training building's blueprint/placed-building card, or standalone in the top-left corner when a single unit is selected.
