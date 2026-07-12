@@ -78,6 +78,23 @@
 //     price) -- unchanged from the interim version, still driven by
 //     GetBestAvailablePlacementCost's blended cost + anyPlotAvailable.
 //
+// 2026-07-11 addition -- placed TRAINING buildings now show a queue row in
+// that exact same bottom slot the blueprint cost row occupies (mutually
+// exclusive with it -- a blueprint has no queue, a placed building has no
+// cost left to pay). Left to right: the trained unit's small icon + how
+// many are currently queued, a progress bar toward the next completion
+// (black background, filled in HOVER_CARD_TEXT_COLOR -- a plain drawn
+// rectangle, not a sprite/Scribble element), then the seconds remaining
+// until that next completion (ceil'd so it doesn't misleadingly hit "0s"
+// a fraction of a second early). Reads trainQueue/trainProgress/trainTime
+// straight off the live instance (TrainingScripts.gml owns updating them).
+// Placed NON-training buildings (resource buildings) show neither this row
+// nor the cost row -- nothing to queue, nothing left to pay.
+//
+// 2026-07-12: also TEAM.PLAYER-only now -- "enemy buildings do not show
+// training queues or progress" -- see BuildingHoverExtras.Layout's
+// showQueueRow line.
+//
 // "What it does" (the card's normal body text, e.g. "Produces [icon]Wheat"/
 // "Trains [icon]Peasant") is auto-generated from BuildingDefinition fields,
 // not authored -- see BuildingHoverDescriptionText. 2026-07-09 follow-up:
@@ -116,7 +133,10 @@
 #macro BUILDING_HOVER_ICON_GAP_X       4 // native, horizontal gap between adjacent icon-row columns (Item Window <-> Timer <-> Building Window)
 #macro BUILDING_HOVER_ICON_LABEL_GAP_Y 2 // native, gap between an icon's bottom edge and its label text below it (Timer's rate/time text, the Item Window's resource-limit text)
 #macro BUILDING_HOVER_ROW_TO_BODY_GAP  4 // native, gap between the icon row's bottom and the "what it does" body text below it
-#macro BUILDING_HOVER_COST_ROW_GAP_TOP 4 // native, gap between the card's last content (flavor window, or body text if none) and the blueprint-only cost row
+#macro BUILDING_HOVER_COST_ROW_GAP_TOP 4 // native, gap between the card's last content (flavor window, or body text if none) and the blueprint-only cost row / placed-training-building queue row -- see file header, these two rows are mutually exclusive and share the same slot
+#macro BUILDING_HOVER_QUEUE_GAP_X      6 // already-scaled on-screen px, horizontal gap between the queue row's 3 sections (icon+count / progress bar / time remaining) -- unlike the icon-row gaps above, this is defined directly in on-screen px (not native*HOVER_CARD_SCALE) since it sits between a scaled sprite and unscaled Scribble text widths, which aren't directly comparable in native units -- see BuildingHoverExtras.Layout's queue-row block
+#macro BUILDING_HOVER_QUEUE_BAR_HEIGHT 10 // native, progress bar height (scaled by HOVER_CARD_SCALE like everything else non-text)
+#macro BUILDING_HOVER_QUEUE_BAR_MIN_WIDTH 20 // already-scaled on-screen px floor -- if the icon+count and time text somehow leave less than this, the bar still gets drawn at this width rather than vanishing/going negative (shouldn't happen at this card's normal width, but not asserted)
 
 // Per-instance counter, same "why a global not a #macro" reasoning as
 // HoverCard's global.__hoverCardNextId (HoverCardScripts.gml) -- keeps
@@ -297,6 +317,19 @@ function BuildingHoverExtras() constructor {
     itemIconImage   = 0;
     itemIconOffsetY = 0; // 2026-07-09: vertical draw offset for the item icon ONLY, see Layout/Draw -- 0 for the resource-icon case (already centered via the window's own middle-center origin), (spriteHeight/2)*HOVER_CARD_SCALE for the unit smallSprite case (bottom-center-anchored, so this centers it in the window instead)
 
+    // 2026-07-11 addition -- placed training building queue row, see file
+    // header. Mutually exclusive with showCostRow (one's blueprint-only,
+    // the other's placed-only) but both share the same bottom slot/height
+    // return value.
+    showQueueRow     = false;
+    queueIconSprite  = noone;
+    queueIconImage   = 0;
+    queueIconWidth   = 0; // already-scaled on-screen px, cached by Layout for Draw
+    queueIconHeight  = 0;
+    queueFraction    = 0; // 0-1, trainProgress / trainTime
+    queueBarWidth    = 0; // already-scaled on-screen px, whatever's left over after the icon+count and time text -- computed fresh in Layout since it depends on both text widths
+    queueRowHeight   = 0;
+
     timerText = scribble("", $"__buildingHoverExtras{__id}Timer__")
         .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
         .align(fa_center, fa_top);
@@ -309,6 +342,14 @@ function BuildingHoverExtras() constructor {
         .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
         .align(fa_left, fa_top)
         .wrap(HoverCardBodyWrapWidth());
+
+    queueCountText = scribble("", $"__buildingHoverExtras{__id}QueueCount__")
+        .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
+        .align(fa_left, fa_middle);
+
+    queueTimeText = scribble("", $"__buildingHoverExtras{__id}QueueTime__")
+        .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
+        .align(fa_right, fa_middle);
 
     /// @function Layout(_def, _building, _isBlueprint, _team)
     /// @description Sets this frame's text content and computes how much
@@ -433,6 +474,82 @@ function BuildingHoverExtras() constructor {
             }
         }
 
+        // -- Queue row (placed training buildings only) -- see file header.
+        // Mutually exclusive with the cost row above (_isBlueprint gates
+        // one, !_isBlueprint && trainsUnit gates the other), so there's no
+        // conflict over _bottomContentHeight.
+        //
+        // 2026-07-12 request: "enemy buildings do not show training queues
+        // or progress" -- _team is the hovered BUILDING's own team here
+        // (see this function's doc comment), so gating on _team ==
+        // TEAM.PLAYER directly hides this row for enemy training buildings
+        // without touching the blueprint-only cost row above (blueprint
+        // hover is always the player's own panel, never an enemy context).
+        showQueueRow = (!_isBlueprint && _team == TEAM.PLAYER && _def.trainsUnit != undefined);
+        if (showQueueRow) {
+            var _unitDef = GetUnitDefinition(_def.trainsUnit);
+            showQueueRow = (_unitDef != undefined);
+        }
+        if (showQueueRow) {
+            // 2026-07-11 follow-up: uses the unit's small inline ICON
+            // (UnitDefinition.icon, e.g. sPeasantIcon -- middle-center
+            // anchored, 8x8 native) instead of smallSprite (the bigger,
+            // bottom-anchored Item/Unit Window sprite) -- was smallSprite,
+            // corrected per request. Also fixes an unflagged bug from last
+            // pass: smallSprite is bottom-center anchored and needed a
+            // vertical re-centering offset (see itemIconOffsetY above) that
+            // the queue row never applied -- icon's middle-center anchor
+            // needs no such offset, drawing correctly centered as-is.
+            queueIconSprite = _unitDef.icon;
+            queueIconImage  = 0;
+            queueIconWidth  = (queueIconSprite != undefined) ? sprite_get_width(queueIconSprite)  * HOVER_CARD_SCALE : 0;
+            queueIconHeight = (queueIconSprite != undefined) ? sprite_get_height(queueIconSprite) * HOVER_CARD_SCALE : 0;
+
+            queueCountText = scribble(string(_building.trainQueue), $"__buildingHoverExtras{__id}QueueCount__")
+                .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
+                .align(fa_left, fa_middle);
+
+            queueFraction = (_building.trainTime > 0)
+                ? clamp(_building.trainProgress / _building.trainTime, 0, 1)
+                : 0;
+
+            // Seconds until the FRONT of the queue completes (not the whole
+            // queue) -- ceil'd so it doesn't read "0s" a fraction of a
+            // second before the unit actually spawns. "-" when nothing's
+            // queued (trainProgress is always 0 then -- TrainingUpdateQueue
+            // resets it the moment the queue empties) rather than a
+            // misleading "0s"/"{trainTime}s".
+            var _remainingString = (_building.trainQueue > 0 && _building.trainTime > 0)
+                ? $"{ceil(_building.trainTime - _building.trainProgress)}s"
+                : "-";
+            // fa_left now (was fa_right) -- the time text follows the bar's
+            // right edge rather than pinning to the row's fixed right edge,
+            // see the bar-width comment below.
+            queueTimeText = scribble(_remainingString, $"__buildingHoverExtras{__id}QueueTime__")
+                .starting_format(HOVER_CARD_BODY_FONT, HOVER_CARD_TEXT_COLOR)
+                .align(fa_left, fa_middle);
+
+            // 2026-07-11 follow-up: the bar is now centered on the CARD's
+            // full width, not just "whatever's left over" -- its left edge
+            // sits (margin + icon + gap + count + gap) in from the card's
+            // left edge, and its right edge is placed that SAME distance in
+            // from the card's right edge (mirrored), rather than being sized
+            // around the time text's width. The time text now trails the
+            // bar instead of anchoring the row's right edge -- see Draw().
+            var _barLeftOffset = (HOVER_CARD_BODY_MARGIN_X * HOVER_CARD_SCALE) + queueIconWidth
+                + BUILDING_HOVER_QUEUE_GAP_X + queueCountText.get_width() + BUILDING_HOVER_QUEUE_GAP_X;
+            queueBarWidth = max(BUILDING_HOVER_QUEUE_BAR_MIN_WIDTH, (HOVER_CARD_WIDTH * HOVER_CARD_SCALE) - (2 * _barLeftOffset));
+
+            queueRowHeight = max(
+                queueIconHeight,
+                BUILDING_HOVER_QUEUE_BAR_HEIGHT * HOVER_CARD_SCALE,
+                queueCountText.get_height(),
+                queueTimeText.get_height()
+            );
+
+            _bottomContentHeight = (BUILDING_HOVER_COST_ROW_GAP_TOP * HOVER_CARD_SCALE) + queueRowHeight;
+        }
+
         return { topContentHeight: _topContentHeight, bottomContentHeight: _bottomContentHeight };
     }
 
@@ -506,6 +623,53 @@ function BuildingHoverExtras() constructor {
             var _costX = _card.x + HOVER_CARD_BODY_MARGIN_X * HOVER_CARD_SCALE;
             var _costY = _card.GetContentBottomY() + BUILDING_HOVER_COST_ROW_GAP_TOP * HOVER_CARD_SCALE;
             DrawCardTextWithShadow(costText, _costX, _costY, _alpha);
+        }
+
+        // Queue row -- placed training buildings only, same bottom slot as
+        // the cost row above (mutually exclusive, see file header).
+        if (showQueueRow) {
+            var _rowLeftX = _card.x + HOVER_CARD_BODY_MARGIN_X * HOVER_CARD_SCALE;
+            var _rowTopY2 = _card.GetContentBottomY() + BUILDING_HOVER_COST_ROW_GAP_TOP * HOVER_CARD_SCALE;
+            var _rowMidY  = _rowTopY2 + (queueRowHeight / 2);
+
+            // Icon + count, bottom-left corner of the row.
+            var _iconCenterX = _rowLeftX + (queueIconWidth / 2);
+            if (queueIconSprite != undefined) {
+                draw_sprite_ext(queueIconSprite, queueIconImage, _iconCenterX, _rowMidY, HOVER_CARD_SCALE, HOVER_CARD_SCALE, 0, c_white, _alpha);
+            }
+
+            var _countX = _rowLeftX + queueIconWidth + BUILDING_HOVER_QUEUE_GAP_X;
+            DrawCardTextWithShadow(queueCountText, _countX, _rowMidY, _alpha);
+
+            // Progress bar -- black background, filled in HOVER_CARD_TEXT_COLOR,
+            // per the request. Plain drawn rectangles, not a sprite/Scribble
+            // element, same as DrawDragBox/other raw UI rects in this project.
+            // 2026-07-11 follow-up: centered on the card's full width -- its
+            // left edge sits _barX1 - _card.x in from the card's left edge,
+            // and its right edge sits that SAME distance in from the card's
+            // right edge (_card.x + HOVER_CARD_WIDTH*HOVER_CARD_SCALE),
+            // mirroring the offset rather than sizing around the time text.
+            var _barX1 = _countX + queueCountText.get_width() + BUILDING_HOVER_QUEUE_GAP_X;
+            var _barLeftOffset = _barX1 - _card.x;
+            var _barX2 = _card.x + (HOVER_CARD_WIDTH * HOVER_CARD_SCALE) - _barLeftOffset;
+            if (_barX2 - _barX1 < BUILDING_HOVER_QUEUE_BAR_MIN_WIDTH) _barX2 = _barX1 + BUILDING_HOVER_QUEUE_BAR_MIN_WIDTH;
+            var _barY1 = _rowMidY - (BUILDING_HOVER_QUEUE_BAR_HEIGHT * HOVER_CARD_SCALE / 2);
+            var _barY2 = _rowMidY + (BUILDING_HOVER_QUEUE_BAR_HEIGHT * HOVER_CARD_SCALE / 2);
+
+            draw_set_alpha(_alpha);
+            draw_set_color(c_black);
+            draw_rectangle(_barX1, _barY1, _barX2, _barY2, false);
+            if (queueFraction > 0) {
+                draw_set_color(HOVER_CARD_TEXT_COLOR);
+                draw_rectangle(_barX1, _barY1, _barX1 + ((_barX2 - _barX1) * queueFraction), _barY2, false);
+            }
+            draw_set_alpha(1);
+
+            // Time remaining -- now trails the bar's right edge (was pinned
+            // to the row's fixed right edge, back when the bar's width was
+            // sized around this text instead of mirrored/centered).
+            var _timeX = _barX2 + BUILDING_HOVER_QUEUE_GAP_X;
+            DrawCardTextWithShadow(queueTimeText, _timeX, _rowMidY, _alpha);
         }
     }
 }
@@ -592,14 +756,18 @@ function BuildingHoverController() constructor {
             // Paired unit card -- 2026-07-11 request, only for training
             // buildings. No live unit instance to read from (a training
             // building isn't tied to any one specific trained unit), so
-            // _liveUnit is always noone here (max HP only); no cost row
-            // (already placed, nothing to produce) -- see UnitHoverScripts.gml.
+            // _liveUnit is always noone here (max HP only). Cost row is now
+            // ALWAYS shown (2026-07-11 follow-up) -- even though the
+            // BUILDING is already placed, the unit's own training cost is
+            // still directly relevant here: it's exactly what queuing
+            // another one will spend (TrainingTryQueueUnit, TrainingScripts.gml)
+            // -- see UnitHoverScripts.gml.
             hasUnitCard = (_def.trainsUnit != undefined);
             if (hasUnitCard) {
                 var _unitDef = GetUnitDefinition(_def.trainsUnit);
                 hasUnitCard = (_unitDef != undefined);
                 if (hasUnitCard) {
-                    ShowUnitHoverCard(unitCard, unitExtras, _unitDef, noone, false);
+                    ShowUnitHoverCard(unitCard, unitExtras, _unitDef, noone, true);
                 }
             }
 
@@ -609,22 +777,6 @@ function BuildingHoverController() constructor {
             // 2026-07-11: anchoring is computed against BOTH cards together
             // (PositionHoverCardPair, HoverCardScripts.gml) when a unit card
             // is showing -- passing noone otherwise reproduces the original
-            // single-card anchor/clamp math exactly.
-            PositionHoverCardPair(_mx, _my, card, hasUnitCard ? unitCard : noone);
-        }
-    }
-
-    /// @function Draw()
-    /// @description Call once per Draw GUI event. No-ops while fully faded
-    ///        out, same as PlotHoverController.Draw.
-    static Draw = function() {
-        if (alpha <= 0) return;
-        card.Draw(alpha);
-        extras.Draw(card, alpha);
-
-        if (hasUnitCard) {
-            unitCard.Draw(alpha);
-            unitExtras.Draw(unitCard, alpha);
-        }
-    }
-}
+            // single-card anchor/clamp math exactly. _secondaryAlwaysRight =
+            // true (2026-07-11 follow-up): the unit card always sits on the
+            // building card's right,

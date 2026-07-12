@@ -40,3 +40,32 @@ function UpdateCameraPan() {
         camera_set_view_pos(_cam, _newX, camera_get_view_y(_cam));
     }
 }
+
+/// @function WorldToGui(_x, _y)
+/// @description Converts a room-space (world) coordinate to its current
+///        on-screen GUI-space equivalent, accounting for view camera 0's
+///        current pan position and any view/GUI size mismatch -- the
+///        standard room->GUI conversion formula. Needed for room-space
+///        elements that must be drawn from a Draw GUI event so they render
+///        above every room-space Draw call regardless of instance depth
+///        (Draw GUI always runs after every room-layer Draw event) --
+///        2026-07-11 request, first user is a training building's queue
+///        progress bar (TrainingScripts.gml's DrawTrainingQueueBars).
+/// @param {Real} _x Room-space X.
+/// @param {Real} _y Room-space Y.
+/// @returns {Struct.Vector2} GUI-space equivalent.
+function WorldToGui(_x, _y) {
+    var _cam  = view_camera[0];
+    var _camX = camera_get_view_x(_cam);
+    var _camY = camera_get_view_y(_cam);
+    var _camW = camera_get_view_width(_cam);
+    var _camH = camera_get_view_height(_cam);
+
+    var _guiW = display_get_gui_width();
+    var _guiH = display_get_gui_height();
+
+    return new Vector2(
+        (_x - _camX) * (_guiW / _camW),
+        (_y - _camY) * (_guiH / _camH)
+    );
+}

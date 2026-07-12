@@ -1,6 +1,5 @@
 unitData = new UnitDataBlock();
 
-pos = new Vector2(x,y);
 team = TEAM.PLAYER;
 wanderWait = true;
 
@@ -18,8 +17,6 @@ wanderWait = true;
 guardRect = GetTeamGuardRect(team); // mirrored per-team -- see GetTeamGuardRect in UnitScripts.gml
 target = noone;
 
-moveVec = new Vector2(0,0);
-
 fsm = new StateMachine(self);
 fsm.AddState("guard",  new State(Guard_Enter,  Guard_Step, Guard_Draw, Guard_Exit))
    .AddState("defend", new State(Defend_Enter, Defend_Step, undefined, Defend_Exit))
@@ -27,7 +24,8 @@ fsm.AddState("guard",  new State(Guard_Enter,  Guard_Step, Guard_Draw, Guard_Exi
    .AddState("combatRanged", new State(CombatRanged_Enter, CombatRanged_Step, undefined, CombatRanged_Exit)) // ranged counterpart to "combat" -- see UnitStateCombatRanged.gml; dispatched by UnitEnterCombat (UnitCombatHelpers.gml) for "ranged"-tagged units
    .AddState("attack", new State(Attack_Enter, Attack_Step, undefined, Attack_Exit))
    .AddState("attackRanged", new State(AttackRanged_Enter, AttackRanged_Step, undefined, AttackRanged_Exit)) // ranged counterpart to "attack" -- see UnitStateAttackRanged.gml; dispatched by the "attack" order (OrderWiring.gml) for "ranged"-tagged units
-   .AddState("siege",  new State(Siege_Enter,  Siege_Step,  undefined, Siege_Exit));
+   .AddState("siege",  new State(Siege_Enter,  Siege_Step,  undefined, Siege_Exit))
+   .AddState("station", new State(Station_Enter, Station_Step, undefined, undefined)); // walks to the unit's own castle then hands off to UnitBecomeStationed (StationScripts.gml) -- see UnitStateStation.gml; dispatched by the "station" order (OrderWiring.gml)
 fsm.ChangeState("guard");
 
 agent      = new SteeringAgent(x, y, 1, 0.2, 1); // maxSpeed/maxForce/mass here are placeholders -- UnitApplyDefinition overwrites agent.maxSpeed below

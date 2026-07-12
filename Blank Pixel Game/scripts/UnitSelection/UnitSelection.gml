@@ -27,6 +27,17 @@ function Order(_name, _label, _onIssue = undefined, _requiresTarget = false, _ta
     targetValidator = _targetValidator;
     onIssue = (_onIssue != undefined) ? _onIssue : function(_units, _context) {
         for (var i = 0; i < array_length(_units); i++) {
+            // IssueOrderToUnits is shared by the player's SelectionController
+            // and the AI controller -- SelectionController prunes dead units
+            // out of `selected` once per Step (see PruneDeadSelected), but
+            // the AI path doesn't go through that, and even the player path
+            // can't guarantee nothing died in the instant between the prune
+            // and this callback running. Guard here too, matching how every
+            // other cross-instance reference in the codebase is guarded
+            // (attackBuildingTarget, combatTarget, defendTarget, etc.) --
+            // flagged in NIGHTLY_REVIEW_2026-07-09.md as the one place this
+            // pattern was missing.
+            if (!instance_exists(_units[i])) continue;
             _units[i].fsm.ChangeState(name);
         }
     }
@@ -191,6 +202,28 @@ function SelectionController(_unitObject, _team) constructor {
             x1: min(dragStartX, mouse_x), y1: min(dragStartY, mouse_y),
             x2: max(dragStartX, mouse_x), y2: max(dragStartY, mouse_y)
         };
+    }
+
+    /// @function PruneDeadSelected()
+    /// Removes any selected unit that no longer exists (died since being
+    /// selected) from `selected`. ApplyDamage (UnitCombatHelpers.gml)
+    /// destroys units directly via instance_destroy with no hook back into
+    /// selection state, so nothing else keeps `selected` in sync -- without
+    /// this, AvailableOrders/IssueOrder/UnitSelectHoverController.Step can
+    /// all dereference a freed instance. Called once per Step from
+    /// oUnitControl/Step_0.gml, before anything else that frame reads
+    /// `selected`, rather than guarding every read site individually.
+    /// Flagged in NIGHTLY_REVIEW_2026-07-09.md (§3.1, critical).
+    /// @returns {Struct.SelectionController} self
+    static PruneDeadSelected = function() {
+        var _alive = [];
+        for (var i = 0; i < array_length(selected); i++) {
+            if (instance_exists(selected[i])) {
+                array_push(_alive, selected[i]);
+            }
+        }
+        selected = _alive;
+        return self;
     }
 
     /// @function AvailableOrders()
@@ -365,7 +398,11 @@ function SelectionController(_unitObject, _team) constructor {
         var _my = device_mouse_y_to_gui(0);
         draw_set_color(c_yellow);
         draw_circle(_mx, _my, 8, true);
-        draw_set_color(c_white);
+        // 2026-07-11 request: matches HOVER_CARD_TEXT_COLOR
+        // (HoverCardScripts.gml) -- was c_white. The yellow targeting
+        // reticle itself is left alone -- it's a cursor/state indicator,
+        // not body text.
+        draw_set_color(HOVER_CARD_TEXT_COLOR);
         draw_text(_mx + 12, _my - 8, $"Select target for: {_pendingOrder.label}");
     }
 }

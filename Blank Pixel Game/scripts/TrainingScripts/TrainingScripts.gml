@@ -188,8 +188,24 @@ function TrainingGetSpawnPoint(_building) {
 ///        "First deployment of unit type" from the 2026-07-06 "XP Age
 ///        Progression System" doc. Every SUBSEQUENT spawn of that same
 ///        type is a no-op here (checked via array_contains).
+///
+///        2026-07-11: if _building.inside is true (set from the plot it was
+///        placed on -- see TryPlaceBlueprint, BlueprintScripts.gml), skips
+///        all of the above entirely and instead calls StationSpawnDirectly
+///        (StationScripts.gml), per "Any training buildings that builds a
+///        unit when on an inside plot will immediately build a stationed
+///        unit instead." Deliberately does NOT award
+///        STRATEGIC_XP_FIRST_DEPLOYMENT for that path -- see
+///        StationSpawnDirectly's doc comment for why (flagged as a judgment
+///        call, not an explicit spec answer).
 /// @param {Id.Instance} _building
 function TrainingSpawnUnit(_building) {
+    if (_building.inside) {
+        StationSpawnDirectly(_building.team, _building.trainsUnit);
+        AnalyticsRecordUnitTrained(_building.team, _building.trainsUnit);
+        return;
+    }
+
     var _spawnPos = TrainingGetSpawnPoint(_building);
     var _unit = instance_create_layer(_spawnPos.x, _spawnPos.y, "Instances", _building.trainsUnit);
 
@@ -221,13 +237,26 @@ function TrainingSpawnUnit(_building) {
 ///        later. Deliberate simplification; flag if you'd rather partial
 ///        progress persist across an empty gap.
 ///
-///        No-op if nothing is queued, or if trainTime isn't configured
-///        (<= 0 would otherwise loop forever). Call once per Step from a
-///        training building (wired from
+///        Also sets image_index -- 2026-07-11 request: frame 1 while
+///        actively training (trainQueue > 0), frame 0 otherwise. A
+///        placeholder ambient "something's happening here" signal ahead of
+///        a real animation; every training sprite gets pointed at frame 1
+///        regardless of whether it's actually been authored with one yet
+///        -- GameMaker's default instance drawing wraps image_index via
+///        mod(image_index, image_number), so this is a no-op glitch-wise
+///        on any sprite that doesn't have a second frame yet, per the
+///        request ("won't harm anything"). Set BEFORE the no-op early
+///        return below so idle buildings still correctly revert to frame 0.
+///
+///        No-op (for progress purposes) if nothing is queued, or if
+///        trainTime isn't configured (<= 0 would otherwise loop forever).
+///        Call once per Step from a training building (wired from
 ///        oTrainingBuildingParent/Step_0.gml, so every training building
 ///        gets this automatically).
 /// @param {Id.Instance} _building
 function TrainingUpdateQueue(_building) {
+    _building.image_index = (_building.trainQueue > 0) ? 1 : 0;
+
     if (_building.trainQueue <= 0 || _building.trainTime <= 0) return;
 
     var _dt = delta_time / 1000000; // microseconds -> seconds, same idiom as BuildingUpdateProduction
@@ -243,3 +272,64 @@ function TrainingUpdateQueue(_building) {
         _building.trainProgress = 0;
     }
 }
+
+// -----------------------------------------------------------
+// Ambient queue progress bar -- 2026-07-11 request. A 1px-tall bar just
+// below every training building's bbox, always drawn (not hover-gated) so
+// there's a signal even when no hover card is showing. Drawn from a Draw
+// GUI event (see DrawTrainingQueueBars) rather than each building's own
+// room-space Draw so it renders above every room-space Draw call --
+// units, particles, other buildings -- regardless of instance depth,
+// per the request ("make sure it draws to the UI layer... stays over
+// units, particles, and other buildings").
+// -----------------------------------------------------------
+
+#macro TRAINING_QUEUE_BAR_GAP_Y 2 // room-space px between the building's bbox_bottom and the bar's top edge -- not specified by the request, kept small so the bar doesn't visually merge with the building sprite's own bottom edge
+
+/// @function DrawTrainingQueueBars()
+/// @description Draws every LIVE training building's queue progress as a
+///        1px-tall (exactly 1 on-screen GUI pixel, regardless of camera
+///        zoom -- see the Y math below) bar spanning its bbox width,
+///        TRAINING_QUEUE_BAR_GAP_Y below its bbox_bottom. Black background,
+///        filled left-to-right in HOVER_CARD_TEXT_COLOR (HoverCardScripts.gml)
+///        by trainProgress / trainTime -- same fill/background convention
+///        as the hover card's queue row (BuildingHoverScripts.gml), just
+///        always-on instead of hover-gated.
+///
+///        TEAM.PLAYER only -- 2026-07-12 request ("enemy buildings do not
+///        show training queues or progress"). Previously flagged as NOT
+///        team-restricted (matching BuildingHoverController's general
+///        "informational, not ownership-gated" precedent); that's now an
+///        explicit exception to that precedent for training queues
+///        specifically, not a change to BuildingHoverController itself.
+///
+///        Call once per Draw GUI event (wired from oUnitControl/Draw_64.gml).
+function DrawTrainingQueueBars() {
+    // Full opacity regardless of whatever global alpha a previous Draw GUI
+    // call left lingering (e.g. a hover card mid-fade) -- draw_rectangle
+    // respects draw_set_alpha, unlike the draw_sprite_ext calls elsewhere
+    // in this event which each pass their own alpha explicitly.
+    draw_set_alpha(1);
+
+    with (oTrainingBuildingParent) {
+        if (team != TEAM.PLAYER) continue;
+        if (trainsUnit == undefined) continue;
+
+        var _fraction = (trainTime > 0) ? clamp(trainProgress / trainTime, 0, 1) : 0;
+
+        // Only X actually needs the room->GUI conversion to track camera
+        // pan/zoom correctly; Y is converted once (left/right share the
+        // same world Y, so they share the same GUI Y) and then the bar is
+        // drawn exactly 1 GUI px tall directly in screen space -- converting
+        // TWO world Y's and taking their difference could end up rendering
+        // thicker or thinner than 1px if the camera's ever zoomed relative
+        // to the GUI (not currently true per UpdateCameraPan's "no vertical
+        // panning" comment, but this is correct either way).
+        var _barTopY = bbox_bottom + TRAINING_QUEUE_BAR_GAP_Y;
+        var _left    = WorldToGui(bbox_left,  _barTopY);
+        var _right   = WorldToGui(bbox_right, _barTopY);
+
+        draw_set_color(c_black);
+        draw_rectangle(_left.x, _left.y, _right.x, _left.y + 1, false);
+        if (_fraction > 0) {
+            draw_set_color(HOVER_CAR

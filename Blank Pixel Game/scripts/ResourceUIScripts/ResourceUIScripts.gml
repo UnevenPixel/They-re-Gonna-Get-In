@@ -128,7 +128,7 @@ function CostToScribbleTextWithDiscount(_baseCost, _discountCost, _discountAvail
 
 #macro RESOURCE_BAR_ORIGIN_X     466 // center of the first (Wood) icon -- 2026-07-05 request
 #macro RESOURCE_BAR_ORIGIN_Y     1060
-#macro RESOURCE_BAR_ICON_SPACING 152 // center-to-center between consecutive icons
+#macro RESOURCE_BAR_ICON_SPACING 148 // center-to-center between consecutive icons
 #macro RESOURCE_BAR_TEXT_GAP     10  // px from the icon's RIGHT EDGE (not center) to the count text
 
 /// @function DrawResourceBar(_team)
@@ -149,7 +149,12 @@ function DrawResourceBar(_team) {
 
     draw_set_halign(fa_left);
     draw_set_valign(fa_middle);
-    draw_set_color(c_white);
+    // 2026-07-11 request: resource counts now use fntResource (was the
+    // default GML font) in HOVER_CARD_TEXT_COLOR (HoverCardScripts.gml) --
+    // matches every hover-data card's text color, so the bar reads as part
+    // of the same UI language instead of a separate default-white style.
+    draw_set_font(fntResource);
+    draw_set_color(HOVER_CARD_TEXT_COLOR);
 
     for (var i = 0; i < array_length(global.resourceIconOrder); i++) {
         var _resource = global.resourceIconOrder[i];
@@ -161,4 +166,10 @@ function DrawResourceBar(_team) {
         var _amount = struct_get(global.resources[_team], _resource);
         draw_text(_cx + _halfIconWidth + RESOURCE_BAR_TEXT_GAP, _cy, string(_amount));
     }
+
+    // Reset to the default font -- nothing else in this project calls
+    // draw_set_font, so every other draw_text call this frame relies on
+    // whatever font was last set. Leaving fntResource active would leak
+    // into anything drawn after this in the same Draw GUI event.
+    draw_set_font(-1);
 }

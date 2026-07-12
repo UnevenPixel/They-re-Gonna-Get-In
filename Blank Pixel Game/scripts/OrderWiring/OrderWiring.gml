@@ -14,6 +14,10 @@ function RegisterAllOrders() {
         function(_units, _context) {
             // _context is the clicked building instance.
             for (var i = 0; i < array_length(_units); i++) {
+                // Guard against a unit that died between selection/order-
+                // issue and this callback running -- see PruneDeadSelected
+                // in UnitSelection.gml and NIGHTLY_REVIEW_2026-07-09.md §3.1.
+                if (!instance_exists(_units[i])) continue;
                 _units[i].defendTarget = _context;
                 _units[i].fsm.ChangeState("defend");
             }
@@ -48,6 +52,8 @@ function RegisterAllOrders() {
         "Attack Building",
         function(_units, _context) {
             for (var i = 0; i < array_length(_units); i++) {
+                // Same dead-unit guard as "defend" above.
+                if (!instance_exists(_units[i])) continue;
                 _units[i].attackBuildingTarget = _context;
                 var _state = UnitHasTag(_units[i], "ranged") ? "attackRanged" : "attack";
                 _units[i].fsm.ChangeState(_state);
@@ -68,24 +74,22 @@ function RegisterAllOrders() {
         // No target click needed -- GetEnemyCastle() finds the castle
         // automatically inside Siege_Enter. Just flip the state.
         for (var i = 0; i < array_length(_units); i++) {
+            // Same dead-unit guard as "defend"/"attack" above.
+            if (!instance_exists(_units[i])) continue;
             _units[i].fsm.ChangeState("siege");
         }
     }));
 
-    // "station" is registered so it legally appears in availableOrders /
-    // the order menu (and doesn't trip GetCommonOrders' registry lookup),
-    // but it's an intentional no-op for now -- stationing units inside
-    // castle walls depends on castle-interior placement, which isn't
-    // built yet. Deliberately NOT using the default onIssue (which would
-    // call fsm.ChangeState("station") against a state that doesn't
-    // exist on any unit's StateMachine, spamming an "unregistered state"
-    // debug message on every click). Replace this stub once stationing
-    // is designed.
-    RegisterOrder(new Order("station", "Station", function(_units, _context) {
-        // Intentionally does nothing yet.
-    }));
-
-    // "combat" is intentionally NOT registered as a player-issuable
-    // order -- units enter it automatically (e.g. when attacked while
-    // guarding), it's not something a player should pick from a menu.
-}
+    // "station" -- 2026-07-11: stationing is now built (UnitStateStation.gml
+    // registers a real "station" state on every unit's StateMachine, see
+    // oUnitParent/Create_0.gml). No target click needed, same as "siege" --
+    // Station_Enter resolves the unit's own castle automatically.
+    //
+    // 2026-07-12: stationing now costs gold (UnitDefinition.stationCost,
+    // via GetUnitStationCost -- StationScripts.gml). Issuing to multiple
+    // selected units at once sorts them CHEAPEST FIRST, then walks the
+    // sorted list purchasing + dispatching one at a time -- per the
+    // request: "If multiple units are selected to station, and the player
+    // can't afford to station all of them... selecting the cheapest
+    // options to station, and do as many as the player can afford." A unit
+    // whose Purchase fails is sim

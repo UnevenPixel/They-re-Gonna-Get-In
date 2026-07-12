@@ -23,10 +23,10 @@
   ],
   "name":"sMainUIBarBottom",
   "nineSlice":null,
-  "origin":6,
+  "origin":9,
   "parent":{
-    "name":"Assets",
-    "path":"folders/In Game/UI/Assets.yy",
+    "name":"UIBar",
+    "path":"folders/In Game/UI/Assets/UIBar.yy",
   },
   "preMultiplyAlpha":false,
   "resourceType":"GMSprite",
@@ -75,7 +75,7 @@
     ],
     "visibleRange":null,
     "volume":1.0,
-    "xorigin":0,
+    "xorigin":-203,
     "yorigin":134,
   },
   "swatchColours":null,
@@ -86,5 +86,4 @@
   },
   "type":0,
   "VTile":false,
-  "width":757,
-}
+  "width":7

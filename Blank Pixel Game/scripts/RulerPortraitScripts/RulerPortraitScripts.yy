@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"RulerPortraitScripts",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"RulerPortraitScripts",
+  "parent":{
+    "name":"Scripts",
+    "path":"folders/Scripts.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

@@ -5,3 +5,5 @@ xpBarWidget = new XpBarWidget(TEAM.PLAYER); // lower HUD -- 2026-07-06 request
 plotHoverController = new PlotHoverController(); // un-occupied building plot hover data -- 2026-07-06 request
 buildingHoverController = new BuildingHoverController(); // placed building hover data -- 2026-07-08 request
 unitSelectHoverController = new UnitSelectHoverController(); // top-left single-unit-selected info card -- 2026-07-11 request
+rulerPortraitController = new RulerPortraitController(GetRulerPortraitDefinition(global.selectedRuler)); // animated ruler portrait on the UI bar -- 2026-07-11 request
+castleGarrisonMenu = new CastleGarrisonMenu(); // castle-wall-click garrison dropdown -- 2026-07-11 request, see CastleGarrisonMenu.gml

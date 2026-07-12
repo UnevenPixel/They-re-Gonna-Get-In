@@ -1,5 +1,221 @@
 # Patch Notes
 
+## v0.0.3.9 — 2026-07-12 (uncommitted — working tree only, not yet committed)
+
+Every drop-down/panel menu (orders, castle garrison, unit selection) now uses the new drop-down sprite set with a title instead of a plain drawn rectangle. Enemy training buildings no longer show their queue or progress.
+
+### Added
+
+- **`DropDownMenuScripts.gml` (new file)** -- shared sprite-based rendering for every drop-down/panel menu, built on 3 new sprites (`sDropDownMenuTop`, `sDropDownMenuMiddle`, `sDropDowmMenuBottom` -- the bottom one's actual asset name has a pre-existing typo, "Dropdowm" not "DropDown"; used verbatim rather than renamed). Per the request:
+  - **Title** (`sDropDownMenuTop`, single frame) -- centered text, never hoverable/clickable.
+  - **Bottom-most option row** (`sDropDowmMenuBottom`, 2 frames) -- frame 0 normal, frame 1 on hover.
+  - **Every option row above it** (`sDropDownMenuMiddle`, 2 frames) -- same frame 0/1 hover convention.
+  - All three drawn at 2x scale, stacked seamlessly (title, then middle rows in creation order, then the bottom row last). Option text is left-aligned, 6 native px in from the row's left edge (scaled like everything else -- see file header for that native-vs-scaled call, since the request didn't specify). Exposes shared sizing/hit-test helpers (`DropDownMenuWidth`, `DropDownMenuTitleHeight`, `DropDownMenuRowHeight`, `DropDownMenuTotalHeight`, `DropDownMenuHitTest`) plus draw helpers (`DrawDropDownMenuTitle`, `DrawDropDownMenuRowBackground`, `DropDownMenuRowContentX`) that each menu's own row-content drawing builds on.
+
+### Changed
+
+- **`OrderMenu.gml`** -- title "Orders". Rebuilt on the shared helpers above; retired `ORDER_MENU_ITEM_HEIGHT`/`ORDER_MENU_WIDTH`/`ORDER_MENU_PADDING` (fully superseded, confirmed unused elsewhere) and the old hover highlight rectangle (now the sprite's own hover frame).
+- **`CastleGarrisonMenu.gml`** -- title "Castle". Same rebuild; kept its own icon+name+right-aligned-count row content (that part didn't change), retired `CASTLE_MENU_ITEM_HEIGHT`/`CASTLE_MENU_WIDTH`/`CASTLE_MENU_PADDING` (`CASTLE_MENU_ICON_GAP`/`CASTLE_MENU_COUNT_MARGIN` are still meaningful and kept).
+- **`SelectionSummaryMenu.gml`** -- title "Selected". Same rebuild; kept its own icon+name+right-aligned-value row content.
+
+### Fixed
+
+- **Enemy training buildings no longer show a queue or progress** -- `DrawTrainingQueueBars` (`TrainingScripts.gml`, the always-on world-space bar) now skips any `oTrainingBuildingParent` whose `team != TEAM.PLAYER`; this was previously flagged in its own doc comment as an intentional "not team-restricted... flag if enemy queues shouldn't be passively visible" -- now flipped per this request. `BuildingHoverExtras.Layout`'s `showQueueRow` (`BuildingHoverScripts.gml`, the hover-card queue row) now additionally requires `_team == TEAM.PLAYER` -- `_team` here is the HOVERED BUILDING's own team (confirmed via the call site, `BuildingHoverController.Step`, which passes `hoverTarget.team`), so this correctly hides the row only for enemy buildings, not for the player's own. Neither buildings' name/description/health/cost hover content changed -- only the queue-specific row/bar.
+
+### Build
+
+- Windows export version bumped `0.0.3.8` → `0.0.3.9` -- 4th-digit bump, same convention as every non-milestone pass.
+
+## v0.0.3.8 — 2026-07-12 (uncommitted — working tree only, not yet committed)
+
+A new top-left panel appears whenever 2+ units are selected -- grouped by type at first, drilling down to individual units (and finally a single unit) as the player clicks through it. Also fixes a click-passthrough gap that would have broken it.
+
+### Added
+
+- **`SelectionSummaryMenu` (new file, `SelectionSummaryMenu.gml`)** -- a top-left panel (same corner `UnitSelectHoverController` uses for the single-unit case, and mutually exclusive with it) shown whenever `selectionController.selected` has 2+ units. Visual style/row layout deliberately reuses `CastleGarrisonMenu`'s macros (`CASTLE_MENU_*`) rather than redeclaring near-duplicates, per "similar visual to the castle dropdown." Unlike `OrderMenu`/`CastleGarrisonMenu`, there's no `Open()`/`Close()` -- it's a passive panel recomputed fresh every Step from the current selection, same architecture as `UnitSelectHoverController`.
+  - **GROUPED mode** -- selection spans 2+ distinct unit types: one row per type (icon, name, "x#" count of how many of that type are selected).
+  - **INDIVIDUAL mode** -- selection is 2+ units that all share ONE type: one row per actual unit instance (icon/name repeat per row; the row's value column shows that unit's current/max HP instead of a count, since "x#" doesn't mean anything per-unit).
+  - **Hover** -- a grouped row shows the GENERAL unit hover card (`ShowUnitHoverCard` with no live instance -- max HP only, the same "no specific instance" treatment `UnitHoverExtras` already uses for the blueprint-UI/placed-training-building contexts), per the request: "no specific health value, so use max health." An individual row shows the DETAILED card (the real instance -- exact remaining HP), identical to `UnitSelectHoverController`'s single-selected treatment. Drawn immediately to the panel's right.
+  - **Click** -- a grouped row narrows `selectionController.selected` down to the CURRENTLY SELECTED units of that type only (not every unit of that type on the map -- the row's own count is exactly that subset, so narrowing to it keeps things consistent), which flips the panel into individual mode next frame. An individual row replaces the selection with JUST that one unit, which hides this panel and shows `UnitSelectHoverController`'s single-unit card instead -- with no one-frame lag, since `SelectionSummaryMenu.Step()` runs before `unitSelectHoverController.Step()` in the same `Step` event.
+
+### Fixed
+
+- **Click-passthrough gap**: neither `CastleGarrisonMenu` nor the new `SelectionSummaryMenu` suppressed `oUnitControl`'s room-space left-click handling, so clicking a row would ALSO be read as a world click by the castle/training/blueprint/drag-select logic later in the same `Step` -- for `SelectionSummaryMenu` this would have immediately clobbered whatever selection the row click just set (a drag-select starting on the same press would overwrite it moments later on release). Both menus gained a `consumedClick` flag, checked by `oUnitControl/Step_0.gml` before its left-click block runs. Scoped differently per menu's own behavior: `CastleGarrisonMenu.consumedClick` is true for ANY left click while it's open (it's an explicit, modal-ish dropdown the player opened -- even a dismiss-elsewhere click shouldn't also act on the world); `SelectionSummaryMenu.consumedClick` is true ONLY when a click lands ON a row (it's a passive, always-visible-when-applicable panel -- clicks elsewhere must keep working normally, e.g. picking a different unit or starting a fresh drag). This was a latent gap in `CastleGarrisonMenu` since last pass too (deploying doesn't touch selection, so it never surfaced there) -- fixed for both while touching this code path.
+
+### Build
+
+- Windows export version bumped `0.0.3.7` → `0.0.3.8` -- 4th-digit bump, same convention as every non-milestone pass.
+
+## v0.0.3.7 — 2026-07-12 (uncommitted — working tree only, not yet committed)
+
+Stationing and deploying now cost gold, and the castle garrison dropdown's rows are clickable -- clicking one deploys a unit of that type back onto the battlefield.
+
+### Added
+
+- **Click-to-deploy on the castle garrison dropdown** (`CastleGarrisonMenu.gml`) -- clicking a row now deploys ONE unit of that row's type via the new `DeployStationedUnit(_team, _unitType)` (`StationScripts.gml`). `CastleGarrisonRow` gained a `unitType` field (undefined on the "--" placeholder row, so clicking it is a safe no-op); `CastleGarrisonMenu.Update()` now returns the clicked row's `unitType` (mirrors `OrderMenu.Update()`'s "returns what was clicked" convention) and gained the same hover-highlight `Draw()` treatment `OrderMenu` already has. Wired from `oUnitControl/Step_0.gml`.
+- **`DeployStationedUnit(_team, _unitType)`** (new, `StationScripts.gml`) -- charges `GetUnitStationCost` (below) via `Purchase` BEFORE anything else happens, so an unaffordable deploy is a pure no-op. If affordable: finds one live `oUnitStationed` of that type belonging to `_team` (arbitrary pick if more than one is garrisoned -- see Flagged below), spawns a fresh live instance just outside the team's castle (`StationDeploySpawnPoint`, below), overrides its team (same override pattern `TrainingSpawnUnit`/`StationSpawnDirectly` use, including the stale-`guardRect` correction), swaps in the stationed unit's preserved `UnitDataBlock` (so `damageTaken`/`statusEffects` survive the round trip), and re-runs `UnitApplyDefinition` -- the exact redeploy sequence already documented on `UnitDataBlock` (`UnitScripts.gml`). Destroys the `oUnitStationed`. Defaults to `"guard"` (the fsm's own starting state, untouched here).
+- **`GetUnitStationCost(_unitType)`** (new, `StationScripts.gml`) -- wraps `UnitDefinition.stationCost` (a flat gold amount that already existed as unit-hover-card display data, added 2026-07-11 from the "Project Azurite Data Sheets") into a spendable `Cost` struct (`Economy.gml`). Shared by both directions -- station and deploy are priced identically, per that field's own doc comment ("Gold cost to station/deploy this unit type").
+- **`StationDeploySpawnPoint(_castle)`** (new, `StationScripts.gml`) -- a point just outside the castle's front edge (same side `CastleFrontEdgePoint` picks) with a little random vertical jitter, mirroring `TrainingGetSpawnPoint`'s "just outside, don't stack back-to-back spawns" reasoning.
+
+### Changed
+
+- **The `"station"` order now actually costs gold** (`OrderWiring.gml`) -- charges each unit's `GetUnitStationCost` via `Purchase` before dispatching it into the `"station"` FSM state; a unit that can't be afforded is simply skipped (not sent marching, nothing spent for it).
+- **Issuing `"station"` to multiple selected units sorts them CHEAPEST FIRST** before the affordability pass above, per the request: "If multiple units are selected to station, and the player can't afford to station all of them... selecting the cheapest options to station, and do as many as the player can afford." The affordability loop skips (rather than stops at) the first unaffordable unit and keeps checking the rest -- see Flagged below for why.
+- **`UnitDefinition.stationCost`'s doc comment** (`UnitDefinitions.gml`) updated -- it previously said this field was purely informational display data that "nothing deducts gold or gates a station action on it"; that's no longer true as of this pass, so the comment now points at `GetUnitStationCost`/`DeployStationedUnit`/the `"station"` order instead of asserting it's inert.
+
+### Flagged
+
+- **The cheapest-first affordability loop skips-and-continues rather than stopping at the first unaffordable unit.** Today's `stationCost` is gold-only, so once the cheapest remaining unit can't be afforded, nothing pricier after it can either -- stopping outright would behave identically right now. Chose skip-and-continue anyway so this stays correct if `stationCost` ever grows into a multi-resource `Cost` (e.g. a unit that's cheap in gold but expensive in iron shouldn't necessarily block a later unit that's expensive in gold but free in iron).
+- **`DeployStationedUnit` picks whichever matching `oUnitStationed` instance is found first** when more than one of the same type is garrisoned -- GameMaker's `with` iteration order isn't a meaningful "oldest"/"healthiest" pick, just "any one of them." A request that cares which specific one gets redeployed (e.g. always the least-damaged) would need a different selection rule than what's built here.
+- **A deployed unit defaults to `"guard"`** (the fsm's own built-in starting state, untouched by `DeployStationedUnit`) rather than any more specific order -- a deployed unit has no training-building context to default to `"defend"` against the way `TrainingSpawnUnit`'s units do. Judgment call, not an explicit spec answer.
+- **`StationDeploySpawnPoint` re-derives which side of the castle is "front"** instead of calling `CastleFrontEdgePoint` -- that function clamps toward a caller position (there's no unit marching toward the castle here, just a castle to spawn just outside of) and doesn't expose which side it picked for the "push further outward" math to reuse. Small (~10-line) duplication of that function's side-selection logic; flagging in case a future change to one needs to be mirrored in the other.
+
+### Build
+
+- Windows export version bumped `0.0.3.6` → `0.0.3.7` -- 4th-digit bump, same convention as every non-milestone pass.
+
+## v0.0.3.6 — 2026-07-12 (uncommitted — working tree only, not yet committed)
+
+Stationing and deploying units: a new "station" order walks a unit home and garrisons it invisibly at the castle; training buildings on an inside plot now garrison units directly instead of spawning them live; and a new dropdown on the castle wall lists what's currently garrisoned.
+
+### Added
+
+- **"station" order + `Station_Enter`/`Station_Step`** (new file, `UnitStateStation.gml`, registered as a new `"station"` state on every unit's `fsm`, `oUnitParent/Create_0.gml`) -- walks the unit to its OWN team's castle front edge (`CastleFrontEdgePoint`, `CastleScripts.gml` -- the same point `siege` already marches units toward against the ENEMY castle; there's no separate literal "gate" concept anywhere in the project, see Flagged below), same longer obstacle-avoidance feeler `Siege_Step`'s advance phase uses (`120`, vs. the default `80`) since this can be just as long a march. On arrival (within `STATION_GATE_REACH`, `12`px, mirrors `DEFEND_WAYPOINT_REACH`), hands off to `UnitBecomeStationed`.
+- **`StationScripts.gml` (new file)**:
+  - `UnitBecomeStationed(_unit)` -- creates an `oUnitStationed` at the unit's team's castle corner, hands it the unit's EXISTING `UnitDataBlock` as-is (preserving `damageTaken`/`statusEffects`/`unitType` per unit, not just an aggregate count -- per the pre-existing doc comment on `UnitDataBlock`, `UnitScripts.gml`, which already specified this exact design), then destroys the live unit directly (not through `ApplyDamage` -- confirmed `STRATEGIC_XP_LOSE_UNIT` only fires from there and `oUnitParent` has no Destroy event, so this can't misfire a "lost a unit" penalty).
+  - `StationCastleCorner(_castle)` -- the fixed storage point, `(bbox_left, bbox_top)`.
+  - `StationSpawnDirectly(_team, _unitType)` -- builds a stationed unit for `_team` without ever putting a live one on the battlefield; used by the inside-plot training branch below.
+- **`oUnitStationed` (new object)** -- no sprite, `visible = false`, no Step/Draw, holds nothing but `team` + the handed-over `unitData`. Per the request: "Stationed units (for now) just need to be stored at the corner of the castle with no rendering."
+- **Training buildings on an inside plot now build stationed units directly** instead of live ones (`TrainingSpawnUnit`, `TrainingScripts.gml`, new early branch checking `_building.inside`, calling `StationSpawnDirectly`) -- per the request: "Any training buildings that builds a unit when on an inside plot will immediately build a stationed unit instead." Deliberately does NOT award `STRATEGIC_XP_FIRST_DEPLOYMENT` for this branch (see Flagged below).
+  - `_building.inside` is new: `TryPlaceBlueprint` (`BlueprintScripts.gml`) now copies the target plot's own `inside` flag onto the spawned building instance. `oBuildingParent/Create_0.gml` also gained a safe `inside = false` default (same "Create sets a placeholder" pattern already used for `maxHealth`/`damageTaken` there) so a building placed directly in the room editor -- never touching `TryPlaceBlueprint` -- doesn't crash `TrainingSpawnUnit`'s new check on an undefined variable.
+- **Castle garrison dropdown** (new file, `CastleGarrisonMenu.gml`) -- left-clicking the player's own castle wall (`oPlayerCastle`, excluding inside plots -- see `oUnitControl/Step_0.gml`) opens a GUI-space dropdown listing every stationed unit type: icon, name, and "x#" count, left to right, one row per type; shows a single "--" row if nothing's garrisoned. Structurally mirrors `OrderMenu.gml` (`Open`/`Close`/`Update`/`Draw`, screen-edge containment) but needed its own row renderer for the icon+name+count layout. View-only for now (see Flagged below). Wired into `oUnitControl` (`Create_0.gml`/`Step_0.gml`/`Draw_64.gml`).
+
+### Changed
+
+- **`OrderWiring.gml`'s `"station"` order** -- replaced its intentional no-op stub (left in place since stationing wasn't designed yet) with real dispatch: `fsm.ChangeState("station")` per selected unit, same dead-unit-guard pattern as `"defend"`/`"attack"`/`"siege"`.
+
+### Flagged
+
+- **"Castle gate" doesn't exist as a literal concept anywhere in the code** (confirmed via project-wide search) -- reused `CastleFrontEdgePoint` as the walk-target, the same point `siege` already uses against the enemy castle. Worth noting `oUnitParent/Create_0.gml` already had a comment anticipating almost this exact wording ("whatever redeploys a stationed unit back out through the castle gate"), which supports the interpretation but isn't a confirmed spec answer.
+- **This pass adds a new state (`"station"`) to the same `fsm` chain as `guard`/`defend`/`combat`/`attack`/`siege`** (`oUnitParent/Create_0.gml`) -- per CLAUDE.md, flagging any touch to that wiring. The change is purely additive (a new `.AddState(...)` appended to the existing chain); no other state's wiring was touched.
+- **`oUnitStationed`'s storage position** (`StationCastleCorner`) is just the castle's `(bbox_left, bbox_top)` corner -- arbitrary, since the object never renders. Only matters if a future redeploy feature uses it as a spawn point.
+- **Inside-plot-trained (auto-stationed) units skip `STRATEGIC_XP_FIRST_DEPLOYMENT`** -- reasoning: that XP is for a unit's first appearance ON the battlefield, which a directly-stationed unit never has. Judgment call, not an explicit spec answer -- easy to reverse if "deployment" was meant more loosely.
+- **The garrison dropdown is view-only and player-castle-only** -- the request described the listing but not an interaction, so clicking a row just dismisses the menu like clicking anywhere else (no redeploy action yet); restricted to `oPlayerCastle` since nothing asked for an enemy-castle equivalent. One related edge case: clicking the castle wall again WHILE the dropdown is already open dismisses-then-immediately-reopens it that same frame rather than toggling closed (same class of same-frame double-click-processing `OrderMenu`'s own right-click-reopen edge case already has) -- clicking anywhere else does correctly dismiss it.
+
+### Build
+
+- Windows export version bumped `0.0.3.5` → `0.0.3.6` -- 4th-digit bump, same convention as every non-milestone pass.
+
+## v0.0.3.5 — 2026-07-11 (uncommitted — working tree only, not yet committed)
+
+Follow-up polish on last pass's training-building hover work: correct icon, a truly centered progress bar, and the paired unit card now always sits on the building card's right with its training cost always shown.
+
+### Changed
+
+- **Queue row icon** (`BuildingHoverExtras`, `BuildingHoverScripts.gml`): now uses `UnitDefinition.icon` (the small inline icon, e.g. `sPeasantIcon`, 8x8 middle-center anchored) instead of `smallSprite` (the bigger, bottom-anchored Item/Unit Window sprite) -- was `smallSprite` last pass, corrected per request. This also fixes an unflagged bug from that pass: `smallSprite`'s bottom-center anchor needed a vertical re-centering offset (same as the icon row's `itemIconOffsetY`) that the queue row never applied, so it would have drawn slightly off-center; `icon`'s middle-center anchor needs no such offset.
+- **Queue progress bar is now centered on the card's full width**, not sized around the time-remaining text. Its left edge sits a fixed offset in from the card's left edge (margin + icon + gap + count text + gap); its right edge now mirrors that SAME offset in from the card's right edge, instead of being positioned to leave just enough room for the time text. The time-remaining text now trails the bar's right edge (switched from right-aligned-on-the-row to left-aligned-after-the-bar) rather than pinning to the row's fixed right edge.
+- **The training building's paired unit card now always sits on the building card's right**, regardless of cursor position -- `PositionHoverCardPair` (`HoverCardScripts.gml`) gained a `_secondaryAlwaysRight` parameter (default `false`, every other caller unaffected); `BuildingHoverController.Step` passes `true`. Tradeoff worth flagging: the overall pair still anchors away from the cursor and clamps to the screen edges as before, but when the cursor's in the right half of the screen, the BUILDING card is no longer guaranteed nearest the cursor in this mode (the unit card is, since it's forced to the building card's right while the pair's right edge still anchors near the cursor) -- accepted since "always on the right" was explicit.
+- **The paired unit card's cost-to-produce row is now always shown** for placed training buildings (was blueprint-only). Even though the building itself is already placed, the unit's training cost is still directly relevant -- it's exactly what `TrainingTryQueueUnit` (`TrainingScripts.gml`) will spend the next time a unit is queued.
+
+### Build
+
+- Windows export version bumped `0.0.3.4` → `0.0.3.5` -- 4th-digit bump, same convention as every non-milestone pass.
+
+## v0.0.3.4 — 2026-07-11 (uncommitted — working tree only, not yet committed)
+
+Training buildings now show an always-on queue progress bar above the world, and switch to a second sprite frame while actively training.
+
+### Added
+
+- **`WorldToGui(_x, _y)`** (new, `CameraScripts.gml`) -- converts a room-space coordinate to its current on-screen GUI-space equivalent, accounting for view camera 0's pan position. Needed for any room-space element that has to be drawn from a Draw GUI event so it renders above every room-space Draw call (units, particles, other buildings) regardless of instance depth -- Draw GUI always runs after every room-layer Draw event.
+- **`DrawTrainingQueueBars()`** (new, `TrainingScripts.gml`, called once per Draw GUI event from `oUnitControl/Draw_64.gml`) -- a 1px-tall (exactly 1 on-screen pixel, independent of camera zoom) bar drawn 2px below every live training building's `bbox_bottom`, spanning its bbox width. Black background, filled left-to-right in `HOVER_CARD_TEXT_COLOR` by `trainProgress / trainTime` -- same fill convention as last pass's hover-card queue row, just always-on instead of hover-gated, so there's a signal even when no hover card is showing. Routed through `WorldToGui` and drawn from Draw GUI per the request, so it stays on top of units/particles/other buildings regardless of world-space depth. Not team-restricted -- matches `BuildingHoverController`'s existing "informational, not ownership-gated" precedent; flag if enemy queues shouldn't be passively visible like this.
+
+### Changed
+
+- **`TrainingUpdateQueue`** (`TrainingScripts.gml`) now sets the building's `image_index` -- frame 1 while `trainQueue > 0`, frame 0 otherwise. Placeholder ambient signal ahead of a real training animation, per the request; every training sprite gets pointed at frame 1 regardless of whether it's actually been authored with a second frame yet (GameMaker wraps `image_index` via `mod(image_index, image_number)` for default instance drawing, so this is harmless on sprites that don't have one).
+
+### Deferred (per request)
+
+- **Per-building training particle effects** -- explicitly held off; each training building will eventually get its own distinct effect, planned as a separate pass.
+
+### Build
+
+- Windows export version bumped `0.0.3.3` → `0.0.3.4` -- 4th-digit bump, same convention as every non-milestone pass.
+
+## v0.0.3.3 — 2026-07-11 (uncommitted — working tree only, not yet committed)
+
+Fixed a pre-existing missing-argument bug in the UI bar's background draws; placed training buildings now show a live queue/progress readout in their hover card.
+
+### Fixed
+
+- **`oUnitControl/Draw_64.gml`'s `sMainUIBarBottom`/`sUISpellsCloth` `draw_sprite_ext` calls were missing their rotation argument** (8 args where 9 are required) -- flagged last pass, fixed now. Added `0` for `rot` to both, matching the already-correct `sRulerBar` call on the line above them.
+
+### Added
+
+- **Placed training buildings now show a queue row in their hover card**, in the same bottom slot the blueprint cost row occupies (`BuildingHoverExtras`, `BuildingHoverScripts.gml`) -- the trained unit's small icon + how many are currently queued (bottom-left), a progress bar toward the next completion (black background, filled in `HOVER_CARD_TEXT_COLOR` -- a plain drawn rectangle, not a sprite/Scribble element), and the seconds remaining until that completion (right edge, ceil'd, "-" when nothing's queued). Reads `trainQueue`/`trainProgress`/`trainTime` straight off the live instance. Mutually exclusive with the blueprint cost row (one's blueprint-only, the other's placed-training-only) -- resource buildings and blueprints are unaffected.
+
+### Investigated, not changed
+
+- **Unit-training queuing already existed** (`TrainingScripts.gml`: `TrainingTryQueueUnit`/`TrainingUpdateQueue`, wired since earlier sessions) -- confirmed it already does everything the request asked for: queuing spends the cost immediately (`Purchase(_building.trainCost, _team)` inside `TrainingTryQueueUnit`, before the queue increments), and both the per-type cap (`TrainingTypeLimit`) and the army-wide cap (`global.armyLimit`) are checked against existing units PLUS everything queued across EVERY training building the team owns (`TrainingQueuedCountForType`/`TrainingQueuedCountAll`), not just the building being clicked. Nothing new needed here.
+
+### Build
+
+- Windows export version bumped `0.0.3.2` → `0.0.3.3` -- 4th-digit bump, same convention as every non-milestone pass.
+
+## v0.0.3.2 — 2026-07-11 (uncommitted — working tree only, not yet committed)
+
+Game-wide text now matches the hover-data color; the resource bar switched to its dedicated font; and the first animated ruler portrait (Conelius) is live on the UI bar.
+
+### Added
+
+- **`RulerPortraitScripts.gml` (new file)** -- animated ruler portrait system. A ruler's portrait is a single sprite strip; each animation is a data-described contiguous frame range (`RulerAnimationDefinition`: name, startIndex, frameCount, startFacing, endFacing, isIdle), grouped into one `RulerPortraitDefinition` per ruler (sprite + animation list + playback speed), registered by string key (`RegisterRulerPortrait`/`GetRulerPortraitDefinition`/`RegisterAllRulerPortraits`) the same way `Order`/`UnitDefinition`/`BuildingDefinition` are. `RulerPortraitController` is the live per-instance state machine: plays a clip to completion, rests on whichever idle frame (Left/Right) matches the clip's end facing for a random 2-5 sec wait, then picks a new clip at random from whatever's legal to start given the current facing -- exactly the behavior requested, and fully data-driven so a future ruler needs only a new definition, not new controller code.
+  - **`FACING` enum** (new, `Enumerators.gml`) -- `LEFT`/`RIGHT`, used by animation definitions to gate which clips can start from which facing.
+  - **Conelius registered** (`sConeliusPortrait`, 30 frames / 6 clips: Idle Left, Blink Left to Right, Idle Right, Blink Right, Mustache Wiggle, Looking Around) -- only "Blink Left to Right" starts from Left, so from his Idle Left resting pose the only thing that can ever play is that one clip; everything else waits for "Looking Around" to bring him back around to Left first, matching the request's example exactly.
+  - **`global.selectedRuler`** (new global, set in `oGameControl`'s Create event) -- hardcoded to `"conelius"` for now, no character-select flow exists yet.
+  - Wired into `oUnitControl`: `rulerPortraitController` created in `Create_0.gml`, stepped in `Step_0.gml`, drawn in `Draw_64.gml` at `(27, 1080)` scale 2x (bottom-left anchored, matching the portrait sprite's own origin), on top of the existing `sRulerBar` background sprite.
+  - **`RulerPortraitScripts.md` (new file, alongside the script)** -- Notion-compatible API doc, per CLAUDE.md's standing per-library documentation requirement. First library this session to actually get one; every earlier library still lacks this doc -- flagging the backlog, not backfilling it here unasked.
+
+### Changed
+
+- **Game text now matches `HOVER_CARD_TEXT_COLOR`** (the tan `F1DEB6` every hover-data card already uses) instead of `c_white`, in: the resource bar's counts (`DrawResourceBar`, `ResourceUIScripts.gml`), the order menu's item labels (`OrderMenu.gml`), a blueprint slot's stack-count number (`BlueprintScripts.gml`), and the "Select target for: ..." targeting-cursor label (`UnitSelection.gml`). Per this session's scoping discussion: the AI debug overlay (`oAIControl`'s "AI State:" text), the Fate Engine drum test harness, and the pre-alpha disclaimer splash screen were deliberately left alone -- dev-only or a special-case splash screen, not ongoing player-facing UI.
+- **`DrawResourceBar`** (`ResourceUIScripts.gml`) now draws its resource-count text in `fntResource` instead of the default GML font -- explicitly requested. Resets to the default font (`draw_set_font(-1)`) after, since nothing else in this project calls `draw_set_font` and a lingering font change would otherwise leak into every draw_text call later in the same Draw GUI event.
+
+### Noted, not acted on
+
+- **`oUnitControl/Draw_64.gml` line 2, `draw_sprite_ext(sMainUIBarBottom,0,0,1080,2,2,c_white,1);`, appears to be missing its rotation argument** -- 8 arguments where `draw_sprite_ext` needs 9 (sprite, subimg, x, y, xscale, yscale, rot, colour, alpha). As written, `c_white` lands in the `rot` slot and `1` lands in `colour`, with `alpha` unsupplied. Stumbled onto this while wiring the ruler portrait draw call in the same file -- pre-existing, unrelated to this pass's work, not fixed here per CLAUDE.md ("don't refactor unrelated legacy code unless asked"). Worth a look; if the bottom bar renders correctly today despite this, GameMaker may be more lenient about missing trailing built-in-function arguments than expected.
+
+### Build
+
+- Windows export version bumped `0.0.3.1` → `0.0.3.2` -- 4th-digit bump, same convention as every non-milestone pass.
+
+## v0.0.3.1 — 2026-07-11 (uncommitted — working tree only, not yet committed)
+
+Corrections from the nightly codebase scan (`NIGHTLY_REVIEW_2026-07-09.md`) -- one real crash fixed, one flagged finding turned out to be stale/inaccurate and was left alone, two trivial cleanups applied.
+
+### Fixed
+
+- **Selected units weren't pruned when they died, crashing the next Step or the next order issued to them** (§3.1, critical). `ApplyDamage` (`UnitCombatHelpers.gml`) destroys units directly with no hook back into `SelectionController.selected`, so a selected unit dying in combat (normal RTS occurrence) would crash on the very next Step via `UnitSelectHoverController.Step` reading the freed instance, or immediately on issuing any order (guard/defend/attack/siege) to a selection containing it.
+  - **`SelectionController.PruneDeadSelected()`** (new, `UnitSelection.gml`) -- filters dead instances out of `selected`. Called once per Step from `oUnitControl/Step_0.gml`, as the very first line, before anything else that frame reads `selected` (order menu, `IssueOrder`, the unit-select hover card).
+  - **`instance_exists` guards added inside the order-dispatch loops themselves** -- `Order`'s default `onIssue` (`UnitSelection.gml`) and the "defend"/"attack"/"siege" `onIssue` callbacks (`OrderWiring.gml`). This covers `IssueOrderToUnits`'s OTHER caller (the AI controller), which doesn't go through `SelectionController`/`PruneDeadSelected` at all, and closes the gap for the instant between the per-Step prune and the callback actually running.
+  - **FLAG per CLAUDE.md ("flag before touching FSM/state wiring for guard, defend, combat, attack, siege"):** this touches the order-dispatch loops that call `fsm.ChangeState(...)` for guard/defend/attack/siege. No state's `Enter`/`Step`/`Exit` logic itself was touched -- only an early-`continue` guard added around each loop's per-unit body -- but it's adjacent enough to the load-bearing FSM wiring to call out explicitly rather than let it pass silently.
+- **`oUnitParent/Draw_0.gml` used `=` instead of `==`** (§3.3, minor; open since `CODE_REVIEW_2026-07-01.md`). `if mask_index = sM_UnitMask{` → `if mask_index == sM_UnitMask{`. Legal GML either way (bare `=` in a condition reads as equality), behavior was already correct -- purely a readability/consistency fix, now matches every other comparison in the codebase.
+- **`oUnitParent/Create_0.gml` set two dead fields, `pos` and `moveVec`** (§3.4, minor). Removed both lines. Re-confirmed via project-wide search that nothing reads `unit.pos` or `unit.moveVec` -- all real position/velocity state lives on `unit.agent.pos` (the `SteeringAgent`); these were a future-reader trap, not read anywhere.
+
+### Investigated, not fixed
+
+- **§3.2 (moderate), `oBuildingPlot`'s `image_index`:** the nightly report describes this as a stale-Object-Property-default bug in `Create_0.gml` with no Step event to correct it. That description doesn't match the current code -- `oBuildingPlot/Create_0.gml` is empty, and `image_index = (!blocked) + (!inside)` lives in `Step_0.gml`, recomputing every frame (confirmed against this file's own history: this has been the case since v0.0.2.20, 2026-07-05). The report's finding here appears to be inaccurate/stale, so no fix was made against it.
+  - The REAL, still-open issue in this formula was already identified and investigated on 2026-07-05 (see that date's patch notes, "Investigated (not yet fixed -- pending design confirmation)"): the formula only produces 3 output values for 4 possible `(blocked, inside)` combinations, so an unblocked INSIDE plot and a blocked OUTSIDE plot render identically. That was deliberately left unfixed pending a design answer for what `sPlot`'s 3 frames are actually meant to represent -- still true today, still needs that input before it can be touched.
+
+### Noted, not acted on (style only, not counted among the report's "4 potential problems")
+
+- `scripts/Economy/Economy.gml` mixes parenthesis-less `if` conditions with parenthesized ones used everywhere else in the file. Not touched -- fixing pure style on working legacy code wasn't requested.
+- `scripts/Math/Math.gml` line 409, `ShapeRect.getCenter()` is camelCase against every other static method's PascalCase convention (should probably be `GetCenter()`). Not touched for the same reason -- flagging here in case it's worth a deliberate rename pass later.
+- The nightly report separately flags that `NIGHTLY_REVIEW_2026-07-07.md` and `-08.md` are both missing despite a "Review 2026-07-07 Safety Commit" existing in git history -- suggests the scheduled task didn't complete a full run on at least one of those two nights. Nothing to fix in the codebase; surfacing in case the scheduling harness itself needs a look.
+
+### Build
+
+- Windows export version bumped `0.0.3.0` → `0.0.3.1` — 4th-digit bump, same convention as every routine fix pass.
+
 ## v0.0.3.0 — 2026-07-11 (uncommitted — working tree only, not yet committed)
 
 Version bump only — player-facing patch notes requested, covering everything since v0.0.2.0. Per the 3rd-digit-bump-on-requested-patch-notes convention (see v0.0.1.0/v0.0.2.10's Build notes).
@@ -888,115 +1104,4 @@ Peasant stat correction + five tier-1 training buildings/units, sourced from the
 
 ### Fixed
 
-- **`PATCH_NOTES.md` was truncated in the working tree**, cutting off mid-sentence partway through the v0.0.2.0 entry and dropping the entire v0.0.1.0 entry below it. Restored from the last commit (`54e76cd`, "V. 0.0.3.0") before adding this entry. Worth a quick look separately: that commit's message says `0.0.3.0` but `options_windows.yy` at that same commit is `0.0.2.9` — a mismatch between the commit title and the actual file, not something this session tried to resolve.
-- **Peasant's stats didn't match the design spec** (`scripts/UnitDefinitions/UnitDefinitions.gml`): `maxHealth` 20→10, `attackDamage` 3→2, `cost` was `10 wheat + 5 coins` → now `20 water` (this also brings it in line with `oPeasantWard.trainCost`, which was already correct). Training cost/time (20 water / 10 sec) and Peasant Ward's build cost (40 wheat + 40 water) were already correct and untouched.
-
-### Added
-
-- **Five tier-1 buildings**: `oBoomHut` (trains Bomb Goblins), `oBogFoundry` (Mud Golems), `oBarracks` (Soldiers), `oArcheryRange` (Archers), `oRoundTable` (Knights). Each is a plain `oTrainingBuildingParent` child (`event_inherited()` only, same pattern as `oPeasantWard`) registered in `scripts/BuildingDefinitions/BuildingDefinitions.gml` with build cost, `trainsUnit`, `unitsPerBuilding`, `trainCost`, and `trainTime` all sourced from the data sheet. No changes needed to `TrainingScripts.gml` or `oTrainingBuildingParent` itself — the training pipeline was already fully data-driven.
-- **Five tier-1 units**: `oBombGoblinUnit`, `oMudGolemUnit`, `oSoldierUnit`, `oArcherUnit`, `oKnightUnit`. Each is a plain `oUnitParent` child (`event_inherited()` only, same pattern as `oPeasantUnit`), registered in `scripts/UnitDefinitions/UnitDefinitions.gml` with sheet-sourced `maxHealth`/`attackDamage`/`cost`. Combat-timing fields with no sheet equivalent (`attackRange`, `attackLeashRange`, `attackHitFrame`, `attackCooldownMax`, `attackAggroRadius`, `siegeSweepRadius`, `maxSpeed`) are judgment-call placeholders, same status Peasant's always had.
-- Each new unit's sheet "Stationed Effect"/"Deployed Effect" text is now captured in its `UnitDefinition.passives` array (inert data, per that field's existing documented convention — no station/deploy system exists yet to execute any of it).
-- All 10 new objects registered in `Blank Pixel Game.yyp`.
-
-### Known issues (new — flagged rather than guessed at)
-
-- **No station/deploy economy exists.** The data sheet adds a per-unit "Station Deploy Cost (GOLD)" and per-unit "Upkeep (Stationed)" (e.g. Archer: 1 wheat/3 sec) on top of training cost. Neither has a field anywhere (`UnitDefinition` or `BuildingDefinition`) — deliberately not guessing at a shape for a system that isn't designed. The `"station"` order is still the no-op stub it's been since it was registered.
-- **`UnitTryDealDamage` (`UnitCombatHelpers.gml`) is still a TODO stub** — no unit has ever actually dealt damage or died. This was already true before this batch, but it means several of this batch's signature mechanics can't be real yet either: Bomb Goblin's AoE (currently a flat `20` on `attackDamage`) and its self-destruct-on-hit, Mud Golem's on-death mud/slow zone (no on-death hook exists at all), and Knight's bonus damage vs. production buildings (`Attack_Step` doesn't distinguish building types).
-- **Archer has no ranged attack.** Only a melee attack state (`UnitStateAttackMelee.gml`) exists — no projectile/ranged state. Archer is registered with a longer `attackRange` as a rough stand-in, but it will walk into range and melee-swing like every other unit. `sArcherProjectile` is wired into its `AnimationLibrary` as a named `"projectile"` sprite, ready for whenever a real ranged state gets built.
-- Sheet data-quality notes carried over from the earlier review (not re-litigated here): Shinobi's Source Building is blank in Unit Stats but Item Costs' "Hidden Village" (tagged tier 1) is almost certainly it; Recruiter is a real tier-3 unit (50 Gold Coins, per Item Costs) with no stat block in Unit Stats; Jester/Necrotic Lich's unit limit is the string `"1 (HARD CAP)"` while Hellhounds' is a plain `1` — `TrainingTypeLimit` (`TrainingScripts.gml`) has no flat-cap path yet, only `sum(unitsPerBuilding × live buildings)`.
-
-### Build
-
-- Windows export version bumped `0.0.2.9` → `0.0.2.10` — 4th-digit bump, per the documented convention (3rd digit only when patch notes are explicitly requested, which wasn't the case this session).
-
-## v0.0.2.8 — 2026-07-03 (uncommitted — working tree only, not yet committed)
-
-Base-building economy loop: drag-to-place buildings, resource production, unit training with dual caps, edge-pan camera, local playtest analytics, and a Steamworks SDK integration scaffold. Also carries the fixes from the 2026-07-01 code review, which were made same-day but hadn't been written up yet.
-
-### Added
-
-- **Blueprint system** (`scripts/BlueprintScripts.gml`). `BlueprintStack`/`AddBlueprint`/`RemoveBlueprintOne` manage a per-team placeable-building inventory (`global.blueprints`, initialized `[[], []]` in `oMatchControl/Create_0.gml` — deliberately not `array_create(2, [])`, same shared-reference hazard `global.resources` had, see Fixed below). `BlueprintController` is the drag-to-place UI: a paginated 5x2 GUI-space grid, wired into `oUnitControl` (`Create_0`/`Step_0`/`Draw_64`) alongside `selectionController`/`orderMenu`. Dragging a filled slot onto an owned, unblocked `oBuildingPlot` checks affordability, purchases the cost, spawns the building, and consumes one blueprint.
-- **`BuildingDefinition` system** (`scripts/BuildingDefinitions.gml`) — static per-building-type data (name, description, cost, sprite, optional resource production, optional unit training), registered per object type via `RegisterAllBuildingDefinitions()` (called from `oGameControl`'s Create, alongside `RegisterAllUnitDefinitions()`). Mirrors `UnitDefinition`'s registry pattern. `BuildingApplyDefinition(_building)` applies production/training fields onto an instance at Create time.
-- **Resource production** — `oResourceBuildingParent` (new parent) and `oWheatField` (first resource building). `BuildingUpdateProduction()` is a frame-rate-independent, match-speed-scaled tick using a fractional accumulator (so partial progress isn't lost or double-counted across frames), ticked from `oResourceBuildingParent/Step_0.gml`. Calls the existing `PlayResourceProducedEffect` stub once per whole unit produced.
-- **Unit training** — `oTrainingBuildingParent` (new parent) and `oPeasantWard` (first training building). `scripts/TrainingScripts.gml` enforces two independent caps before queueing a unit: a per-type cap (`TrainingTypeLimit` — sum of `unitsPerBuilding` across a team's live training buildings of that type) and an army-wide cap (`global.armyLimit`, `[6, 6]` starting value). Both caps count existing units *and* everything queued across every training building the team owns. Clicking an owned training building (`oUnitControl/Step_0.gml`, via `instance_position`) calls `TrainingTryQueueUnit`; `TrainingUpdateQueue` (ticked from `oTrainingBuildingParent/Step_0.gml`) is duration-based (not rate-based) and spawns via `TrainingSpawnUnit`, which overrides the spawned unit's team (same pattern `BlueprintController.EndDrag` uses for buildings) and re-derives `guardRect` for the correct team before sending the unit into `"defend"`, patrolling the building that trained it.
-- **`UpdateCameraPan()`** (`scripts/CameraScripts.gml`) — edge-of-screen camera panning on view camera 0, ramping linearly with cursor proximity to the screen edge, clamped to room bounds. Called once per Step from `oUnitControl`.
-- **Local playtest analytics** (`scripts/AnalyticsScripts.gml`) — per-team (`global.analytics[TEAM.PLAYER/ENEMY]`) counters for units trained, buildings built, resource produced/spent, and match time, reset each match via `AnalyticsInit()` (`oMatchControl`'s Create). Wired into `TrainingSpawnUnit`, `BlueprintController.EndDrag`, `BuildingUpdateProduction`, `Purchase` (`Economy.gml`), and `oMatchControl/Step_0.gml`. Steam Stats API calls (`steam_set_stat_int`) are written but left commented out — the stat names don't exist on the Steamworks control panel yet. `AnalyticsRecordKill`/`AnalyticsRecordDeath` exist but aren't wired to anything yet — there's still no "unit died" event.
-- **Steamworks SDK extension** (`extensions/Steamworks/`, `scripts/Steamworks_Definitions.gml`) integrated. `global.isGameRestarting` flag added (`oGameControl`'s Create) — needs to be set `true` immediately before any future `game_restart()` call so `steam_shutdown()` is correctly skipped on restart, then reset to `false` right after.
-- A generic GameMaker UI widget starter kit (`obj_gm_button`, `obj_gm_text`, `obj_gm_textbox` + matching sprites/fonts) was imported alongside the Steamworks asset package. Not yet wired into any room or gameplay object — sitting unused for now.
-- Starting resources for `TEAM.PLAYER`: 50 wood/water/iron/gold/wheat (`oMatchControl/Create_0.gml`). A few Wheat Field and Peasant Ward blueprints are granted as test data so the new flows are testable end-to-end before a real blueprint-acquisition system exists.
-- Windows build version bumped to `0.0.2.8`.
-
-### Fixed (made 2026-07-01, written up now)
-
-- **`global.resources` array-sharing bug.** `oMatchControl/Create_0.gml` now builds `global.resources` via `array_create(2, undefined)` followed by a loop assigning a fresh struct literal per team, instead of `array_create(2, {...})`, which evaluated the struct literal once and gave both teams the same reference.
-- **Attack/Combat/Siege sprite-state self-rebinding bug.** `sprite_index`/`image_index`/`image_speed` writes in `UnitStateAttackMelee.gml`, `UnitStateCombat.gml`, `UnitStateSiege.gml`, and `UnitCombatHelpers.gml` now go through `_unit.` explicitly instead of bare variables, so they land on the real unit instance instead of the scratch `State` struct.
-- **`oBuildingPlot`'s `team` Object Property** changed from String (default `"player"`) to Integer (default `0` / `TEAM.PLAYER`), matching how `team` is used as the `TEAM` enum everywhere else.
-- Typo fix in the pre-alpha disclaimer text (`oAlphaDisclaimer`): "encoutner" → "encounter".
-
-### Known issues (new or still open)
-
-- `objects/oUnitParent/Draw_0.gml` still has `if mask_index = sM_UnitMask{` (`=` instead of `==`) — legal GML, functionally fine, still not normalized after being flagged twice now.
-- The Wheat Field's placement cost (15 wood + 10 coins) can't actually be paid yet — coins isn't part of the starting loadout and there's no acquisition/trading system to earn it. The Peasant Ward is unaffected and fully testable.
-- The new `obj_gm_button`/`obj_gm_text`/`obj_gm_textbox` widget kit is imported but unused.
-- `AnalyticsRecordKill`/`AnalyticsRecordDeath` have no death event to call them from yet (same root cause as `UnitTryDealDamage`'s open damage-calc TODO).
-- **This entire entry describes uncommitted working-tree changes** — nothing above has been committed to git yet (last commit: `5012d06`). Recommend committing before doing anything that could touch the working tree.
-
-## v0.0.2.0 — 2026-07-01
-
-Base-building foundations: unit type data, castle building plots (both sides), and team-symmetric guard zones.
-
-### Added
-
-- **`UnitDefinition` system** (`scripts/UnitDefinitions`). Static per-unit-type data — name, description, `Cost`, combat stats, sprite library, tags, `availableOrders`, and a placeholder `passives` array — registered per object type (keyed by `object_index`, e.g. `oPeasantUnit`) rather than a string name, so it ties directly to `instance_create_layer` for later stationed-unit redeploy. `UnitApplyDefinition(_unit)` applies a unit's registered definition onto the instance at Create time; `oPeasantUnit`'s Create event is now just `event_inherited()` since sprites/orders come from its definition instead of being hardcoded twice. Peasant is the first (and only) unit type defined — its cost and stats are placeholders, not balanced.
-- **`UnitDataBlock.unitType`** — the struct meant to survive a station/redeploy swap (damage taken, status effects) now also remembers which `UnitDefinition` to reapply. `UnitCurrentHealth(_unit)` derives current health from `maxHealth - unitData.damageTaken` rather than storing it separately, so nothing can drift out of sync across that swap.
-- **`UnitHasTag(_unit, _tag)`** — first search-script helper built on `UnitDefinition.tags`.
-- **Outer building plots.** 12 plots per side (8 "near" the castle wall in two groups of 4, 4 "far" into the battlefield in two groups of 2, aligned on a single shared column) outside each castle, mirrored player/enemy via `room_width - x` (same axis `oCastleManager` mirrors the castles on). New `scripts/PlotScripts` (`SpawnBuildingPlot`) and `oOuterPlotSpawner`. Classification reuses `oBuildingPlot`'s existing `inside`/`far` fields — no new schema needed. Resource buildings get a placement bonus outside the castle, unit-training buildings get theirs inside, and *far* plots get a bonus on top of that regardless of building type, since they're the most exposed to attack.
-- **`GetTeamGuardRect(_team)`** (`UnitScripts.gml`). The default guard patrol zone a unit gets at Create time is now derived per-team instead of being one hardcoded rectangle. Player's zone is authored directly; every other team's is the same rectangle mirrored across `room_width`, so it sits the same distance in front of its own castle.
-
-### Fixed
-
-- **`oPlotSpawner`'s inside-castle plot grid never set which team owned a plot.** Only the player's grid existed, and even it wasn't team-tagged. Rewrote it to spawn both the player's grid and a mirrored enemy grid, both correctly tagged via `SpawnBuildingPlot` — the enemy castle had zero inside plots before this.
-- **Guard zone was shared, unmirrored, across both teams.** Every unit — player or enemy — got the literal same `ShapeRect(328,8,480,400)`, which sits in front of the *player's* castle only. Now routed through `GetTeamGuardRect`.
-- Outer plot placement went through two iterations this session: shifted clear of the default guard zone (was overlapping it), spread further from the play area's vertical center, and the "far" plots collapsed onto one shared column instead of two.
-
-### Known issues (unchanged from v0.0.1.0, still open)
-
-- `"station"` order is registered but intentionally a no-op — castle-interior stationing isn't designed yet.
-- `UnitDefinition.passives` is inert data with no execution hook — no passive-ability system exists yet.
-- `defend`/`attack` order target validators now take an issuing team, but nothing except the player's `SelectionController` calls them yet — the AI still bypasses targeting entirely.
-
-### Build
-
-- Windows export version bumped to `0.0.2.0` (patch notes requested — per the versioning convention, 3rd digit bumps here, 4th digit bumps on routine small changes).
-
-## v0.0.1.0 — 2026-07-01
-
-Early development pass: documentation cleanup, several load-bearing bug fixes, and the first version of the computer opponent.
-
-### Fixed
-
-- **Order menu wouldn't open after selecting units.** `oUnitControl`'s Step event was checking for a menu-opening right-click *after* processing the menu's own Update() in the wrong order, so a click that opened the menu was immediately re-read as a "dismiss" click in the same frame. Reordered so the menu's Update() always sees the state of the mouse from the *start* of the frame.
-- **Attack and Siege orders were silently dead code.** Both were wired to the "combat" state's Enter/Step/Exit functions in `oUnitParent`'s state machine setup instead of their own dedicated functions. Units issued "attack" or "siege" were actually just running combat logic. Fixed the state machine wiring so each order runs its own state.
-- **Guard waypoint anti-overlap logic was a no-op.** A leftover line in `GuardPickWaypoint` (`scripts/UnitStateGuard`) short-circuited the loop that checks for waypoints already claimed by another guarding ally, so units could pile onto the same spot. Removed the offending line; the claim-check now actually runs.
-- **Economy typo:** `Puchase` → `Purchase` in `scripts/Economy`.
-- **Defend/Attack target validation was hardcoded to the player's perspective.** The target-eligibility checks for the "Defend Building" and "Attack Building" orders assumed `TEAM.PLAYER` was always "my side." Reworked so the validator receives the issuing side's own team and compares against that instead — same code now works correctly no matter which side (player or AI) issues the order.
-
-### Added
-
-- **First pass at a computer-controlled opponent** (`oAIControl` / `AIBrain`). Runs a decision cycle roughly every 3/4 second; currently masses idle guarding units and sends them to siege the enemy castle once it has enough. Built on the same order-dispatch path (`IssueOrderToUnits`) the player uses, so player and AI units behave identically once an order is issued. This is a scaffold — defending, expanding, and building/unit purchasing are not implemented yet, but the plumbing (perception → decision → dispatch) is proven end to end.
-- **`GatherTeamUnits`** — room-wide "every unit on team X" query for AI/high-level decision-making, written so a future fog-of-war visibility filter (once building placement ships) only needs to be added in one place.
-- **`_FindNearestEnemy`** — plain nearest-enemy-unit lookup used by the aggro-interrupt check in the Attack state.
-
-### Changed
-
-- **Unified team representation onto the `TEAM` enum.** Team was previously represented two ways — the raw strings `"player"`/`"enemy"` in some places, and the `TEAM.PLAYER`/`TEAM.ENEMY` enum (needed for indexing `global.resources`, since GML arrays can't take string keys) in others. Everything now uses the enum consistently (`oUnitParent`, `oBuildingParent`, `oUnitControl`, `GetEnemyCastle`).
-- **Full Feather/JSDoc documentation pass** across every non-vendor Script Asset (140 functions across 16 files). Every function now has `@function`, `@param`, and `@returns` tags so Feather reliably shows hover info while writing code against these libraries. Vendored Scribble library files were left untouched.
-
-### Known issues (flagged, not yet addressed)
-
-- The `"station"` order appears in units' `availableOrders` but is never registered in `RegisterAllOrders()` — picking it currently does nothing.
-- A second, unused `UnitOrders` enum (GUARD/DEFEND/ATTACK/SIEGE/STATION) exists alongside the raw order-name strings actually used everywhere — a similar duplication to the team-representation issue that was just resolved, but not yet raised for a decision.
-
-### Build
-
-- Windows export version set to `0.0.1.0` to reflect actual development stage (was defaulted to `1.0.0.0`). Going forward: bump the 4th number for routine small changes; bump the 3rd number when patch notes are requested.
+- **`PATCH_NOTES.md` was truncated in the working tree**, cuttin

@@ -25,8 +25,8 @@
   "nineSlice":null,
   "origin":9,
   "parent":{
-    "name":"Assets",
-    "path":"folders/In Game/UI/Assets.yy",
+    "name":"UIBar",
+    "path":"folders/In Game/UI/Assets/UIBar.yy",
   },
   "preMultiplyAlpha":false,
   "resourceType":"GMSprite",
@@ -86,5 +86,4 @@
   },
   "type":0,
   "VTile":false,
-  "width":129,
-}
+  "width":1

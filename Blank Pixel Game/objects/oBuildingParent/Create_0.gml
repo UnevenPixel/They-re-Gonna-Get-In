@@ -10,3 +10,11 @@ radius = sprite_width / 2;
 // without ever reaching BuildingApplyDefinition.
 maxHealth   = 0;
 damageTaken = 0;
+
+// Safe default -- only TryPlaceBlueprint actually sets this (copied from
+// the target oBuildingPlot's own `inside`, see BlueprintScripts.gml).
+// Declared here so any building instance placed directly in the room
+// editor (never touching TryPlaceBlueprint) still has a defined value for
+// TrainingSpawnUnit's inside-plot check (TrainingScripts.gml) instead of
+// erroring on an undefined variable read.
+inside = false;

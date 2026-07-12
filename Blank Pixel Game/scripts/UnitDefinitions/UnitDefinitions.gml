@@ -84,13 +84,15 @@
 ///               station/deploy this unit type, per the "Project Azurite
 ///               Data Sheets" (2026-07-03) "Station Deploy Cost (GOLD)"
 ///               column -- 2026-07-11 addition, unit hover card request.
-///               Previously flagged as sheet data with no home in this
-///               struct (see the passives field comment above, and
-///               RegisterAllUnitDefinitions' note) since station/deploy
-///               economy doesn't exist as a system yet -- this field is
-///               STILL purely informational display data for
-///               UnitHoverStationFlavorText (UnitHoverScripts.gml); nothing
-///               deducts gold or gates a station action on it. NOT copied
+///               Originally purely informational display data for
+///               UnitHoverStationFlavorText (UnitHoverScripts.gml); as of
+///               2026-07-12 it's ALSO the real, functional gate/spend for
+///               both directions -- GetUnitStationCost (StationScripts.gml)
+///               wraps it into a spendable Cost struct (Economy.gml), spent
+///               via Purchase() by both the "station" order's greedy
+///               cheapest-first affordability pass (OrderWiring.gml) and
+///               DeployStationedUnit's click-to-deploy action
+///               (StationScripts.gml, CastleGarrisonMenu.gml). NOT copied
 ///               onto live instances by UnitApplyDefinition -- nothing
 ///               reads it off an instance, every consumer already has the
 ///               UnitDefinition in hand (GetUnitDefinition), so duplicating
@@ -464,7 +466,4 @@ function RegisterAllUnitDefinitions() {
         stationCost:       50, // Gold, per data sheet -- user-supplied 2026-07-11
         passives: [
             {name: "Stationed Effect", description: "+5% unit production speed."},
-            {name: "Deployed Effect",  description: "Bonus damage against production buildings. NOT implemented -- Attack_Step (UnitStateAttackMelee.gml) doesn't distinguish building types, and UnitTryDealDamage is a TODO stub for every unit regardless of target type."},
-        ],
-    }));
-}
+            {name: "Deployed Effect",  description: "Bonus damage against production buildings. NOT implemented -- Attack_Step (UnitStateAttack

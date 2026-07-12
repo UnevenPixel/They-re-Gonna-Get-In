@@ -196,6 +196,7 @@ function TryPlaceBlueprint(_team, _buildingType, _plot) {
 
     var _building = instance_create_layer(_plot.x, _plot.y, "Instances", _buildingType);
     _building.team = _team; // overrides oBuildingParent's Create-time TEAM.PLAYER default -- see that file
+    _building.inside = _plot.inside; // lets training buildings check placement (see TrainingSpawnUnit, StationScripts.gml)
 
     ApplyPlotBonuses(_building, _plot); // Distant-plot maxHealth/resourceLimit bonus, if any -- see BuildingDefinitions.gml
 
@@ -521,7 +522,9 @@ function BlueprintController(_team) constructor {
             if (_stack.count > 1) {
                 draw_set_halign(fa_right);
                 draw_set_valign(fa_bottom);
-                draw_set_color(c_white);
+                // 2026-07-11 request: matches HOVER_CARD_TEXT_COLOR
+                // (HoverCardScripts.gml) -- was c_white.
+                draw_set_color(HOVER_CARD_TEXT_COLOR);
                 draw_text(_rect.x2 - 2, _rect.y2 - 2, string(_stack.count));
             }
         }

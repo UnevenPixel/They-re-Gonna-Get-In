@@ -199,7 +199,23 @@ function ChooseHoverCardSprite(_requiredHeight) {
 ///        nothing to pair this frame (e.g. a non-training building/blueprint).
 /// @param {Real} [_cardGap] Already-scaled on-screen px between the two
 ///        cards. Defaults to HOVER_CARD_PAIR_GAP.
-function PositionHoverCardPair(_mx, _my, _primaryCard, _secondaryCard, _cardGap = HOVER_CARD_PAIR_GAP) {
+/// @param {Bool} [_secondaryAlwaysRight] 2026-07-11 addition: when true, the
+///        secondary card always sits to the primary's RIGHT, regardless of
+///        cursor quadrant -- normal behavior otherwise flips which card is
+///        nearest the cursor depending on which half of the screen the
+///        cursor's in (see the two branches below), which BuildingHoverController's
+///        placed-training-building pairing no longer wants ("always have it
+///        on the right side of the building's card"). The overall group's
+///        position (which side of the cursor it sits on, and the screen-edge
+///        clamp) is UNCHANGED by this -- only the left/right ordering of the
+///        two cards within that group is forced. Consequence: when the
+///        cursor is in the right half of the screen, the primary card is no
+///        longer guaranteed nearest the cursor in this mode (the secondary
+///        is, since it's forced to primary's right while the group still
+///        anchors its right edge near the cursor) -- accepted tradeoff for
+///        the explicit "always right" request. Default false (existing
+///        quadrant-flip behavior, unchanged for every other caller).
+function PositionHoverCardPair(_mx, _my, _primaryCard, _secondaryCard, _cardGap = HOVER_CARD_PAIR_GAP, _secondaryAlwaysRight = false) {
     var _hasSecondary = (_secondaryCard != noone);
 
     var _primaryW   = _primaryCard.GetWidth();
@@ -221,8 +237,13 @@ function PositionHoverCardPair(_mx, _my, _primaryCard, _secondaryCard, _cardGap 
 
     // Primary always sits nearest the cursor -- which physical side that is
     // flips with _anchorLeft, since _groupX already points at whichever edge
-    // is "away from the cursor" for this quadrant.
-    if (_anchorLeft) {
+    // is "away from the cursor" for this quadrant. _secondaryAlwaysRight
+    // overrides this ordering (see doc above) while leaving _groupX/_groupY's
+    // own position -- and thus the screen-edge clamp -- untouched.
+    if (_secondaryAlwaysRight) {
+        _primaryCard.x = _groupX;
+        if (_hasSecondary) _secondaryCard.x = _groupX + _primaryW + _cardGap;
+    } else if (_anchorLeft) {
         _primaryCard.x = _groupX;
         if (_hasSecondary) _secondaryCard.x = _groupX + _primaryW + _cardGap;
     } else {
