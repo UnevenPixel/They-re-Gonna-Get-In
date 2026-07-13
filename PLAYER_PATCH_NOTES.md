@@ -1,5 +1,33 @@
 # They're Gonna Get In! — Patch Notes
 
+## Update — July 12, 2026 (in progress)
+
+**Garrison your troops**
+
+- Units can now be sent home to stand guard inside your castle instead of out on the field. Garrisoned troops boost your economy and army while they're stationed — more resources, faster training, tougher or harder-hitting soldiers, depending on who you tuck away — and you can call any of them back out into battle whenever you need them. A new panel on your castle shows exactly what bonuses your garrison is currently providing.
+
+- Garrisoning and calling troops back out both cost a bit of gold.
+
+**The battlefield has real casualties now**
+
+- Units leave a lasting mark when they're hit or fall in battle — blood, debris, and each unit's own death animation now stick around on the ground instead of just vanishing. Buildings kick up a bit of rubble when struck too.
+
+**A smarter, tougher opponent**
+
+- The computer opponent now garrisons its own troops for the same bonuses you get, spreads its defenders across multiple threatened buildings instead of piling everyone on one, reacts to attacks almost instantly, and always keeps a standing reserve at home instead of committing its whole army to a siege. It'll also probe your defenses with small early raids to test your guard.
+
+**Managing bigger armies is easier**
+
+- Selecting a group of mixed units now brings up a summary panel you can drill into — grouped by type at first, then down to individual units — instead of just a generic blob of troops.
+
+**Combat and building tweaks**
+
+- Knights now hit noticeably harder against production buildings, matching their long-standing "siege specialist" flavor.
+- Bomb Goblins finally detonate the instant their attack lands, as advertised.
+- Hovering over a production or training building now shows its real current output or speed, including any bonus from your garrison — colored green or red so you can tell at a glance whether it's being helped or hurt.
+- Your building tray now shows at a glance which buildings you can currently afford to place.
+- You can no longer see what the enemy has queued up in their training buildings.
+
 ## Update — July 5-6, 2026 (in progress)
 
 **The full resource economy is in**
