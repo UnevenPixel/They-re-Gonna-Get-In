@@ -1,8 +1,8 @@
 enum ECreditsState{
-    FADE_IN,
-    HOLD,
-    FADE_OUT,
-    DONE
+    FADE_IN, //0
+    HOLD,   //1
+    FADE_OUT, //2
+    DONE //3
 }
 
 enum UnitAnimState {
@@ -15,11 +15,10 @@ enum TEAM {
     ENEMY
 }
 
-// 2026-07-11 request: which direction a ruler portrait's current animation
-// frame is facing -- RulerPortraitScripts.gml uses this to decide which
-// animations are legal to play next (an animation can only START once the
-// portrait is already facing the direction that animation starts in).
+
 enum FACING {
     LEFT,
     RIGHT
 }
+
+

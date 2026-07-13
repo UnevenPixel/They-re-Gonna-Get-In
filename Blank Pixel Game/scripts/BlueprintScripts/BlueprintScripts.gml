@@ -66,6 +66,8 @@ function RemoveBlueprintOne(_team, _buildingType) {
 
 #macro PLOT_BONUS_DISCOUNT_FRACTION 0.5 // 50% off placement cost -- 2026-07-07 "plot bonuses" request, see GetPlacementCost below
 #macro BLUEPRINT_DISCOUNT_UNAVAILABLE_COLOR_TAG "c_dkgray" // 2026-07-09 request: the blueprint cost row's parenthesized discount price renders in this color whenever no currently open plot would actually grant the discount -- see CostToScribbleTextWithDiscount (ResourceUIScripts.gml)
+#macro BLUEPRINT_AFFORDABLE_BORDER_COLOR   c_white  // 2026-07-12 request: filled slot border colors -- see BlueprintController.Draw
+#macro BLUEPRINT_UNAFFORDABLE_BORDER_COLOR c_dkgray // same color BLUEPRINT_DISCOUNT_UNAVAILABLE_COLOR_TAG already uses, as a real draw_rectangle_color constant instead of a Scribble tag string
 
 /// @function GetPlacementCost(_def, _plot)
 /// @description The actual Cost to charge for placing _def's building type
@@ -228,13 +230,13 @@ function TryPlaceBlueprint(_team, _buildingType, _plot) {
 // -----------------------------------------------------------
 
 #macro BLUEPRINT_SLOT_SIZE      48
-#macro BLUEPRINT_SLOT_PADDING   1
+#macro BLUEPRINT_SLOT_PADDING   4
 #macro BLUEPRINT_GRID_COLS      5
 #macro BLUEPRINT_GRID_ROWS      2
 #macro BLUEPRINT_SLOTS_PER_PAGE 10 // BLUEPRINT_GRID_COLS * BLUEPRINT_GRID_ROWS
 #macro BLUEPRINT_UI_SCALE       2  // panel render/interact scale -- 2026-07-05 request; slot size/padding/icon draws all scale off this, single source of truth
-#macro BLUEPRINT_UI_ORIGIN_X    660 // fixed top-left anchor (2026-07-05 request) -- replaced the old bottom-centered GetOrigin()
-#macro BLUEPRINT_UI_ORIGIN_Y    830
+#macro BLUEPRINT_UI_ORIGIN_X    654 // fixed top-left anchor (2026-07-05 request) -- replaced the old bottom-centered GetOrigin()
+#macro BLUEPRINT_UI_ORIGIN_Y    824
 
 /// @function BlueprintController(_team)
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY -- whose blueprint
@@ -501,20 +503,37 @@ function BlueprintController(_team) constructor {
     /// @function Draw()
     /// @description Call once per Draw GUI event. Renders every slot
     ///        (empty ones as bordered squares) and the dragged icon
-    ///        following the cursor, if a drag is in progress.
+    ///        following the cursor, if a drag is in progress. 2026-07-12
+    ///        request ("quicker visuals to see what you can build") -- a
+    ///        FILLED slot's border is BLUEPRINT_AFFORDABLE_BORDER_COLOR
+    ///        (white) if that building can currently be placed AND afforded
+    ///        at at least one open plot anywhere (same
+    ///        GetBestAvailablePlacementCost scan UpdateHover's title-color
+    ///        check already uses, 2026-07-09), or
+    ///        BLUEPRINT_UNAFFORDABLE_BORDER_COLOR (dark gray) otherwise.
+    ///        Empty slots always get the plain affordable-color border --
+    ///        there's no building to afford.
     static Draw = function() {
         for (var i = 0; i < BLUEPRINT_SLOTS_PER_PAGE; i++) {
             var _rect = GetSlotRect(i);
 
-            draw_rectangle_color(_rect.x1, _rect.y1, _rect.x2, _rect.y2, c_black, c_black, c_black, c_black, false);
-            draw_rectangle_color(_rect.x1, _rect.y1, _rect.x2, _rect.y2, c_white, c_white, c_white, c_white, true);
-
             var _stackIndex = GetStackIndexAtSlot(i);
+
+            var _stack = (_stackIndex != -1) ? global.blueprints[team][_stackIndex] : undefined;
+            var _def   = (_stack != undefined) ? GetBuildingDefinition(_stack.buildingType) : undefined;
+
+            var _borderColor = BLUEPRINT_AFFORDABLE_BORDER_COLOR;
+            if (_def != undefined) {
+                var _best = GetBestAvailablePlacementCost(team, _def);
+                var _canPlaceAnywhere = _best.anyPlotAvailable && _best.cost.CanAfford(team);
+                _borderColor = _canPlaceAnywhere ? BLUEPRINT_AFFORDABLE_BORDER_COLOR : BLUEPRINT_UNAFFORDABLE_BORDER_COLOR;
+            }
+
+            draw_rectangle_color(_rect.x1, _rect.y1, _rect.x2, _rect.y2, c_black, c_black, c_black, c_black, false);
+            draw_rectangle_color(_rect.x1, _rect.y1, _rect.x2, _rect.y2, _borderColor, _borderColor, _borderColor, _borderColor, true);
+
             // Empty slot, or its icon is following the cursor instead.
             if (_stackIndex == -1 || _stackIndex == dragStackIndex) continue;
-
-            var _stack = global.blueprints[team][_stackIndex];
-            var _def   = GetBuildingDefinition(_stack.buildingType);
             if (_def == undefined) continue;
 
             draw_sprite_ext(_def.sprite, 0, (_rect.x1 + _rect.x2) / 2, (_rect.y1 + _rect.y2) / 2, BLUEPRINT_UI_SCALE, BLUEPRINT_UI_SCALE, 0, c_white, 1);

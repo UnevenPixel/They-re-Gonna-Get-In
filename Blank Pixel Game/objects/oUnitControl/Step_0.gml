@@ -104,4 +104,48 @@ if (selectionController.isTargeting) {
 
     if (mouse_check_button_pressed(mb_right) && array_length(selectionController.selected) > 0 && !orderMenu.isOpen) {
         var _orders = selectionController.AvailableOrders();
-        orderMenu.Open(device_mouse_x_to_gui(0), device_mouse_y_to_gui(0), _orde
+        orderMenu.Open(device_mouse_x_to_gui(0), device_mouse_y_to_gui(0), _orders);
+    }
+}
+
+// Edge-of-screen camera panning -- independent of selection/order/targeting
+// state above, so the player can still scroll the view while dragging a
+// selection box, mid-order-menu, etc.
+UpdateCameraPan();
+
+// XP bar HUD -- milestone reveals + token tosses, independent of
+// everything above. 2026-07-06 request.
+xpBarWidget.Step();
+
+// Un-occupied building plot hover data -- independent of everything above
+// except that it reads selectionController/blueprintController's state to
+// suppress itself while the player is targeting/dragging. 2026-07-06 request.
+plotHoverController.Step(selectionController, blueprintController);
+
+// Placed building hover data -- same suppression inputs as plot hover
+// above, plus its own check against the Blueprint UI panel (see
+// BuildingHoverScripts.gml). 2026-07-08 request.
+buildingHoverController.Step(selectionController, blueprintController);
+
+// Castle passive-bonus hover panel -- 2026-07-12 request. Same suppression
+// inputs as building hover above, PLUS forced-off while castleGarrisonMenu
+// is open (its own explicit "only visible if the garrison menu isn't
+// open" requirement) -- see CastleBonusHoverScripts.gml.
+castleBonusHoverController.Step(selectionController, blueprintController, castleGarrisonMenu.isOpen);
+
+// Blueprint UI slot hover data (tooltip) -- 2026-07-08 request. Separate
+// from blueprintController.Draw()'s panel rendering; suppressed internally
+// while dragging (BlueprintScripts.gml's UpdateHover).
+blueprintController.UpdateHover();
+
+// Top-left single-unit-selected info card -- 2026-07-11 request. Instant
+// show/hide tied to selectionController.selected, independent of mouse
+// position/dwell -- see UnitSelectHoverController (UnitHoverScripts.gml).
+// Mutually exclusive with selectionSummaryMenu above (that one only shows
+// at 2+ selected, this one only at exactly 1) -- both occupy the same
+// top-left corner.
+unitSelectHoverController.Step(selectionController);
+
+// Animated ruler portrait -- 2026-07-11 request. Independent of everything
+// above; always animating regardless of selection/order/targeting state.
+rulerPortraitController.Step();

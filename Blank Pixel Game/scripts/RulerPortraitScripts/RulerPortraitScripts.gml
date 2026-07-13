@@ -193,14 +193,15 @@ function RulerPortraitController(_def) constructor {
     state            = "idle"; // "idle" or "playing" -- plain strings, not a #macro/enum, since nothing outside this struct reads it (unlike FACING, which crosses into RulerAnimationDefinition's data)
     currentAnimation = def.GetIdleAnimation(facing);
     frameProgress    = 0; // fractional frame index into currentAnimation while state == "playing"; unused while idle
-    idleTimer        = RandomIdleDuration();
-
+    
     /// @function RandomIdleDuration()
     /// @description Picks a new random idle wait, in steps at matchSpeed == 1.
     /// @returns {Real}
     static RandomIdleDuration = function() {
         return irandom_range(RULER_PORTRAIT_IDLE_MIN_STEPS, RULER_PORTRAIT_IDLE_MAX_STEPS);
     }
+    
+    idleTimer        = RandomIdleDuration();
 
     /// @function Step()
     /// @description Call once per Step event. Scaled by global.matchSpeed

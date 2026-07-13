@@ -195,3 +195,83 @@ function DeployStationedUnit(_team, _unitType) {
 
     return true;
 }
+
+// -----------------------------------------------------------
+// Passive stationed bonuses -- 2026-07-12 request. Every registered unit's
+// "Stationed Effect" passive (UnitDefinitions.gml) was flavor-text-only
+// until now; UnitDefinition.stationedBonuses is the real, structured
+// counterpart, and GetStationedPassiveBonuses below is what every
+// consumer (production rate, training speed, unit HP/damage at spawn)
+// actually calls. Archer's "Ranged attacks from the wall" is deliberately
+// NOT represented -- see stationedBonuses' own doc comment
+// (UnitDefinitions.gml) for why (a real combat mechanic, not a
+// multiplier -- out of scope this pass per user clarification).
+//
+// IMPORTANT scope note, flagged rather than silently assumed: HP/damage
+// bonuses (unitHealthBonus/unitDamageBonus) are applied ONCE, at a unit's
+// spawn/redeploy moment (UnitApplyDefinition, UnitDefinitions.gml) -- NOT
+// dynamically re-applied to every already-live unit the instant a new
+// Mud Golem/Soldier gets stationed, and not removed retroactively if that
+// unit is later deployed back out. Doing this fully dynamically would mean
+// tracking each unit's BASE stats separately from its EFFECTIVE stats and
+// recomputing every live unit's HP/damage on every station/deploy change --
+// a real systemic change to how combat health is tracked, not something
+// to fold in silently under a "passive bonuses" request. This pass keeps
+// the simpler "current team bonus baked in at spawn time" behavior, same
+// spirit as stationCost's own incremental rollout.
+// -----------------------------------------------------------
+
+/// @function StationedBonuses()
+/// @description Aggregated result of GetStationedPassiveBonuses -- every
+///        field is an additive FRACTION (0.05 = +5%), summed across every
+///        live oUnitStationed instance on one team that has a matching
+///        stationedBonuses entry. Field names are exactly
+///        "<type>Bonus" for each stationedBonuses type string
+///        (UnitDefinition's doc comment) -- GetStationedPassiveBonuses
+///        writes to them via dynamic struct access, so a new type string
+///        needs a matching field added here too.
+function StationedBonuses() constructor {
+    allResourceProductionBonus = 0; // Peasant -- applies to every producing resource building
+    goldProductionBonus        = 0; // Bomb Goblin -- gold only, stacks additively with the above
+    unitHealthBonus             = 0; // Mud Golem + Soldier share this same pool
+    unitDamageBonus              = 0; // Soldier only
+    trainingSpeedBonus          = 0; // Knight
+
+    counts = {}; // object_get_name(unitType) -> Real live-stationed count, for the castle hover panel/debugging -- not itself a bonus field
+}
+
+/// @function GetStationedPassiveBonuses(_team)
+/// @description Scans every live oUnitStationed belonging to _team once and
+///        sums their UnitDefinition.stationedBonuses entries into a fresh
+///        Struct.StationedBonuses -- one linear stack per unit stationed,
+///        matching each passive's own "(stacks per X stationed)" wording.
+///        Recomputed fresh every call, not cached anywhere -- same
+///        "simplicity over micro-optimization" convention as
+///        TrainingTypeLimit (TrainingScripts.gml); called at most once per
+///        producing/training building per Step and once per unit spawn,
+///        which is a small enough oUnitStationed count on this game's
+///        scale not to need a cached/dirty-flag layer.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Struct.StationedBonuses}
+function GetStationedPassiveBonuses(_team) {
+    var _bonuses = new StationedBonuses();
+
+    with (oUnitStationed) {
+        if (team != _team) continue;
+
+        var _type = unitData.unitType;
+        var _key  = object_get_name(_type);
+        _bonuses.counts[$ _key] = (variable_struct_exists(_bonuses.counts, _key) ? _bonuses.counts[$ _key] : 0) + 1;
+
+        var _def = GetUnitDefinition(_type);
+        if (_def == undefined) continue;
+
+        for (var i = 0; i < array_length(_def.stationedBonuses); i++) {
+            var _entry     = _def.stationedBonuses[i];
+            var _fieldName = _entry.type + "Bonus";
+            _bonuses[$ _fieldName] += _entry.amount;
+        }
+    }
+
+    return _bonuses;
+}

@@ -1,5 +1,145 @@
 # Patch Notes
 
+## v0.0.3.14 — 2026-07-12 (uncommitted — working tree only, not yet committed)
+
+Four related AI rebalance changes aimed at the "I can just steam-roll this AI" problem: siege commitments now always leave a real fraction of the army behind instead of a flat 2-unit reserve, the AI throws small early-game probe attacks at ordinary enemy buildings, it preferentially stations units that are worth more in the garrison than on the field (Peasants, per the request's own example), and its standing defenders now proactively spread across every owned building with rear (castle-adjacent) plots getting covered before front (exposed) ones.
+
+### Changed
+
+- **`AI_ReserveGuardUnits` replaced with `AI_ReserveDefensiveUnits`/`AI_MinDefensiveReserve` (`AIControl.gml`)** — the old flat `AI_SIEGE_GUARD_RESERVE` (2 guard units, guard-only) is gone. The new floor is `ceil(totalArmy * AI_MIN_DEFENSIVE_ARMY_FRACTION)` (25%), where `totalArmy` counts every live unit PLUS every currently-stationed unit, and it reserves already-posted `defend` units FIRST (idle `guard` units only fill whatever gap remains) — protects standing building defenders instead of just padding out idle roamers. `AI_BuildUp_Step` now carves this floor out of the available pool BEFORE either probing or sieging, so both respect it.
+- **`AI_Defending_Step`** — the nearest-threatened-building assignment is now `distance + tier penalty` instead of pure distance, via the new `AI_DEFEND_TIER_WEIGHT` macro. REAR (inside-castle) buildings get no penalty, MID and FRONT get progressively larger ones, so responders bias toward defending rear buildings when the choice is close, without overriding a unit that's overwhelmingly closer to a front one.
+- **`AI_TryStationUnits`** — no longer cheapest-first across every idle guard. Now only units with a nonzero `stationedBonuses` total are even eligible (stationing an Archer today is pure waste — 0 benefit either way), and among those, the WEAKEST in combat (`AI_UnitPowerScore`) go first, `stationCost` only as a tiebreaker — directly implements "units that have higher benefits to station than to be abroad" (Peasant: weak melee, real production bonus).
+
+### Added
+
+- **`AI_BuildingPlotTier`/`AI_PLOT_TIER_REAR`/`_MID`/`_FRONT` (`AIControl.gml`)** — classifies a building's defensive tier off the SAME `oBuildingPlot.inside`/`far` fields `SpawnBuildingPlot` (`PlotScripts.gml`) already tags every plot with (`oPlotSpawner`'s castle grid = rear, `oOuterPlotSpawner`'s near/far bands = mid/front) — "the different groups of plots" the request refers to are this existing grouping, not a new geometry system.
+- **`AI_TryMaintainDefensiveSpread`/`AI_UncoveredBuildingsByTier`** — proactively posts idle guards to `defend` any owned building with zero current defenders, rear-tier first, up to `AI_SPREAD_ATTEMPTS_PER_TICK` per think tick. Called from `AI_BuildUp_Step` before stationing — physical coverage takes priority over the passive stationing optimization.
+- **`AI_TryProbeAttack`/`AIBrain.age`/`AIBrain.probeCooldown`** — early-game harassment. While the brain's `age` is within `AI_PROBE_WINDOW_FRAMES` (~60s) and its cooldown (`AI_PROBE_INTERVAL_FRAMES`, ~15s) has expired, sends up to `AI_PROBE_ATTACK_SIZE` (2) surplus units to `attack` a random standing enemy building — the same order/state a player's "Attack Building" order uses, never the castle. Draws from the SAME post-reserve surplus siege does, so it can't violate the 25% floor either.
+- **`AI_PartitionByPosture`/`AI_UnitStationedBonusValue`** — small shared helpers the above all build on (split a unit array into guard/defend; sum a `UnitDefinition`'s `stationedBonuses` into one rough value score).
+
+### Flagged
+
+- All new macros (`AI_MIN_DEFENSIVE_ARMY_FRACTION`, `AI_DEFEND_TIER_WEIGHT`, `AI_SPREAD_ATTEMPTS_PER_TICK`, `AI_PROBE_WINDOW_FRAMES`/`_INTERVAL_FRAMES`/`_ATTACK_SIZE`) are placeholders, same "not tuned against a real balance pass" status as every other AI constant in this file.
+- `AI_TryMaintainDefensiveSpread` only guarantees ONE defender per building, not a particular garrison size — a high-value building doesn't get extra weight beyond its tier. Flag if specific buildings (e.g. a resource producer close to depleting) should outrank a flat "one defender each."
+- `AI_TryProbeAttack` doesn't scout or evaluate the target building's defenses first — it can and will send raiders to their deaths against a defended building. Treated as expected probe behavior (per the request's own "probe" framing), not a bug; revisit if the intent was closer to "safe harassment only."
+- `AI_MinDefensiveReserve`'s floor is a snapshot at COMMIT time (when siege/probe is about to be issued) — it does not actively recall units later if losses subsequently drop the live defensive count below 25%. Only `castle_defense` still does any active recall, and only for the AI's own castle.
+- No AIControl.gml Notion-compatible doc exists yet — a pre-existing gap flagged repeatedly across prior passes, not closed here either.
+
+### Build
+
+- Windows export version bumped `0.0.3.13` → `0.0.3.14` -- 4th-digit bump, routine convention.
+
+## v0.0.3.13 — 2026-07-12 (uncommitted — working tree only, not yet committed)
+
+Blueprint slot borders now signal affordability at a glance, Knight's long-flagged "bonus damage against production buildings" passive is finally real (+50%), and Bomb Goblin now actually dies the instant its swing lands, matching its own flavor text ("Dies on detonation").
+
+### Changed
+
+- **`BlueprintController.Draw` (`BlueprintScripts.gml`)** -- a filled slot's border is now white (`BLUEPRINT_AFFORDABLE_BORDER_COLOR`) if that building can currently be placed AND afforded at at least one open plot anywhere, or dark gray (`BLUEPRINT_UNAFFORDABLE_BORDER_COLOR`) otherwise -- reuses the exact same `GetBestAvailablePlacementCost` scan the hover card's title-color check already used (2026-07-09), just applied to every filled slot every frame instead of only the hovered one. Empty slots keep the plain white border.
+- **`UnitTryDealDamage` (`UnitCombatHelpers.gml`)** -- the single melee damage choke point (attack/combat/siege all route through it) now: (1) multiplies damage by `UnitDefinition.productionBuildingDamageBonus` when the attacker has one and the target is an `oResourceBuildingParent` (production building only, not training buildings or the castle); (2) sets `pendingSelfDestruct` on the attacker when it's a Bomb Goblin.
+- **`oUnitParent`** -- new `pendingSelfDestruct` field (every unit, default `false`), consumed in `Step_0.gml` right after `fsm.Step()` finishes for the frame -- deferred rather than destroying the unit synchronously inside `UnitTryDealDamage`, since that function runs mid-FSM-step and every caller (Attack_Step/UnitStateCombat/UnitStateSiege) keeps reading the attacker's fields immediately after it returns. When consumed, self-damages for `maxHealth` through `ApplyDamage` (source `noone`) so it gets the normal lethal branch -- gibs, Strategic XP, analytics -- without crediting anyone Combat XP for it.
+- **Knight's `UnitDefinition`** -- `productionBuildingDamageBonus: 0.5` (new field, `UnitDefinitions.gml`), 50% per the request ("Make it 50% more damage for now"). "Deployed Effect" flavor text updated from "NOT implemented" to state the bonus directly.
+- **Bomb Goblin's `UnitDefinition`** -- flavor text updated to reflect the new self-destruct behavior; AoE (hitting units OTHER than the single `_target`) is still explicitly not implemented, only self-destruct-on-hit.
+
+### Added
+
+- **`UnitDefinition.productionBuildingDamageBonus`** (new optional field, `UnitDefinitions.gml`, defaults to `0`) -- fractional bonus damage vs `oResourceBuildingParent` targets specifically, scoped to match Knight's own flavor text wording ("against production buildings"), not a generic vs-any-building bonus.
+- **`BLUEPRINT_AFFORDABLE_BORDER_COLOR` / `BLUEPRINT_UNAFFORDABLE_BORDER_COLOR`** (new macros, `BlueprintScripts.gml`) -- `c_white` / `c_dkgray`, the latter matching `BLUEPRINT_DISCOUNT_UNAVAILABLE_COLOR_TAG`'s existing color as a real draw color constant instead of a Scribble tag string.
+
+### Flagged
+
+- `UnitTryDealDamage`/`oUnitParent` are both load-bearing combat/FSM surfaces per project convention -- flagging explicitly rather than treating the change as routine. The fix avoids touching any state's transition logic directly; `pendingSelfDestruct` is a plain deferred-effect flag consumed after the FSM step fully completes, specifically to avoid destroying an instance mid-step out from under its own caller.
+- `productionBuildingDamageBonus` is a single scalar scoped to ONE building category (production). If a future unit needs a bonus against a different building category (training buildings, the castle), this field's shape will need revisiting rather than reusing it as-is.
+- Blueprint border affordability is recomputed fresh every Draw call for every filled slot (matches this codebase's existing "recompute fresh, don't cache" convention for `GetStationedPassiveBonuses`/`TrainingTypeLimit`) -- fine at today's scale (max 10 slots), flag if the plot scan ever needs caching at a larger blueprint inventory size.
+
+### Build
+
+- Windows export version bumped `0.0.3.12` → `0.0.3.13` -- 4th-digit bump, routine convention.
+
+## v0.0.3.12 — 2026-07-12 (uncommitted — working tree only, not yet committed)
+
+Follow-up to v0.0.3.11's gibbing pass: the gib surface now draws behind everything instead of on top, hover cards for production/training buildings show the LIVE bonus-adjusted rate/time (colored green/red when a stationed bonus is actively helping/hurting it), and buildings now kick up gray placeholder particles when hit, mirroring the unit blood-pixel reaction.
+
+### Changed
+
+- **`oGibSurfaceControl`** -- `depth` flipped from `-room_height - 1` (draws on top of every y-sorted instance) to `room_height + 1` (positive -- draws BEHIND all of them), per explicit follow-up request ("change the gib surface to below everything"). `Create_0.gml`/`Draw_0.gml` header comments and `GibScripts.md` updated to match.
+- **`BuildingHoverTimerText` (`BuildingHoverScripts.gml`)** -- now takes a `_team` param and shows the LIVE stationed-bonus-adjusted production rate/train time (same `GetStationedPassiveBonuses` source `BuildingUpdateProduction`/`TrainingUpdateQueue` already apply every tick) instead of the static definition value. Wrapped in `PLOT_HOVER_GOOD_COLOR_TAG` (green) when the bonus makes the number more beneficial than base (more per second, or less time to train), `PLOT_HOVER_BAD_COLOR_TAG` (red) if it's worse (no bonus does this today, kept symmetric for future negative modifiers), and left uncolored when unchanged. Blueprint hover shows what the bonus would currently grant on placement. Rate rounds to the nearest 0.01, time to the nearest 0.1, only when a bonus actually skews the value off the base whole number.
+
+### Added
+
+- **`SpawnBuildingHitParticles` (`GibScripts.gml`)** -- building equivalent of `SpawnUnitHitBlood`: 2-4 gray single-pixel particles on every non-lethal building hit, reusing the same pixel-kind `oGibDebris` physics (`SpawnColorPixel`, generalized out of the old hardcoded-red `SpawnBloodPixel`). Colors default to `BUILDING_HIT_PARTICLE_COLOR_DARK`/`BRIGHT` (flat grays); wired into `ApplyDamage`'s non-lethal branch (building/else case), which previously had zero hit-reaction for buildings.
+- **`BuildingDefinition.hitParticleColorDark`/`hitParticleColorBright` (new optional fields, `BuildingDefinitions.gml`)** -- per-building-type override for the above, both `undefined` today (every building uses the shared gray) -- placeholder for a future pass giving each building type its own color, per the request ("we will make specific color coded particles for each building later").
+
+### Flagged
+
+- No building DEATH-particle equivalent to `SpawnUnitDeathGibs` was added -- the request only covered the hit reaction ("when they are hit"), not destruction. `ApplyDamage`'s lethal/building branch still only calls `BuildingFreePlot`.
+- Hover-card rate/time rounding precision (0.01 / 0.1) is a judgment call, not specified by the request -- flag if a different precision reads better once bonuses are actually visible on a real card.
+- `BLOOD_PIXEL_*` physics macro names (`GibScripts.gml`) are now stale -- they describe generic "single pixel particle" physics shared by blood AND building-hit particles, not blood specifically. Left as-is to avoid an unrelated rename; flag if the naming should be revisited.
+
+### Build
+
+- Windows export version bumped `0.0.3.11` → `0.0.3.12` -- 4th-digit bump, routine convention.
+
+## v0.0.3.11 — 2026-07-12 (uncommitted — working tree only, not yet committed)
+
+Units now gib on death (chunks, unique per-unit gib, instant blood splatter) and bleed single-pixel blood particles both when hit and when they die, all permanently stamped onto a persistent gib surface instead of piling up as live instances. Mud Golem is fully excluded this pass -- its own death treatment is a separate future request.
+
+### Added
+
+- **`GibScripts.gml` (new file)** -- the gibbing/blood-particle system. See `GibScripts.md` for the full API; summary below.
+  - **`oGibSurfaceControl` (new object, one per match)** -- owns `global.gibSurface`, a room-sized surface every landed gib/splatter gets permanently stamped onto. Drawn at `depth = -room_height - 1` (same "on top of every y-sorted instance" formula `oResourceProducedParticle` already used), per the request's explicit depth spec.
+  - **`oGibDebris` (new object)** -- generic flying-then-landing debris shared by general chunks, each unit's own unique gib, and single-pixel blood particles. Fake-gravity physics: a real ground position that slides away from the killer with friction, plus a separate purely-visual height that pops up and falls in an arch. Lands (stamps to the surface, destroys itself) the instant the arch completes.
+  - **On-death sequence (`SpawnUnitDeathGibs`)**, per unit (Mud Golem excluded entirely): instant blood splatter (`sGeneralSplatters`, always) → 3-5 general chunks (`sGeneralChunks`, skipped for Bomb Goblin -- see below) → the unit's own unique gib sprite if one exists (`sPeasantGib`/`sSoldierGib`/`sArcherGib`/`sKnightGib` -- none yet for Bomb Goblin) → 4-8 death blood pixels.
+  - **On-hit blood (`SpawnUnitHitBlood`)** -- every non-lethal hit against a unit (Mud Golem excluded) now spawns 2-4 blood pixels.
+  - **`UnitDefinition.gibSprite`/`usesGeneralChunks` (new optional fields, `UnitDefinitions.gml`)** -- gibSprite registered for Peasant/Soldier/Archer/Knight; `usesGeneralChunks: false` for Bomb Goblin only (it already has its own explosion animation and no unique gib sprite, so generic debris would look mismatched -- it still gets the splatter and blood pixels).
+
+### Changed
+
+- **`ApplyDamage` (`UnitCombatHelpers.gml`)** -- the FIRST on-hit/on-death visual hook in this codebase (previously "nothing in this codebase runs on unit death at all," per Mud Golem's own Deployed Effect note). Non-lethal unit hits call `SpawnUnitHitBlood`; the instant a unit dies, BEFORE `instance_destroy`, `SpawnUnitDeathGibs` runs. Buildings are unaffected either way (no `fsm` -- gibbing is unit-only). Routes through this one function for both melee and ranged/projectile damage, so no other combat file needed to change.
+
+### Flagged
+
+- Mud Golem is excluded from the ENTIRE system (hit particles too, not just death) -- confirmed explicitly rather than assumed, since he's hit constantly in normal play.
+- Chunk count (3-5), all `GIB_*`/`BLOOD_PIXEL_*` physics constants, and Bomb Goblin's `usesGeneralChunks: false` treatment are judgment calls -- the request didn't specify exact counts/magnitudes. See `GibScripts.md`'s "Known assumptions" for the full list, including the "stopped moving" interpretation (the vertical arc completing, not a separate horizontal-velocity-near-zero check) and lost-surface recovery losing prior stamps.
+- This is the first `surface_create` usage in the project -- flag if surface lifetime/memory needs a closer look later (e.g. very long matches with heavy combat).
+
+### Build
+
+- Windows export version bumped `0.0.3.10` → `0.0.3.11` -- 4th-digit bump, routine convention.
+
+## v0.0.3.10 — 2026-07-12 (uncommitted — working tree only, not yet committed)
+
+Stationed units now grant real passive bonuses (production/training speed, unit HP/damage), visible on a new castle hover panel. The AI opponent now stations units for those bonuses itself, reacts to threats near-instantly instead of on the next think tick, splits its defenders across multiple threatened buildings instead of dog-piling one, and holds back a standing guard reserve instead of committing everything to a siege. AI debug text moved to the top-right, out of the way of the top-left UI.
+
+### Added
+
+- **`UnitDefinition.stationedBonuses` (new field, `UnitDefinitions.gml`)** -- the functional counterpart to each unit's "Stationed Effect" flavor text. Array of `{type, amount}` (amount is a fractional bonus, 0.05 = +5%), stacking linearly per unit stationed. Registered for Peasant (`allResourceProduction` +5%), Bomb Goblin (`goldProduction` +15%), Mud Golem (`unitHealth` +5%), Soldier (`unitHealth` +5% / `unitDamage` +5%), and Knight (`trainingSpeed` +5%). Archer's "Ranged attacks from the wall" is deliberately left unimplemented (`stationedBonuses: []`) -- a real garrisoned-unit-fires-projectiles mechanic, not a stat multiplier; explicitly out of scope per user clarification this pass.
+- **`StationedBonuses` / `GetStationedPassiveBonuses(_team)` (`StationScripts.gml`)** -- aggregates every live `oUnitStationed` on a team into one bonus struct, one linear stack per unit. Recomputed fresh every call, not cached (same convention as `TrainingTypeLimit`). See `StationScripts.md`.
+- **`CastleBonusHoverScripts.gml` (new file)** -- hover panel over the player's own castle listing every currently active stationed bonus as "+X% Label" lines, or "No active bonuses." Same dwell/fade/HoverCard pattern as `PlotHoverController`/`BuildingHoverController`; suppressed while `CastleGarrisonMenu.isOpen`, per the request ("only visible if the garrison menu isn't open"). Player-castle-only, same restriction as the garrison dropdown. See `CastleBonusHoverScripts.md`.
+- **`AI_TryStationUnits`/`AI_CurrentStationedCount` (`AIControl.gml`)** -- the AI now deliberately stations some of its own idle "guard" units (cheapest-first, up to `AI_STATION_MAX_STATIONED`, one per think tick, never dropping below `AI_STATION_MIN_GUARD_RESERVE` guards) to pick up the same passive bonuses above. Called from `AI_BuildUp_Step`; paused whenever the AI is defending.
+- **`AI_DetectThreats` (plural, `AIControl.gml`)** -- returns every currently threatened owned building, not just the first. `AI_Defending_Step` now assigns each available unit to whichever threatened building is NEAREST to it and issues one grouped "defend" order per building, instead of dumping every available unit on the single first-found threat and leaving any other simultaneously-threatened building undefended.
+- **`AI_ReserveGuardUnits` (`AIControl.gml`)** -- `AI_BuildUp_Step` now holds back up to `AI_SIEGE_GUARD_RESERVE` idle "guard" units before committing the rest to a siege, so committing to offense doesn't strip the AI's own territory to zero defenders.
+- **AIBrain urgency interrupt (`AIControl.gml`)** -- `AIBrain.Step` now checks for a threat EVERY frame (not just on the normal ~0.75s think tick) and zeroes `thinkTimer` the instant one appears while the brain hasn't already reacted, so the AI's first response to being attacked is near-instant instead of waiting out the rest of `AI_THINK_INTERVAL`. The full decision cycle (training/blueprints/composition/siege/station math) still only runs on an actual think tick -- only the cheap threat check itself runs every frame.
+
+### Changed
+
+- **`BuildingUpdateProduction` (`BuildingDefinitions.gml`)** -- resource production rate now scaled by the producing building's team's `allResourceProductionBonus` + (`goldProductionBonus` if producing gold).
+- **`TrainingUpdateQueue` (`TrainingScripts.gml`)** -- training progress now scaled by the training building's team's `trainingSpeedBonus`.
+- **`UnitApplyDefinition` (`UnitDefinitions.gml`)** -- `maxHealth`/`attackDamage` now scaled by the unit's team's `unitHealthBonus`/`unitDamageBonus` (rounded to the nearest whole number), baked in ONCE at spawn/redeploy time -- not retroactively applied to already-live units, and not removed if the stationed unit providing the bonus later redeploys. See `StationScripts.md`'s "Known assumptions" for why full dynamic re-application is out of scope this pass.
+- **`TrainingSpawnUnit` (`TrainingScripts.gml`)** -- now re-calls `UnitApplyDefinition` right after overriding the spawned unit's team (same pattern `DeployStationedUnit` already used). Necessary fix, not cosmetic: `UnitApplyDefinition` now reads team-scoped bonuses, and the original Create-time call ran before the team override, so an AI-trained unit would previously have picked up `TEAM.PLAYER`'s bonuses instead of its own team's.
+- **`oAIControl`'s debug text (`Draw_64.gml`)** -- moved from top-left `(8, 24)` to top-right (right-aligned, 8px from the GUI's right edge), out of the way of the top-left drop-down menus and selection cards it used to overlap.
+
+### Flagged
+
+- Stationed HP/damage bonuses are spawn-time-only, not a dynamic army-wide recompute (see `StationScripts.md`).
+- Archer's "Ranged attacks from the wall" passive remains flavor-text-only -- skipped per explicit user decision this pass, not an oversight.
+- Knight's stationed-effect flavor text doesn't say "(stacks per Knight stationed)" the way every other unit's does; applied the same linear-stacking rule anyway for consistency with the mechanism -- flagging the wording gap, not treating it as a "no stacking" spec.
+- `AIControl.gml`, `CastleGarrisonMenu.gml`, `DropDownMenuScripts.gml`, and `SelectionSummaryMenu.gml` still have no Notion-compatible markdown doc despite the CLAUDE.md convention (only `RulerPortraitScripts.md`, and now `StationScripts.md`/`CastleBonusHoverScripts.md`, exist) -- a pre-existing gap, not created by this pass but not closed by it either; flagging rather than silently expanding scope to backfill every library's docs unasked.
+
+### Build
+
+- Windows export version bumped `0.0.3.9` → `0.0.3.10` -- 4th-digit bump, same convention as every routine (non-explicitly-requested) pass; 3rd digit is reserved for when a version-scheme bump is explicitly requested, per the established convention (see the `0.0.2.51` → `0.0.3.0` entry).
+
 ## v0.0.3.9 — 2026-07-12 (uncommitted — working tree only, not yet committed)
 
 Every drop-down/panel menu (orders, castle garrison, unit selection) now uses the new drop-down sprite set with a title instead of a plain drawn rectangle. Enemy training buildings no longer show their queue or progress.
@@ -1104,4 +1244,115 @@ Peasant stat correction + five tier-1 training buildings/units, sourced from the
 
 ### Fixed
 
-- **`PATCH_NOTES.md` was truncated in the working tree**, cuttin
+- **`PATCH_NOTES.md` was truncated in the working tree**, cutting off mid-sentence partway through the v0.0.2.0 entry and dropping the entire v0.0.1.0 entry below it. Restored from the last commit (`54e76cd`, "V. 0.0.3.0") before adding this entry. Worth a quick look separately: that commit's message says `0.0.3.0` but `options_windows.yy` at that same commit is `0.0.2.9` — a mismatch between the commit title and the actual file, not something this session tried to resolve.
+- **Peasant's stats didn't match the design spec** (`scripts/UnitDefinitions/UnitDefinitions.gml`): `maxHealth` 20→10, `attackDamage` 3→2, `cost` was `10 wheat + 5 coins` → now `20 water` (this also brings it in line with `oPeasantWard.trainCost`, which was already correct). Training cost/time (20 water / 10 sec) and Peasant Ward's build cost (40 wheat + 40 water) were already correct and untouched.
+
+### Added
+
+- **Five tier-1 buildings**: `oBoomHut` (trains Bomb Goblins), `oBogFoundry` (Mud Golems), `oBarracks` (Soldiers), `oArcheryRange` (Archers), `oRoundTable` (Knights). Each is a plain `oTrainingBuildingParent` child (`event_inherited()` only, same pattern as `oPeasantWard`) registered in `scripts/BuildingDefinitions/BuildingDefinitions.gml` with build cost, `trainsUnit`, `unitsPerBuilding`, `trainCost`, and `trainTime` all sourced from the data sheet. No changes needed to `TrainingScripts.gml` or `oTrainingBuildingParent` itself — the training pipeline was already fully data-driven.
+- **Five tier-1 units**: `oBombGoblinUnit`, `oMudGolemUnit`, `oSoldierUnit`, `oArcherUnit`, `oKnightUnit`. Each is a plain `oUnitParent` child (`event_inherited()` only, same pattern as `oPeasantUnit`), registered in `scripts/UnitDefinitions/UnitDefinitions.gml` with sheet-sourced `maxHealth`/`attackDamage`/`cost`. Combat-timing fields with no sheet equivalent (`attackRange`, `attackLeashRange`, `attackHitFrame`, `attackCooldownMax`, `attackAggroRadius`, `siegeSweepRadius`, `maxSpeed`) are judgment-call placeholders, same status Peasant's always had.
+- Each new unit's sheet "Stationed Effect"/"Deployed Effect" text is now captured in its `UnitDefinition.passives` array (inert data, per that field's existing documented convention — no station/deploy system exists yet to execute any of it).
+- All 10 new objects registered in `Blank Pixel Game.yyp`.
+
+### Known issues (new — flagged rather than guessed at)
+
+- **No station/deploy economy exists.** The data sheet adds a per-unit "Station Deploy Cost (GOLD)" and per-unit "Upkeep (Stationed)" (e.g. Archer: 1 wheat/3 sec) on top of training cost. Neither has a field anywhere (`UnitDefinition` or `BuildingDefinition`) — deliberately not guessing at a shape for a system that isn't designed. The `"station"` order is still the no-op stub it's been since it was registered.
+- **`UnitTryDealDamage` (`UnitCombatHelpers.gml`) is still a TODO stub** — no unit has ever actually dealt damage or died. This was already true before this batch, but it means several of this batch's signature mechanics can't be real yet either: Bomb Goblin's AoE (currently a flat `20` on `attackDamage`) and its self-destruct-on-hit, Mud Golem's on-death mud/slow zone (no on-death hook exists at all), and Knight's bonus damage vs. production buildings (`Attack_Step` doesn't distinguish building types).
+- **Archer has no ranged attack.** Only a melee attack state (`UnitStateAttackMelee.gml`) exists — no projectile/ranged state. Archer is registered with a longer `attackRange` as a rough stand-in, but it will walk into range and melee-swing like every other unit. `sArcherProjectile` is wired into its `AnimationLibrary` as a named `"projectile"` sprite, ready for whenever a real ranged state gets built.
+- Sheet data-quality notes carried over from the earlier review (not re-litigated here): Shinobi's Source Building is blank in Unit Stats but Item Costs' "Hidden Village" (tagged tier 1) is almost certainly it; Recruiter is a real tier-3 unit (50 Gold Coins, per Item Costs) with no stat block in Unit Stats; Jester/Necrotic Lich's unit limit is the string `"1 (HARD CAP)"` while Hellhounds' is a plain `1` — `TrainingTypeLimit` (`TrainingScripts.gml`) has no flat-cap path yet, only `sum(unitsPerBuilding × live buildings)`.
+
+### Build
+
+- Windows export version bumped `0.0.2.9` → `0.0.2.10` — 4th-digit bump, per the documented convention (3rd digit only when patch notes are explicitly requested, which wasn't the case this session).
+
+## v0.0.2.8 — 2026-07-03 (uncommitted — working tree only, not yet committed)
+
+Base-building economy loop: drag-to-place buildings, resource production, unit training with dual caps, edge-pan camera, local playtest analytics, and a Steamworks SDK integration scaffold. Also carries the fixes from the 2026-07-01 code review, which were made same-day but hadn't been written up yet.
+
+### Added
+
+- **Blueprint system** (`scripts/BlueprintScripts.gml`). `BlueprintStack`/`AddBlueprint`/`RemoveBlueprintOne` manage a per-team placeable-building inventory (`global.blueprints`, initialized `[[], []]` in `oMatchControl/Create_0.gml` — deliberately not `array_create(2, [])`, same shared-reference hazard `global.resources` had, see Fixed below). `BlueprintController` is the drag-to-place UI: a paginated 5x2 GUI-space grid, wired into `oUnitControl` (`Create_0`/`Step_0`/`Draw_64`) alongside `selectionController`/`orderMenu`. Dragging a filled slot onto an owned, unblocked `oBuildingPlot` checks affordability, purchases the cost, spawns the building, and consumes one blueprint.
+- **`BuildingDefinition` system** (`scripts/BuildingDefinitions.gml`) — static per-building-type data (name, description, cost, sprite, optional resource production, optional unit training), registered per object type via `RegisterAllBuildingDefinitions()` (called from `oGameControl`'s Create, alongside `RegisterAllUnitDefinitions()`). Mirrors `UnitDefinition`'s registry pattern. `BuildingApplyDefinition(_building)` applies production/training fields onto an instance at Create time.
+- **Resource production** — `oResourceBuildingParent` (new parent) and `oWheatField` (first resource building). `BuildingUpdateProduction()` is a frame-rate-independent, match-speed-scaled tick using a fractional accumulator (so partial progress isn't lost or double-counted across frames), ticked from `oResourceBuildingParent/Step_0.gml`. Calls the existing `PlayResourceProducedEffect` stub once per whole unit produced.
+- **Unit training** — `oTrainingBuildingParent` (new parent) and `oPeasantWard` (first training building). `scripts/TrainingScripts.gml` enforces two independent caps before queueing a unit: a per-type cap (`TrainingTypeLimit` — sum of `unitsPerBuilding` across a team's live training buildings of that type) and an army-wide cap (`global.armyLimit`, `[6, 6]` starting value). Both caps count existing units *and* everything queued across every training building the team owns. Clicking an owned training building (`oUnitControl/Step_0.gml`, via `instance_position`) calls `TrainingTryQueueUnit`; `TrainingUpdateQueue` (ticked from `oTrainingBuildingParent/Step_0.gml`) is duration-based (not rate-based) and spawns via `TrainingSpawnUnit`, which overrides the spawned unit's team (same pattern `BlueprintController.EndDrag` uses for buildings) and re-derives `guardRect` for the correct team before sending the unit into `"defend"`, patrolling the building that trained it.
+- **`UpdateCameraPan()`** (`scripts/CameraScripts.gml`) — edge-of-screen camera panning on view camera 0, ramping linearly with cursor proximity to the screen edge, clamped to room bounds. Called once per Step from `oUnitControl`.
+- **Local playtest analytics** (`scripts/AnalyticsScripts.gml`) — per-team (`global.analytics[TEAM.PLAYER/ENEMY]`) counters for units trained, buildings built, resource produced/spent, and match time, reset each match via `AnalyticsInit()` (`oMatchControl`'s Create). Wired into `TrainingSpawnUnit`, `BlueprintController.EndDrag`, `BuildingUpdateProduction`, `Purchase` (`Economy.gml`), and `oMatchControl/Step_0.gml`. Steam Stats API calls (`steam_set_stat_int`) are written but left commented out — the stat names don't exist on the Steamworks control panel yet. `AnalyticsRecordKill`/`AnalyticsRecordDeath` exist but aren't wired to anything yet — there's still no "unit died" event.
+- **Steamworks SDK extension** (`extensions/Steamworks/`, `scripts/Steamworks_Definitions.gml`) integrated. `global.isGameRestarting` flag added (`oGameControl`'s Create) — needs to be set `true` immediately before any future `game_restart()` call so `steam_shutdown()` is correctly skipped on restart, then reset to `false` right after.
+- A generic GameMaker UI widget starter kit (`obj_gm_button`, `obj_gm_text`, `obj_gm_textbox` + matching sprites/fonts) was imported alongside the Steamworks asset package. Not yet wired into any room or gameplay object — sitting unused for now.
+- Starting resources for `TEAM.PLAYER`: 50 wood/water/iron/gold/wheat (`oMatchControl/Create_0.gml`). A few Wheat Field and Peasant Ward blueprints are granted as test data so the new flows are testable end-to-end before a real blueprint-acquisition system exists.
+- Windows build version bumped to `0.0.2.8`.
+
+### Fixed (made 2026-07-01, written up now)
+
+- **`global.resources` array-sharing bug.** `oMatchControl/Create_0.gml` now builds `global.resources` via `array_create(2, undefined)` followed by a loop assigning a fresh struct literal per team, instead of `array_create(2, {...})`, which evaluated the struct literal once and gave both teams the same reference.
+- **Attack/Combat/Siege sprite-state self-rebinding bug.** `sprite_index`/`image_index`/`image_speed` writes in `UnitStateAttackMelee.gml`, `UnitStateCombat.gml`, `UnitStateSiege.gml`, and `UnitCombatHelpers.gml` now go through `_unit.` explicitly instead of bare variables, so they land on the real unit instance instead of the scratch `State` struct.
+- **`oBuildingPlot`'s `team` Object Property** changed from String (default `"player"`) to Integer (default `0` / `TEAM.PLAYER`), matching how `team` is used as the `TEAM` enum everywhere else.
+- Typo fix in the pre-alpha disclaimer text (`oAlphaDisclaimer`): "encoutner" → "encounter".
+
+### Known issues (new or still open)
+
+- `objects/oUnitParent/Draw_0.gml` still has `if mask_index = sM_UnitMask{` (`=` instead of `==`) — legal GML, functionally fine, still not normalized after being flagged twice now.
+- The Wheat Field's placement cost (15 wood + 10 coins) can't actually be paid yet — coins isn't part of the starting loadout and there's no acquisition/trading system to earn it. The Peasant Ward is unaffected and fully testable.
+- The new `obj_gm_button`/`obj_gm_text`/`obj_gm_textbox` widget kit is imported but unused.
+- `AnalyticsRecordKill`/`AnalyticsRecordDeath` have no death event to call them from yet (same root cause as `UnitTryDealDamage`'s open damage-calc TODO).
+- **This entire entry describes uncommitted working-tree changes** — nothing above has been committed to git yet (last commit: `5012d06`). Recommend committing before doing anything that could touch the working tree.
+
+## v0.0.2.0 — 2026-07-01
+
+Base-building foundations: unit type data, castle building plots (both sides), and team-symmetric guard zones.
+
+### Added
+
+- **`UnitDefinition` system** (`scripts/UnitDefinitions`). Static per-unit-type data — name, description, `Cost`, combat stats, sprite library, tags, `availableOrders`, and a placeholder `passives` array — registered per object type (keyed by `object_index`, e.g. `oPeasantUnit`) rather than a string name, so it ties directly to `instance_create_layer` for later stationed-unit redeploy. `UnitApplyDefinition(_unit)` applies a unit's registered definition onto the instance at Create time; `oPeasantUnit`'s Create event is now just `event_inherited()` since sprites/orders come from its definition instead of being hardcoded twice. Peasant is the first (and only) unit type defined — its cost and stats are placeholders, not balanced.
+- **`UnitDataBlock.unitType`** — the struct meant to survive a station/redeploy swap (damage taken, status effects) now also remembers which `UnitDefinition` to reapply. `UnitCurrentHealth(_unit)` derives current health from `maxHealth - unitData.damageTaken` rather than storing it separately, so nothing can drift out of sync across that swap.
+- **`UnitHasTag(_unit, _tag)`** — first search-script helper built on `UnitDefinition.tags`.
+- **Outer building plots.** 12 plots per side (8 "near" the castle wall in two groups of 4, 4 "far" into the battlefield in two groups of 2, aligned on a single shared column) outside each castle, mirrored player/enemy via `room_width - x` (same axis `oCastleManager` mirrors the castles on). New `scripts/PlotScripts` (`SpawnBuildingPlot`) and `oOuterPlotSpawner`. Classification reuses `oBuildingPlot`'s existing `inside`/`far` fields — no new schema needed. Resource buildings get a placement bonus outside the castle, unit-training buildings get theirs inside, and *far* plots get a bonus on top of that regardless of building type, since they're the most exposed to attack.
+- **`GetTeamGuardRect(_team)`** (`UnitScripts.gml`). The default guard patrol zone a unit gets at Create time is now derived per-team instead of being one hardcoded rectangle. Player's zone is authored directly; every other team's is the same rectangle mirrored across `room_width`, so it sits the same distance in front of its own castle.
+
+### Fixed
+
+- **`oPlotSpawner`'s inside-castle plot grid never set which team owned a plot.** Only the player's grid existed, and even it wasn't team-tagged. Rewrote it to spawn both the player's grid and a mirrored enemy grid, both correctly tagged via `SpawnBuildingPlot` — the enemy castle had zero inside plots before this.
+- **Guard zone was shared, unmirrored, across both teams.** Every unit — player or enemy — got the literal same `ShapeRect(328,8,480,400)`, which sits in front of the *player's* castle only. Now routed through `GetTeamGuardRect`.
+- Outer plot placement went through two iterations this session: shifted clear of the default guard zone (was overlapping it), spread further from the play area's vertical center, and the "far" plots collapsed onto one shared column instead of two.
+
+### Known issues (unchanged from v0.0.1.0, still open)
+
+- `"station"` order is registered but intentionally a no-op — castle-interior stationing isn't designed yet.
+- `UnitDefinition.passives` is inert data with no execution hook — no passive-ability system exists yet.
+- `defend`/`attack` order target validators now take an issuing team, but nothing except the player's `SelectionController` calls them yet — the AI still bypasses targeting entirely.
+
+### Build
+
+- Windows export version bumped to `0.0.2.0` (patch notes requested — per the versioning convention, 3rd digit bumps here, 4th digit bumps on routine small changes).
+
+## v0.0.1.0 — 2026-07-01
+
+Early development pass: documentation cleanup, several load-bearing bug fixes, and the first version of the computer opponent.
+
+### Fixed
+
+- **Order menu wouldn't open after selecting units.** `oUnitControl`'s Step event was checking for a menu-opening right-click *after* processing the menu's own Update() in the wrong order, so a click that opened the menu was immediately re-read as a "dismiss" click in the same frame. Reordered so the menu's Update() always sees the state of the mouse from the *start* of the frame.
+- **Attack and Siege orders were silently dead code.** Both were wired to the "combat" state's Enter/Step/Exit functions in `oUnitParent`'s state machine setup instead of their own dedicated functions. Units issued "attack" or "siege" were actually just running combat logic. Fixed the state machine wiring so each order runs its own state.
+- **Guard waypoint anti-overlap logic was a no-op.** A leftover line in `GuardPickWaypoint` (`scripts/UnitStateGuard`) short-circuited the loop that checks for waypoints already claimed by another guarding ally, so units could pile onto the same spot. Removed the offending line; the claim-check now actually runs.
+- **Economy typo:** `Puchase` → `Purchase` in `scripts/Economy`.
+- **Defend/Attack target validation was hardcoded to the player's perspective.** The target-eligibility checks for the "Defend Building" and "Attack Building" orders assumed `TEAM.PLAYER` was always "my side." Reworked so the validator receives the issuing side's own team and compares against that instead — same code now works correctly no matter which side (player or AI) issues the order.
+
+### Added
+
+- **First pass at a computer-controlled opponent** (`oAIControl` / `AIBrain`). Runs a decision cycle roughly every 3/4 second; currently masses idle guarding units and sends them to siege the enemy castle once it has enough. Built on the same order-dispatch path (`IssueOrderToUnits`) the player uses, so player and AI units behave identically once an order is issued. This is a scaffold — defending, expanding, and building/unit purchasing are not implemented yet, but the plumbing (perception → decision → dispatch) is proven end to end.
+- **`GatherTeamUnits`** — room-wide "every unit on team X" query for AI/high-level decision-making, written so a future fog-of-war visibility filter (once building placement ships) only needs to be added in one place.
+- **`_FindNearestEnemy`** — plain nearest-enemy-unit lookup used by the aggro-interrupt check in the Attack state.
+
+### Changed
+
+- **Unified team representation onto the `TEAM` enum.** Team was previously represented two ways — the raw strings `"player"`/`"enemy"` in some places, and the `TEAM.PLAYER`/`TEAM.ENEMY` enum (needed for indexing `global.resources`, since GML arrays can't take string keys) in others. Everything now uses the enum consistently (`oUnitParent`, `oBuildingParent`, `oUnitControl`, `GetEnemyCastle`).
+- **Full Feather/JSDoc documentation pass** across every non-vendor Script Asset (140 functions across 16 files). Every function now has `@function`, `@param`, and `@returns` tags so Feather reliably shows hover info while writing code against these libraries. Vendored Scribble library files were left untouched.
+
+### Known issues (flagged, not yet addressed)
+
+- The `"station"` order appears in units' `availableOrders` but is never registered in `RegisterAllOrders()` — picking it currently does nothing.
+- A second, unused `UnitOrders` enum (GUARD/DEFEND/ATTACK/SIEGE/STATION) exists alongside the raw order-name strings actually used everywhere — a similar duplication to the team-representation issue that was just resolved, but not yet raised for a decision.
+
+### Build
+
+- Windows export version set to `0.0.1.0` to reflect actual development stage (was defaulted to `1.0.0.0`). Going forward: bump the 4th number for routine small changes; bump the 3rd number when patch notes are requested.

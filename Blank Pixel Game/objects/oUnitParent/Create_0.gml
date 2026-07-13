@@ -41,6 +41,15 @@ attackCooldown    = 0;
 //Attacking Buildings
 attackBuildingTarget = noone;
 
+// 2026-07-12 request ("update the bomb goblin to die when it explodes") --
+// generic on every unit (cheap bool, harmless default) rather than a Bomb-
+// Goblin-only field, so UnitTryDealDamage (UnitCombatHelpers.gml) can set
+// it unconditionally without a variable_instance_exists guard. Consumed
+// (and reset) in Step_0.gml AFTER fsm.Step() -- see that file and
+// UnitTryDealDamage's doc comment for why it can't be acted on
+// synchronously the instant it's set.
+pendingSelfDestruct = false;
+
 // guardWaypointClaimed is intentionally NOT initialized here -- Guard_Enter
 // (UnitStateGuard.gml) already sets it the moment fsm.ChangeState("guard")
 // runs above, and Guard_Step/Guard_Exit own it from there. A stray

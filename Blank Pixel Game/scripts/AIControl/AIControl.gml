@@ -7,6 +7,24 @@
 #macro AI_TANK_TARGET_RATIO   0.25 // AI_TryTrainComposition: desired minimum fraction of _team's live army carrying the "tank" tag before training anything else at a building that doesn't
 #macro AI_RANGED_TARGET_RATIO 0.25 // same, for "ranged"
 
+// 2026-07-12 additions -- "use stationed units" + "be more proactive...
+// defend its buildings" request. All four placeholders, not tuned against
+// any real balance pass, same status as every other AI macro above.
+#macro AI_STATION_MAX_STATIONED     6 // AI_TryStationUnits won't station more than this many total (across every type) at once -- a soft cap on how much of the AI's economy it converts into passive bonuses
+#macro AI_STATION_MIN_GUARD_RESERVE 3 // AI_TryStationUnits won't station a "guard" unit if doing so would drop the team's own available guard count below this
+#macro AI_STATION_ATTEMPTS_PER_TICK 1 // AI_TryStationUnits stations at most this many units per think tick -- gradual, not a lump dump the instant units become available
+
+// 2026-07-12 follow-up ("don't steamroll me") -- four related tuning
+// knobs for AI_MinDefensiveReserve/AI_TryProbeAttack/AI_TryMaintainDefensiveSpread
+// below. All placeholders, not tuned against a real balance pass, same
+// status as every AI macro in this file.
+#macro AI_MIN_DEFENSIVE_ARMY_FRACTION 0.25 // floor on how much of the team's TOTAL army (live units + stationed) must stay in guard/defend/station at any given time -- siege/probe commitments can never dip below this, see AI_MinDefensiveReserve
+#macro AI_DEFEND_TIER_WEIGHT        200  // px-equivalent penalty added per plot tier (MID/FRONT) when AI_Defending_Step picks which threatened building an available unit reinforces -- biases responders toward REAR buildings without overriding a unit that's overwhelmingly closer to a FRONT one
+#macro AI_SPREAD_ATTEMPTS_PER_TICK  1    // AI_TryMaintainDefensiveSpread posts at most this many new defenders per think tick -- gradual, not a lump reassignment
+#macro AI_PROBE_WINDOW_FRAMES       3600 // ~60s at 60fps -- "early game" window during which AI_TryProbeAttack can fire at all
+#macro AI_PROBE_INTERVAL_FRAMES     900  // ~15s -- minimum gap between successful probes within that window
+#macro AI_PROBE_ATTACK_SIZE         2    // units sent per probe
+
 /// @function AIBrain(_team)
 /// @description Top-level decision-maker for a computer-controlled team. Call
 ///        Step() once per Step event; internally ticks a think timer and only
@@ -25,6 +43,16 @@ function AIBrain(_team) constructor {
     team       = _team;
     thinkTimer = AI_THINK_INTERVAL;
 
+    // 2026-07-12 follow-up additions -- age gates AI_TryProbeAttack's
+    // "early game" window (AI_PROBE_WINDOW_FRAMES), probeCooldown gates how
+    // often it can fire within that window (AI_PROBE_INTERVAL_FRAMES).
+    // Both tick every frame in Step() below, scaled by global.matchSpeed
+    // same as thinkTimer, regardless of which posture the brain is
+    // currently in -- "early game" is wall-clock since this brain was
+    // created, not time spent specifically in build_up.
+    age           = 0;
+    probeCooldown = 0;
+
     fsm = new StateMachine(self);
     fsm.AddState("build_up",      new State(undefined, AI_BuildUp_Step,       undefined, undefined))
        .AddState("defending",     new State(undefined, AI_Defending_Step,     undefined, undefined))
@@ -37,8 +65,32 @@ function AIBrain(_team) constructor {
     ///        Scaled by global.matchSpeed so the AI thinks faster/slower in
     ///        step with everything else, and stops deciding entirely while
     ///        paused (matchSpeed 0) rather than continuing to think.
+    ///
+    ///        2026-07-12 addition ("faster reaction" request): an urgency
+    ///        interrupt runs EVERY frame, ahead of the normal timer --
+    ///        if the team is under threat (AI_CastleUnderThreat or
+    ///        AI_DetectThreat) and the brain hasn't already reacted (isn't
+    ///        already in "defending"/"castle_defense"), thinkTimer is
+    ///        zeroed so the fsm.Step() below fires THIS same frame instead
+    ///        of waiting out the rest of AI_THINK_INTERVAL (up to ~0.75s).
+    ///        Only the cheap threat checks themselves run every frame --
+    ///        the full decision cycle (training/blueprints/composition/
+    ///        siege/station math) still only ever runs on an actual think
+    ///        tick, so this doesn't make the AI generally twitchy, just
+    ///        fast to notice "under attack." Once already reacting
+    ///        (defending/castle_defense), the interrupt backs off and lets
+    ///        the normal AI_THINK_INTERVAL cadence resume for follow-up
+    ///        decisions within that posture.
     /// @returns {Struct.AIBrain} self
     static Step = function() {
+        age += global.matchSpeed;
+        if (probeCooldown > 0) probeCooldown -= global.matchSpeed;
+
+        var _underThreat = AI_CastleUnderThreat(team) || (AI_DetectThreat(team) != noone);
+        if (_underThreat && !fsm.Is("defending") && !fsm.Is("castle_defense")) {
+            thinkTimer = 0;
+        }
+
         thinkTimer -= global.matchSpeed;
         if (thinkTimer <= 0) {
             thinkTimer = AI_THINK_INTERVAL;
@@ -76,6 +128,192 @@ function AI_GatherAvailableUnits(_team) {
     return _available;
 }
 
+// -----------------------------------------------------------
+// AI defensive posture -- 2026-07-12 follow-up ("don't steamroll me"):
+// plot-tier classification, a fraction-of-total-army reserve floor that
+// siege/probe commitments must respect, and proactive coverage spread
+// across owned buildings. Replaces the old flat AI_ReserveGuardUnits
+// (guard-only, flat headcount of 2) with something that scales with army
+// size and protects already-posted "defend" units FIRST, not just idle
+// "guard" ones.
+// -----------------------------------------------------------
+
+#macro AI_PLOT_TIER_REAR  0 // inside castle walls -- oBuildingPlot.inside (oPlotSpawner's castle grid)
+#macro AI_PLOT_TIER_MID   1 // near exterior plots -- !inside && !far (oOuterPlotSpawner's "near" band)
+#macro AI_PLOT_TIER_FRONT 2 // far/exposed exterior plots -- oBuildingPlot.far (oOuterPlotSpawner's "far" band)
+
+/// @function AI_BuildingPlotTier(_building)
+/// @description Which defensive tier _building's plot falls into, derived
+///        from the SAME oBuildingPlot.inside/far fields SpawnBuildingPlot
+///        (PlotScripts.gml) already tags every plot with -- "the different
+///        groups of plots" the 2026-07-12 request refers to are literally
+///        this existing inside/near/far grouping (oPlotSpawner's castle
+///        grid = REAR, oOuterPlotSpawner's "near"/"far" bands = MID/FRONT),
+///        not a new geometry system. Looked up by position
+///        (instance_position), the same technique BuildingFreePlot
+///        (PlotScripts.gml) already uses -- no plot reference is stored on
+///        building instances anywhere in this codebase.
+/// @param {Id.Instance} _building An oBuildingParent instance.
+/// @returns {Real} AI_PLOT_TIER_REAR/_MID/_FRONT. Defaults to _MID if no
+///        plot is found at _building's position (shouldn't happen -- every
+///        building is spawned exactly on a plot -- but MID is the least
+///        consequential tier to guess wrong on either side).
+function AI_BuildingPlotTier(_building) {
+    var _plot = instance_position(_building.x, _building.y, oBuildingPlot);
+    if (_plot == noone) return AI_PLOT_TIER_MID;
+    if (_plot.inside) return AI_PLOT_TIER_REAR;
+    if (_plot.far) return AI_PLOT_TIER_FRONT;
+    return AI_PLOT_TIER_MID;
+}
+
+/// @function AI_PartitionByPosture(_units)
+/// @description Splits _units (expected: AI_GatherAvailableUnits' guard+
+///        defend output) into two arrays by current FSM state. Shared by
+///        AI_ReserveDefensiveUnits and AI_TryProbeAttack, both of which
+///        need to prefer one posture over the other rather than treating
+///        the combined pool as interchangeable.
+/// @param {Array<Id.Instance>} _units
+/// @returns {Struct} { guard: Array<Id.Instance>, defend: Array<Id.Instance> }
+function AI_PartitionByPosture(_units) {
+    var _guard  = [];
+    var _defend = [];
+    for (var i = 0; i < array_length(_units); i++) {
+        if (_units[i].fsm.Is("guard")) {
+            array_push(_guard, _units[i]);
+        } else if (_units[i].fsm.Is("defend")) {
+            array_push(_defend, _units[i]);
+        }
+    }
+    return { guard: _guard, defend: _defend };
+}
+
+/// @function AI_MinDefensiveReserve(_team)
+/// @description How many units -- out of _team's TOTAL army, every live
+///        oUnitParent PLUS every currently-stationed oUnitStationed -- must
+///        stay in guard/defend/station at any given time. 2026-07-12
+///        request: "Don't commit a large force to siege. Leave at least
+///        1/4 of its army to defend/guard/station at any given time."
+///        AI_ReserveDefensiveUnits enforces this against whatever's still
+///        uncommitted (guard+defend); stationed units already count toward
+///        it automatically since they can't be sent to siege/probe/attack
+///        at all -- they're a different object (oUnitStationed, not
+///        oUnitParent) -- see AI_BuildUp_Step's _reserveNeeded subtraction.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Real} Rounded up -- a 5-unit army reserves 2, not 1.25.
+function AI_MinDefensiveReserve(_team) {
+    var _totalArmy = array_length(GatherTeamUnits(_team)) + AI_CurrentStationedCount(_team);
+    return ceil(_totalArmy * AI_MIN_DEFENSIVE_ARMY_FRACTION);
+}
+
+/// @function AI_ReserveDefensiveUnits(_units, _reserveCount)
+/// @description Splits _units (guard+defend) into "reserved" (kept back)
+///        and returns the SURPLUS -- everything else, eligible for siege/
+///        probe commitment. Reserves DEFEND units FIRST, up to
+///        _reserveCount, since they're already actively posted defending a
+///        specific building -- pulling an idle GUARD unit instead costs
+///        nothing extra to "keep". Guard only fills whatever gap remains
+///        after defend is exhausted. If _units contains fewer than
+///        _reserveCount total, ALL of them are reserved (surplus may be
+///        empty) -- an empty or under-strength siege/probe commitment is
+///        preferable to dropping the team's own defensive floor.
+/// @param {Array<Id.Instance>} _units
+/// @param {Real} _reserveCount
+/// @returns {Array<Id.Instance>} The surplus, NOT the reserved units.
+function AI_ReserveDefensiveUnits(_units, _reserveCount) {
+    var _split  = AI_PartitionByPosture(_units);
+    var _defend = _split.defend;
+    var _guard  = _split.guard;
+
+    var _reserved = [];
+
+    var _defendReserve = min(_reserveCount, array_length(_defend));
+    for (var i = 0; i < _defendReserve; i++) array_push(_reserved, _defend[i]);
+
+    var _stillNeeded  = _reserveCount - _defendReserve;
+    var _guardReserve = min(max(_stillNeeded, 0), array_length(_guard));
+    for (var i = 0; i < _guardReserve; i++) array_push(_reserved, _guard[i]);
+
+    var _surplus = [];
+    for (var i = 0; i < array_length(_units); i++) {
+        if (!array_contains(_reserved, _units[i])) array_push(_surplus, _units[i]);
+    }
+    return _surplus;
+}
+
+/// @function AI_UncoveredBuildingsByTier(_team)
+/// @description Every _team-owned, currently-placed building with ZERO
+///        live "defend" units currently posted at it (no unit's
+///        defendTarget points to it), bucketed into AI_BuildingPlotTier
+///        and returned REAR-first, then MID, then FRONT. 2026-07-12
+///        request: "spreads its defensive force around its buildings, and
+///        the different groups of plots, prioritizing its rear... plots
+///        for protection over the front plots." Recomputed fresh every
+///        call (same "don't cache, recompute" convention as
+///        GetStationedPassiveBonuses/TrainingTypeLimit) -- building/unit
+///        counts are small enough that this is cheap.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Array<Id.Instance>}
+function AI_UncoveredBuildingsByTier(_team) {
+    var _byTier = [[], [], []]; // index = AI_PLOT_TIER_*
+
+    with (oBuildingParent) {
+        if (team != _team) continue;
+        array_push(_byTier[AI_BuildingPlotTier(id)], id);
+    }
+
+    var _defended = [];
+    with (oUnitParent) {
+        if (team == _team && fsm.Is("defend") && instance_exists(defendTarget)) {
+            array_push(_defended, defendTarget);
+        }
+    }
+
+    var _uncovered = [];
+    for (var t = 0; t < array_length(_byTier); t++) {
+        for (var i = 0; i < array_length(_byTier[t]); i++) {
+            if (!array_contains(_defended, _byTier[t][i])) {
+                array_push(_uncovered, _byTier[t][i]);
+            }
+        }
+    }
+    return _uncovered;
+}
+
+/// @function AI_TryMaintainDefensiveSpread(_team)
+/// @description Proactively posts idle "guard" units to "defend" whichever
+///        of _team's own buildings currently has zero defenders,
+///        REAR-tier first (see AI_UncoveredBuildingsByTier). Only ever
+///        pulls from "guard" -- never reassigns an already-"defend" unit,
+///        matching AI_ReserveDefensiveUnits' same "guard is the flexible
+///        pool, defend stays put" philosophy -- and posts at most
+///        AI_SPREAD_ATTEMPTS_PER_TICK per think tick, gradual rather than a
+///        lump reassignment. Called from AI_BuildUp_Step BEFORE
+///        AI_TryStationUnits: physical coverage at every building takes
+///        priority over the passive stationed-bonus optimization, since a
+///        completely undefended building can be lost outright while a
+///        delayed stationing is only a missed economic edge.
+///
+///        Scope note: only guarantees each building has AT LEAST ONE
+///        defender, not any particular garrison size per building --
+///        going further (e.g. 2+ defenders on a high-value building) would
+///        need its own request/tuning pass.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+function AI_TryMaintainDefensiveSpread(_team) {
+    var _uncovered = AI_UncoveredBuildingsByTier(_team);
+    if (array_length(_uncovered) == 0) return;
+
+    var _guards = [];
+    with (oUnitParent) {
+        if (team == _team && fsm.Is("guard")) array_push(_guards, id);
+    }
+    if (array_length(_guards) == 0) return;
+
+    var _attempts = min(AI_SPREAD_ATTEMPTS_PER_TICK, min(array_length(_uncovered), array_length(_guards)));
+    for (var i = 0; i < _attempts; i++) {
+        IssueOrderToUnits("defend", [_guards[i]], _uncovered[i]);
+    }
+}
+
 /// @function AI_BuildUp_Step(_brain, _machine)
 /// @description AI onStep for "build_up" -- the AI's default economic/
 ///        training/massing posture. Each think tick: checks the AI's OWN
@@ -83,14 +321,29 @@ function AI_GatherAvailableUnits(_team) {
 ///        attack (see AI_CastleUnderThreat -- this outranks the ordinary
 ///        building-threat check right below it), then checks for an
 ///        ordinary threatened building and hands off to "defending" if one
-///        exists (see AI_DetectThreat). Otherwise spends affordable
-///        blueprints (AI_TryPlaceBlueprints, composition-aware -- replacing
-///        a depleted/missing resource producer takes priority) and queues
-///        training (AI_TryTrainComposition, weighted toward under-
-///        represented tags) -- then gathers every AVAILABLE unit
-///        (AI_GatherAvailableUnits) and, once their combined AI_ArmyPower
-///        reaches AI_SiegePowerThreshold(), commits all of them to "siege"
-///        against the enemy castle.
+///        exists (see AI_DetectThreat). Otherwise, in order:
+///          1. Spends affordable blueprints (AI_TryPlaceBlueprints,
+///             composition-aware -- replacing a depleted/missing resource
+///             producer takes priority).
+///          2. Queues training (AI_TryTrainComposition, weighted toward
+///             under-represented tags).
+///          3. Posts idle guards to cover any undefended owned building,
+///             rear-tier plots first (AI_TryMaintainDefensiveSpread,
+///             2026-07-12 -- physical coverage before economic tuning).
+///          4. Stations a few idle units for their passive bonuses
+///             (AI_TryStationUnits).
+///          5. Gathers every AVAILABLE unit (AI_GatherAvailableUnits) and
+///             carves out AI_MinDefensiveReserve's floor
+///             (AI_ReserveDefensiveUnits, 2026-07-12 replacement for the
+///             old flat 2-guard AI_ReserveGuardUnits -- "leave at least
+///             1/4 of its army to defend/guard/station at any given
+///             time") -- whatever's left is _surplus.
+///          6. Offers _surplus to AI_TryProbeAttack (2026-07-12 addition --
+///             small early-game harassment against an ordinary enemy
+///             building, separate from the siege threshold below).
+///          7. Whatever's left of _surplus after that, once its combined
+///             AI_ArmyPower reaches AI_SiegePowerThreshold(), commits to
+///             "siege" against the enemy castle.
 /// @param {Struct.AIBrain} _brain
 /// @param {Struct.StateMachine} _machine
 function AI_BuildUp_Step(_brain, _machine) {
@@ -106,10 +359,17 @@ function AI_BuildUp_Step(_brain, _machine) {
 
     AI_TryPlaceBlueprints(_brain.team);
     AI_TryTrainComposition(_brain.team);
+    AI_TryMaintainDefensiveSpread(_brain.team);
+    AI_TryStationUnits(_brain.team);
 
-    var _available = AI_GatherAvailableUnits(_brain.team);
-    if (array_length(_available) > 0 && AI_ArmyPower(_available) >= AI_SiegePowerThreshold()) {
-        IssueOrderToUnits("siege", _available);
+    var _available     = AI_GatherAvailableUnits(_brain.team);
+    var _reserveNeeded = max(0, AI_MinDefensiveReserve(_brain.team) - AI_CurrentStationedCount(_brain.team));
+    var _surplus       = AI_ReserveDefensiveUnits(_available, _reserveNeeded);
+
+    _surplus = AI_TryProbeAttack(_brain, _surplus);
+
+    if (array_length(_surplus) > 0 && AI_ArmyPower(_surplus) >= AI_SiegePowerThreshold()) {
+        IssueOrderToUnits("siege", _surplus);
     }
 }
 
@@ -119,19 +379,39 @@ function AI_BuildUp_Step(_brain, _machine) {
 ///        unit nearby. Every think tick while here: checks the AI's OWN
 ///        castle first and escalates to "castle_defense" if it comes under
 ///        attack too (same priority ordering as AI_BuildUp_Step -- the
-///        castle always outranks an ordinary building), then re-checks the
-///        building threat (reverting to "build_up" the moment nothing's
-///        threatened anymore) and, while one persists, sends every
+///        castle always outranks an ordinary building), then re-checks
+///        building threats (reverting to "build_up" the moment nothing's
+///        threatened anymore) and, while any persist, sends every
 ///        currently AVAILABLE unit (AI_GatherAvailableUnits) to "defend"
-///        the threatened building -- reusing the existing player-facing
-///        "defend" order/state unchanged, so responders patrol it and
-///        auto-engage anything that wanders into their attackAggroRadius
-///        (Defend_Step's existing proximity-aggro check,
-///        UnitStateDefend.gml) with zero new combat logic needed.
+///        one of them -- reusing the existing player-facing "defend"
+///        order/state unchanged, so responders patrol it and auto-engage
+///        anything that wanders into their attackAggroRadius (Defend_Step's
+///        existing proximity-aggro check, UnitStateDefend.gml) with zero
+///        new combat logic needed.
+///
+///        2026-07-12 change ("moving units to defend different
+///        buildings"): now uses AI_DetectThreats (plural) instead of just
+///        the first threatened building AI_DetectThreat finds, and
+///        distributes _available across ALL of them -- each unit is
+///        assigned to whichever threatened building scores lowest
+///        (distance PLUS a tier penalty, not a flat/even split), so
+///        responders already close to one threatened building don't get
+///        routed across the map to another. Previously every available
+///        unit was dumped on the single first-found building, leaving any
+///        other simultaneously threatened building completely undefended.
+///
+///        2026-07-12 follow-up ("prioritizing its rear... plots for
+///        protection over the front plots"): the per-building score is now
+///        distance + AI_BuildingPlotTier(building) * AI_DEFEND_TIER_WEIGHT
+///        -- REAR (inside castle) buildings get no penalty, MID and FRONT
+///        buildings get progressively larger ones, biasing responders
+///        toward rear buildings whenever the choice is close without
+///        overriding a unit that's overwhelmingly nearer a FRONT building.
+///
 ///        Economy/training pause while defending (does not call
-///        AI_TryPlaceBlueprints/AI_TryTrainComposition) -- a deliberate
-///        scope choice, not an oversight; flag if the AI should keep
-///        building through a skirmish instead.
+///        AI_TryPlaceBlueprints/AI_TryTrainComposition/AI_TryStationUnits)
+///        -- a deliberate scope choice, not an oversight; flag if the AI
+///        should keep building through a skirmish instead.
 /// @param {Struct.AIBrain} _brain
 /// @param {Struct.StateMachine} _machine
 function AI_Defending_Step(_brain, _machine) {
@@ -140,15 +420,48 @@ function AI_Defending_Step(_brain, _machine) {
         return;
     }
 
-    var _threatenedBuilding = AI_DetectThreat(_brain.team);
-    if (_threatenedBuilding == noone) {
+    var _threatened = AI_DetectThreats(_brain.team);
+    if (array_length(_threatened) == 0) {
         _machine.ChangeState("build_up");
         return;
     }
 
     var _available = AI_GatherAvailableUnits(_brain.team);
-    if (array_length(_available) > 0) {
-        IssueOrderToUnits("defend", _available, _threatenedBuilding);
+    if (array_length(_available) == 0) return;
+
+    // Nearest-building assignment -- see file header above for why this
+    // beats a flat split. Grouped into one IssueOrderToUnits call PER
+    // building (not one call per unit) so "defend" only re-evaluates
+    // DefendBuildingWaypoints once per building this tick, matching the
+    // batching every other IssueOrderToUnits caller already does.
+    var _groups = array_create(array_length(_threatened));
+    for (var i = 0; i < array_length(_groups); i++) _groups[i] = [];
+
+    // 2026-07-12: per-building tier penalty computed once, not per-unit
+    // (see file header's "prioritizing rear" addition).
+    var _tierPenalty = array_create(array_length(_threatened));
+    for (var j = 0; j < array_length(_threatened); j++) {
+        _tierPenalty[j] = AI_BuildingPlotTier(_threatened[j]) * AI_DEFEND_TIER_WEIGHT;
+    }
+
+    for (var i = 0; i < array_length(_available); i++) {
+        var _unit      = _available[i];
+        var _bestIndex = 0;
+        var _bestScore = infinity;
+        for (var j = 0; j < array_length(_threatened); j++) {
+            var _score = point_distance(_unit.x, _unit.y, _threatened[j].x, _threatened[j].y) + _tierPenalty[j];
+            if (_score < _bestScore) {
+                _bestScore = _score;
+                _bestIndex = j;
+            }
+        }
+        array_push(_groups[_bestIndex], _unit);
+    }
+
+    for (var i = 0; i < array_length(_threatened); i++) {
+        if (array_length(_groups[i]) > 0) {
+            IssueOrderToUnits("defend", _groups[i], _threatened[i]);
+        }
     }
 }
 
@@ -250,6 +563,44 @@ function AI_DetectThreat(_team) {
                 break;
             }
         }
+    }
+    return _found;
+}
+
+/// @function AI_DetectThreats(_team)
+/// @description Plural counterpart to AI_DetectThreat, added 2026-07-12
+///        ("moving units to defend different buildings" request) --
+///        returns EVERY currently threatened _team-owned building instead
+///        of stopping at the first one found. Used by AI_Defending_Step,
+///        which needs the full list to distribute defenders across every
+///        threatened building, not just detect that one exists. Same per-
+///        building AI_THREAT_RADIUS collision check as AI_DetectThreat;
+///        that function is kept as-is (cheap early-exit "is ANYTHING
+///        threatened at all" check -- used by AI_BuildUp_Step's posture-
+///        transition guard and AIBrain.Step's urgency interrupt, neither
+///        of which needs the full list) rather than rewritten in terms of
+///        this one, so the common case (nothing threatened) doesn't pay
+///        for building an array it doesn't need.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Array<Id.Instance>}
+function AI_DetectThreats(_team) {
+    var _found = [];
+    with (oBuildingParent) {
+        if (team != _team) continue;
+
+        var _list  = ds_list_create();
+        var _count = collision_circle_list(x, y, AI_THREAT_RADIUS, oUnitParent, false, true, _list, false);
+
+        var _threatened = false;
+        for (var i = 0; i < _count; i++) {
+            if (_list[| i].team != _team) {
+                _threatened = true;
+                break;
+            }
+        }
+        ds_list_destroy(_list);
+
+        if (_threatened) array_push(_found, id);
     }
     return _found;
 }
@@ -519,4 +870,172 @@ function AI_TryTrainComposition(_team) {
             TrainingTryQueueUnit(id);
         }
     }
+}
+
+// -----------------------------------------------------------
+// AI stationing -- 2026-07-12 "use stationed units" request. The AI now
+// deliberately converts some of its own idle "guard" units into stationed
+// units for their passive bonuses (GetStationedPassiveBonuses,
+// StationScripts.gml), the same way a player would via the castle
+// garrison dropdown -- just automated, gradual, and reserve-aware so it
+// doesn't hollow out its own standing defense to do it.
+// -----------------------------------------------------------
+
+/// @function AI_CurrentStationedCount(_team)
+/// @description Total live oUnitStationed belonging to _team, any type.
+///        Used by AI_TryStationUnits to respect AI_STATION_MAX_STATIONED.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Real}
+function AI_CurrentStationedCount(_team) {
+    var _count = 0;
+    with (oUnitStationed) {
+        if (team == _team) _count++;
+    }
+    return _count;
+}
+
+/// @function AI_UnitStationedBonusValue(_def)
+/// @description Sum of a unit type's stationedBonuses[].amount -- a rough
+///        single-number "how much value does this unit type gain from
+///        being stationed" score, same rough-heuristic spirit as
+///        AI_UnitPowerScore. 0 for any unit with no stationedBonuses at
+///        all (Archer today, per its own "skip for now" scope note in
+///        UnitDefinitions.gml) -- such units are NEVER worth auto-
+///        stationing, see AI_TryStationUnits.
+/// @param {Struct.UnitDefinition} _def
+/// @returns {Real}
+function AI_UnitStationedBonusValue(_def) {
+    var _total = 0;
+    for (var i = 0; i < array_length(_def.stationedBonuses); i++) {
+        _total += _def.stationedBonuses[i].amount;
+    }
+    return _total;
+}
+
+/// @function AI_TryStationUnits(_team)
+/// @description Called once per think tick from AI_BuildUp_Step (never
+///        while defending/castle_defense -- see that state's own doc
+///        comment). No-ops immediately if _team is already at
+///        AI_STATION_MAX_STATIONED. Otherwise gathers every "guard" unit
+///        (NOT "defend" -- those are already actively posted at a
+///        building, never pulled for this).
+///
+///        2026-07-12 follow-up ("make sure it is placing some buildings
+///        with units that have higher benefits to station than to be
+///        abroad") -- only units with a NONZERO AI_UnitStationedBonusValue
+///        are even eligible (stationing an Archer today would be pure
+///        waste, zero benefit either way); among those, the WEAKEST in
+///        combat (lowest AI_UnitPowerScore) go first -- a unit that
+///        contributes little in a fight loses little by sitting in the
+///        garrison instead, same logic the request's own Peasant example
+///        makes (weak melee, but a real stationed production bonus).
+///        stationCost is only a final tiebreaker now (cheaper first),
+///        preserving some of the old greedy-affordability behavior when
+///        power scores are equal.
+///
+///        The AI_STATION_MIN_GUARD_RESERVE floor is still checked against
+///        the TOTAL guard count (not just eligible ones) -- ineligible
+///        guards (no stationed bonus) still count as "kept back" even
+///        though they'd never be picked anyway. Posts up to
+///        AI_STATION_ATTEMPTS_PER_TICK per tick, same gradual-not-lump-dump
+///        reasoning as before.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+function AI_TryStationUnits(_team) {
+    if (AI_CurrentStationedCount(_team) >= AI_STATION_MAX_STATIONED) return;
+
+    var _guards = [];
+    with (oUnitParent) {
+        if (team == _team && fsm.Is("guard")) array_push(_guards, id);
+    }
+    if (array_length(_guards) <= AI_STATION_MIN_GUARD_RESERVE) return;
+
+    var _eligible = [];
+    for (var i = 0; i < array_length(_guards); i++) {
+        var _def = GetUnitDefinition(_guards[i].object_index);
+        if (_def != undefined && AI_UnitStationedBonusValue(_def) > 0) {
+            array_push(_eligible, _guards[i]);
+        }
+    }
+    if (array_length(_eligible) == 0) return;
+
+    array_sort(_eligible, function(_a, _b) {
+        var _powerDiff = AI_UnitPowerScore(_a) - AI_UnitPowerScore(_b);
+        if (_powerDiff != 0) return _powerDiff;
+        return GetUnitDefinition(_a.object_index).stationCost - GetUnitDefinition(_b.object_index).stationCost;
+    });
+
+    var _spareCount = array_length(_guards) - AI_STATION_MIN_GUARD_RESERVE;
+    var _attempts   = min(AI_STATION_ATTEMPTS_PER_TICK, min(_spareCount, array_length(_eligible)));
+    for (var i = 0; i < _attempts; i++) {
+        IssueOrderToUnits("station", [_eligible[i]]);
+    }
+}
+
+// -----------------------------------------------------------
+// AI early-game probe attacks -- 2026-07-12 request ("add an early game
+// 'probe attack', where it sends a few units to attack enemy buildings").
+// Small, cheap harassment, deliberately separate from "siege" (which
+// targets the enemy CASTLE specifically and requires
+// AI_SiegePowerThreshold's much higher army-power bar) -- a probe targets
+// an ordinary enemy building via the same "attack" order/state a player
+// uses (Attack_Enter/Attack_Step, UnitStateAttackMelee.gml), through
+// IssueOrderToUnits, same as every other AI-issued order in this file.
+// -----------------------------------------------------------
+
+/// @function AI_TryProbeAttack(_brain, _surplus)
+/// @description Called once per think tick from AI_BuildUp_Step, AFTER the
+///        defensive-floor reserve has already been carved out of _surplus
+///        -- probes draw from the SAME uncommitted pool siege does, so
+///        they respect AI_MIN_DEFENSIVE_ARMY_FRACTION too. No-ops (returns
+///        _surplus unchanged) if: _brain.age is past AI_PROBE_WINDOW_FRAMES
+///        (early game only), _brain.probeCooldown hasn't expired yet,
+///        _surplus has fewer than AI_PROBE_ATTACK_SIZE units to spare, or
+///        the enemy currently owns no building at all. On a successful
+///        probe, picks ONE random currently-standing enemy oBuildingParent
+///        (never the castle -- "attack" order is building-only, matching
+///        its existing player-facing scope, see OrderWiring.gml) and sends
+///        up to AI_PROBE_ATTACK_SIZE units at it, preferring GUARD units
+///        over DEFEND units within _surplus (same "leave posted defenders
+///        alone if there's any other option" priority
+///        AI_ReserveDefensiveUnits uses), then resets the cooldown. Does
+///        NOT check the target building's own defenses -- a probe that
+///        gets its raiders killed against a defended building is expected
+///        behavior for a probe (that IS the information it's gathering),
+///        not a bug.
+/// @param {Struct.AIBrain} _brain
+/// @param {Array<Id.Instance>} _surplus Units already cleared for offense
+///        this tick (AI_ReserveDefensiveUnits' output in AI_BuildUp_Step).
+/// @returns {Array<Id.Instance>} _surplus minus whatever units were sent
+///        on a probe (unchanged if nothing fired).
+function AI_TryProbeAttack(_brain, _surplus) {
+    if (_brain.age >= AI_PROBE_WINDOW_FRAMES) return _surplus;
+    if (_brain.probeCooldown > 0) return _surplus;
+    if (array_length(_surplus) < AI_PROBE_ATTACK_SIZE) return _surplus;
+
+    var _enemyTeam = (_brain.team == TEAM.PLAYER) ? TEAM.ENEMY : TEAM.PLAYER;
+    var _targets = [];
+    with (oBuildingParent) {
+        if (team == _enemyTeam) array_push(_targets, id);
+    }
+    if (array_length(_targets) == 0) return _surplus;
+
+    var _target = _targets[irandom(array_length(_targets) - 1)];
+
+    var _split   = AI_PartitionByPosture(_surplus);
+    var _raiders = [];
+    for (var i = 0; i < array_length(_split.guard) && array_length(_raiders) < AI_PROBE_ATTACK_SIZE; i++) {
+        array_push(_raiders, _split.guard[i]);
+    }
+    for (var i = 0; i < array_length(_split.defend) && array_length(_raiders) < AI_PROBE_ATTACK_SIZE; i++) {
+        array_push(_raiders, _split.defend[i]);
+    }
+
+    IssueOrderToUnits("attack", _raiders, _target);
+    _brain.probeCooldown = AI_PROBE_INTERVAL_FRAMES;
+
+    var _remaining = [];
+    for (var i = 0; i < array_length(_surplus); i++) {
+        if (!array_contains(_raiders, _surplus[i])) array_push(_remaining, _surplus[i]);
+    }
+    return _remaining;
 }

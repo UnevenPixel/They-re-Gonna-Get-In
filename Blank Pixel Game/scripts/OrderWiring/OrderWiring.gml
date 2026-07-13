@@ -92,4 +92,33 @@ function RegisterAllOrders() {
     // request: "If multiple units are selected to station, and the player
     // can't afford to station all of them... selecting the cheapest
     // options to station, and do as many as the player can afford." A unit
-    // whose Purchase fails is sim
+    // whose Purchase fails is simply skipped (not dispatched, nothing
+    // spent for it) and the loop continues rather than stopping outright --
+    // today's cost is gold-only, so once the cheapest-remaining unit can't
+    // be afforded nothing pricier after it can either, but continuing
+    // (instead of breaking) keeps this correct if stationCost ever grows
+    // into a multi-resource Cost.
+    RegisterOrder(new Order("station", "Station", function(_units, _context) {
+        var _alive = [];
+        for (var i = 0; i < array_length(_units); i++) {
+            if (instance_exists(_units[i])) array_push(_alive, _units[i]);
+        }
+
+        array_sort(_alive, function(_a, _b) {
+            return GetUnitDefinition(_a.object_index).stationCost - GetUnitDefinition(_b.object_index).stationCost;
+        });
+
+        for (var i = 0; i < array_length(_alive); i++) {
+            var _unit = _alive[i];
+            if (!Purchase(GetUnitStationCost(_unit.object_index), _unit.team)) {
+                show_debug_message($"station order: team {_unit.team} can't afford to station {object_get_name(_unit.object_index)} ({GetUnitDefinition(_unit.object_index).stationCost}g) -- skipping.");
+                continue;
+            }
+            _unit.fsm.ChangeState("station");
+        }
+    }));
+
+    // "combat" is intentionally NOT registered as a player-issuable
+    // order -- units enter it automatically (e.g. when attacked while
+    // guarding), it's not something a player should pick from a menu.
+}

@@ -70,10 +70,16 @@
 ///               tiers later.") -- there's no real tier design yet beyond that.
 ///        tags              {Array<String>} [optional, defaults to []] For search
 ///               scripts -- see UnitHasTag below.
-///        passives          {Array<Struct>} [optional, defaults to []] Shape not
-///               designed yet -- no passive-ability system exists. Treat each
-///               entry as inert data ({name, description}) until there's an
-///               actual hook to call it; flag before building real logic on this.
+///        passives          {Array<Struct>} [optional, defaults to []] Still
+///               free-text-only ({name, description}) -- shown verbatim on
+///               hover cards (UnitHoverStationFlavorText/
+///               UnitHoverDeployedPassiveText, UnitHoverScripts.gml). As of
+///               2026-07-12, the "Stationed Effect" entry's real numeric
+///               magnitude (where one exists) lives SEPARATELY in
+///               stationedBonuses below -- passives itself still has no
+///               hook and nothing enforces the two stay in sync; keep them
+///               worded consistently by hand. "Deployed Effect" entries
+///               remain entirely inert (no hook exists for those at all).
 ///        projectileObject  {Asset.GMObject} [optional, defaults to undefined]
 ///               The projectile a ranged unit fires -- see SpawnProjectile
 ///               (ProjectileScripts.gml), which reads this off the firing
@@ -97,6 +103,60 @@
 ///               reads it off an instance, every consumer already has the
 ///               UnitDefinition in hand (GetUnitDefinition), so duplicating
 ///               it there would just be dead data to keep in sync.
+///        stationedBonuses  {Array<Struct>} [optional, defaults to []]
+///               2026-07-12 addition -- the FUNCTIONAL counterpart to the
+///               "Stationed Effect" passives entry's flavor text. Each
+///               entry is {type, amount}: type is one of
+///               "allResourceProduction" / "goldProduction" / "unitHealth"
+///               / "unitDamage" / "trainingSpeed", amount is a fractional
+///               bonus (0.05 = +5%). GetStationedPassiveBonuses
+///               (StationScripts.gml) sums `amount` onto
+///               StationedBonuses[type + "Bonus"] once per live
+///               oUnitStationed of this type on a team -- i.e. every entry
+///               here stacks linearly per unit stationed, matching each
+///               unit's own "(stacks per X stationed)" flavor wording.
+///               Archer's "Ranged attacks from the wall" passive is
+///               deliberately NOT represented here -- that would mean a
+///               garrisoned (non-live) unit actively firing on enemies, a
+///               real new combat mechanic rather than a stat multiplier;
+///               explicitly out of scope for the 2026-07-12 pass per user
+///               clarification ("skip for now"). Leave stationedBonuses:
+///               [] for any unit whose Stationed Effect has no numeric
+///               hook yet.
+///        gibSprite         {Asset.GMSprite} [optional, defaults to undefined]
+///               2026-07-12 addition ("set up gibbing" request) -- this
+///               unit's own unique on-death gib sprite (single frame,
+///               e.g. sPeasantGib), spawned alongside the general chunks
+///               by SpawnUnitDeathGibs (GibScripts.gml). Undefined for any
+///               unit with no unique gib sprite yet (Bomb Goblin -- no
+///               sprite exists for it; Mud Golem is excluded from the
+///               whole gibbing system regardless of this field, see
+///               GibScripts.gml).
+///        usesGeneralChunks {Bool} [optional, defaults to true]
+///               2026-07-12 addition -- false skips the shared
+///               sGeneralChunks burst entirely for this unit's death
+///               (still gets the instant blood splatter, its own
+///               gibSprite if it has one, and the death blood-pixel
+///               burst). Only Bomb Goblin sets this false today -- it
+///               already has its own explosion animation
+///               (sBombGoblinExplode) and no unique gib sprite, so the
+///               remaining generic debris chunks would look mismatched.
+///        productionBuildingDamageBonus {Real} [optional, defaults to 0]
+///               2026-07-12 follow-up -- the FUNCTIONAL counterpart to
+///               Knight's "Deployed Effect" flavor text ("Bonus damage
+///               against production buildings"), same
+///               flavor-text-to-numeric-field pattern stationedBonuses
+///               already established. Fractional bonus (0.5 = +50%)
+///               applied ONLY when this unit's melee hit lands on a
+///               building that's an oResourceBuildingParent (WaterPump/
+///               WheatField/Sawmill/GoldMine/IronMine -- see
+///               UnitTryDealDamage, UnitCombatHelpers.gml) -- NOT training
+///               buildings or the castle. 0 (no bonus) for every unit but
+///               Knight. Scoped specifically to "production buildings"
+///               per the flavor text's own wording, not a generic
+///               vs-any-building bonus -- if a future unit needs a bonus
+///               against a DIFFERENT building category, this field's name/
+///               scope will need revisiting rather than reusing it as-is.
 function UnitDefinition(_data) constructor {
     name              = _data.name;
     description       = _data.description;
@@ -120,6 +180,10 @@ function UnitDefinition(_data) constructor {
     passives          = variable_struct_exists(_data, "passives") ? _data.passives : [];
     projectileObject  = variable_struct_exists(_data, "projectileObject") ? _data.projectileObject : undefined;
     stationCost       = variable_struct_exists(_data, "stationCost") ? _data.stationCost : 0;
+    stationedBonuses  = variable_struct_exists(_data, "stationedBonuses") ? _data.stationedBonuses : [];
+    gibSprite         = variable_struct_exists(_data, "gibSprite") ? _data.gibSprite : undefined;
+    usesGeneralChunks = variable_struct_exists(_data, "usesGeneralChunks") ? _data.usesGeneralChunks : true;
+    productionBuildingDamageBonus = variable_struct_exists(_data, "productionBuildingDamageBonus") ? _data.productionBuildingDamageBonus : 0;
 }
 
 // -----------------------------------------------------------
@@ -240,6 +304,30 @@ function GetCurrentHealth(_instance) {
 ///        oUnitParent/Create_0.gml) and after RegisterAllUnitDefinitions()
 ///        has run at game start. Logs and no-ops if no definition is
 ///        registered for this object type.
+///
+///        2026-07-12 addition: maxHealth/attackDamage are scaled by
+///        _unit.TEAM's current unitHealthBonus/unitDamageBonus (Mud Golem/
+///        Soldier's stationed passives -- GetStationedPassiveBonuses,
+///        StationScripts.gml), rounded to the nearest whole number (HP/
+///        damage read as whole numbers everywhere else in this codebase).
+///        Bonus is baked in ONCE, at whatever moment this function runs --
+///        NOT re-applied retroactively to units already alive when a new
+///        Mud Golem/Soldier gets stationed later, and not removed if that
+///        unit later redeploys back out. See GetStationedPassiveBonuses'
+///        file-header comment (StationScripts.gml) for why this pass
+///        deliberately doesn't do full dynamic re-application.
+///
+///        IMPORTANT: _unit.team must already be its FINAL value before
+///        this runs, or the bonus for the WRONG team gets baked in. This
+///        function is called from oUnitParent's Create event (still the
+///        TEAM.PLAYER default at that point for any spawn path that
+///        overrides team AFTER creation -- see the HAZARD comment in
+///        oUnitParent/Create_0.gml), so every such path must call this
+///        again after its team override. DeployStationedUnit
+///        (StationScripts.gml) already did; TrainingSpawnUnit
+///        (TrainingScripts.gml) is updated alongside this change to do
+///        the same, since it previously relied on the stale Create-time
+///        call, which read TEAM.PLAYER's bonuses for an AI-trained unit.
 /// @param {Id.Instance} _unit
 function UnitApplyDefinition(_unit) {
     var _def = GetUnitDefinition(_unit.object_index);
@@ -250,8 +338,9 @@ function UnitApplyDefinition(_unit) {
 
     _unit.unitData.unitType = _unit.object_index;
 
-    _unit.maxHealth         = _def.maxHealth;
-    _unit.attackDamage      = _def.attackDamage;
+    var _bonus = GetStationedPassiveBonuses(_unit.team);
+    _unit.maxHealth         = round(_def.maxHealth    * (1 + _bonus.unitHealthBonus));
+    _unit.attackDamage      = round(_def.attackDamage * (1 + _bonus.unitDamageBonus));
     _unit.attackRange       = _def.attackRange;
     _unit.attackLeashRange  = _def.attackLeashRange;
     _unit.attackHitFrame    = _def.attackHitFrame;
@@ -328,6 +417,10 @@ function RegisterAllUnitDefinitions() {
             {name: "Stationed Effect", description: "+5% all resource production speed per peasant stationed."},
             {name: "Deployed Effect",  description: "Weak melee."},
         ],
+        stationedBonuses: [
+            {type: "allResourceProduction", amount: 0.05}, // 2026-07-12, see GetStationedPassiveBonuses (StationScripts.gml)
+        ],
+        gibSprite: sPeasantGib, // 2026-07-12, see GibScripts.gml
     }));
 
     RegisterUnitDefinition(oBombGoblinUnit, new UnitDefinition({
@@ -335,7 +428,7 @@ function RegisterAllUnitDefinitions() {
         description:       "Straps on a bomb and sprints at the enemy. Dies on detonation.",
         cost:              new Cost([new ResourceCost("gold", 8)]),
         maxHealth:         6,
-        attackDamage:      20, // sheet lists this as "20 AOE" -- see NOTE below, AoE + self-destruct-on-hit aren't real systems yet
+        attackDamage:      20, // sheet lists this as "20 AOE" -- see NOTE below; self-destruct-on-hit is now real (2026-07-12 follow-up, UnitTryDealDamage), AoE (hitting more than the single _target) is still not
         attackRange:       20,
         attackLeashRange:  260,
         attackHitFrame:    2,
@@ -354,8 +447,12 @@ function RegisterAllUnitDefinitions() {
         passives: [
             {name: "Stationed Effect", description: "+15% speed boost to gold production per Bomb Goblin stationed."},
             {name: "Deployed Effect",  description: "One of, if not the fastest unit in the game. Reaches the enemy quickly and inflicts AoE damage, but dies after use."},
-            {name: "Notes",           description: "Their AoE damage also hits friendly units -- NOT implemented; there's no AoE damage or self-destruct-on-hit logic yet, UnitTryDealDamage (UnitCombatHelpers.gml) is still a TODO stub for ALL units."},
+            {name: "Notes",           description: "Dies immediately after its swing connects (2026-07-12 follow-up, UnitTryDealDamage/oUnitParent). Their AoE damage also hitting friendly units is still NOT implemented -- there's no actual area-of-effect damage yet, only the single-target hit every other melee unit deals."},
         ],
+        stationedBonuses: [
+            {type: "goldProduction", amount: 0.15}, // 2026-07-12, gold only -- stacks additively with allResourceProduction bonuses from other stationed types
+        ],
+        usesGeneralChunks: false, // 2026-07-12 -- already has its own explosion animation (sBombGoblinExplode) and no unique gib sprite; general debris chunks would look mismatched. Still gets the instant splatter + death blood-pixel burst.
     }));
 
     RegisterUnitDefinition(oMudGolemUnit, new UnitDefinition({
@@ -383,6 +480,14 @@ function RegisterAllUnitDefinitions() {
             {name: "Stationed Effect", description: "+5% HP to all units (stacks per Mud Golem stationed)."},
             {name: "Deployed Effect",  description: "Upon death, the ground becomes muddy, applying 80% slow for 5 seconds. NOT implemented -- no on-death effect hook exists yet (nothing in this codebase runs on unit death at all)."},
         ],
+        stationedBonuses: [
+            {type: "unitHealth", amount: 0.05}, // 2026-07-12 -- see UnitApplyDefinition (UnitDefinitions.gml), applied at spawn/redeploy time only, not retroactively to already-live units
+        ],
+        // No gibSprite/usesGeneralChunks override here -- Mud Golem is
+        // excluded from the ENTIRE gibbing system (SpawnUnitDeathGibs/
+        // SpawnUnitHitBlood, GibScripts.gml, both hard-exit early for
+        // oMudGolemUnit specifically), not via these fields. Per explicit
+        // 2026-07-12 request: "except the golem, we will handle his."
     }));
 
     RegisterUnitDefinition(oSoldierUnit, new UnitDefinition({
@@ -410,6 +515,11 @@ function RegisterAllUnitDefinitions() {
             {name: "Stationed Effect", description: "+5% damage & HP to all deployed units (stacks per Soldier stationed)."},
             {name: "Deployed Effect",  description: "Melee combat."},
         ],
+        stationedBonuses: [
+            {type: "unitHealth", amount: 0.05}, // 2026-07-12, stacks with Mud Golem's unitHealth bonus in the same pool
+            {type: "unitDamage", amount: 0.05},
+        ],
+        gibSprite: sSoldierGib, // 2026-07-12, see GibScripts.gml
     }));
 
     RegisterUnitDefinition(oArcherUnit, new UnitDefinition({
@@ -441,6 +551,14 @@ function RegisterAllUnitDefinitions() {
             {name: "Deployed Effect",  description: "Ranged attacks."},
             {name: "Notes",           description: "Upkeep (Stationed): 1 Wheat / 3 sec per data sheet -- still NOT implemented, no upkeep/drain system exists yet. Ranged combat itself IS now real (attackRanged state, UnitStateAttackRanged.gml + oArcherProjectile) -- attackRange is still a judgment call, not sheet-sourced."},
         ],
+        // stationedBonuses deliberately omitted (defaults to []) -- "Ranged
+        // attacks from the wall" would mean a garrisoned unit actively
+        // firing on enemies, a new combat mechanic rather than a stat
+        // multiplier. Explicitly out of scope for the 2026-07-12 passive-
+        // bonus pass per user clarification ("skip for now") -- Archer
+        // contributes no functional stationed bonus yet. Revisit as its
+        // own request.
+        gibSprite: sArcherGib, // 2026-07-12, see GibScripts.gml
     }));
 
     RegisterUnitDefinition(oKnightUnit, new UnitDefinition({
@@ -466,4 +584,24 @@ function RegisterAllUnitDefinitions() {
         stationCost:       50, // Gold, per data sheet -- user-supplied 2026-07-11
         passives: [
             {name: "Stationed Effect", description: "+5% unit production speed."},
-            {name: "Deployed Effect",  description: "Bonus damage against production buildings. NOT implemented -- Attack_Step (UnitStateAttack
+            {name: "Deployed Effect",  description: "+50% bonus damage against production buildings."},
+        ],
+        // 2026-07-12 follow-up -- now implemented via
+        // productionBuildingDamageBonus below (UnitTryDealDamage,
+        // UnitCombatHelpers.gml), 50% picked directly from the request
+        // ("Make it 50% more damage for now") -- the flavor text above
+        // used to just say "NOT implemented," updated to match.
+        productionBuildingDamageBonus: 0.5,
+        stationedBonuses: [
+            // 2026-07-12 -- flavor text doesn't say "(stacks per Knight
+            // stationed)" the way every other unit's does, but
+            // GetStationedPassiveBonuses always stacks linearly per unit
+            // by design (StationScripts.gml); applying the same rule here
+            // for consistency rather than special-casing Knight to a flat
+            // one-time bonus. Flagging the wording gap, not treating it as
+            // a deliberate "no stacking" spec.
+            {type: "trainingSpeed", amount: 0.05},
+        ],
+        gibSprite: sKnightGib, // 2026-07-12, see GibScripts.gml
+    }));
+}

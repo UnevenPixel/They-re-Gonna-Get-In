@@ -202,4 +202,5 @@
   },
   "type":0,
   "VTile":false,
-  "width":1
+  "width":133,
+}

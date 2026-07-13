@@ -21,7 +21,8 @@ DrawResourceBar(TEAM.PLAYER);
 xpBarWidget.Draw(); // lower HUD -- 2026-07-06 request
 plotHoverController.Draw(); // plot hover data -- drawn last so it renders on top of everything else, 2026-07-06 request
 buildingHoverController.Draw(); // placed building hover data -- 2026-07-08 request, same "on top" ordering
+castleBonusHoverController.Draw(); // castle passive-bonus hover panel -- 2026-07-12 request, same "on top" ordering
 blueprintController.DrawHoverCard(); // blueprint slot hover data -- 2026-07-08 request, drawn after the panel + other tooltips
 unitSelectHoverController.Draw(); // top-left single-unit-selected info card -- 2026-07-11 request
 selectionSummaryMenu.Draw(); // top-left multi-unit-selected panel + paired hover card -- 2026-07-12 request, same "on top" ordering
-castleGarrisonMenu.Draw(); // castle-wall-click garris
+castleGarrisonMenu.Draw(); // castle-wall-click garrison dropdown -- 2026-07-11 request, drawn last so it renders on top of everything else, same "on top" ordering as the hover cards above

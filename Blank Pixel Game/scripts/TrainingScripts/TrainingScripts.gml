@@ -182,6 +182,17 @@ function TrainingGetSpawnPoint(_building) {
 ///        than changing oUnitParent's Create to accept a team parameter,
 ///        which would be a bigger change touching every unit spawn path.
 ///
+///        2026-07-12 addition: re-runs UnitApplyDefinition right after the
+///        team override too, same reasoning as guardRect above but for a
+///        NEW hazard -- UnitApplyDefinition now bakes in _unit.team's
+///        current unitHealthBonus/unitDamageBonus (stationed passives,
+///        UnitDefinitions.gml), and the stale Create-time call would have
+///        read TEAM.PLAYER's bonuses for a TEAM.ENEMY spawn (or vice
+///        versa). DeployStationedUnit (StationScripts.gml) already did
+///        this; TrainingSpawnUnit didn't need to before this bonus system
+///        existed, since every OTHER stat UnitApplyDefinition sets is
+///        team-independent.
+///
 ///        Also awards STRATEGIC_XP_FIRST_DEPLOYMENT the first time
 ///        _building.team ever spawns this unit type, tracked via
 ///        global.unitsDeployed[team] (oMatchControl/Create_0.gml) --
@@ -211,6 +222,7 @@ function TrainingSpawnUnit(_building) {
 
     _unit.team      = _building.team;
     _unit.guardRect = GetTeamGuardRect(_unit.team);
+    UnitApplyDefinition(_unit); // re-stamp with the correct team's stationed bonuses now baked in -- see this function's doc comment above
 
     _unit.defendTarget = _building;
     _unit.fsm.ChangeState("defend");
@@ -253,14 +265,22 @@ function TrainingSpawnUnit(_building) {
 ///        Call once per Step from a training building (wired from
 ///        oTrainingBuildingParent/Step_0.gml, so every training building
 ///        gets this automatically).
+///
+///        2026-07-12 addition: progress accrues faster by
+///        _building.team's current trainingSpeedBonus (Knight's stationed
+///        passive -- GetStationedPassiveBonuses, StationScripts.gml), same
+///        "team's current stationed bonuses" pattern BuildingUpdateProduction
+///        uses for resource rate.
 /// @param {Id.Instance} _building
 function TrainingUpdateQueue(_building) {
     _building.image_index = (_building.trainQueue > 0) ? 1 : 0;
 
     if (_building.trainQueue <= 0 || _building.trainTime <= 0) return;
 
+    var _bonus = GetStationedPassiveBonuses(_building.team);
+
     var _dt = delta_time / 1000000; // microseconds -> seconds, same idiom as BuildingUpdateProduction
-    _building.trainProgress += global.matchSpeed * _dt;
+    _building.trainProgress += global.matchSpeed * _dt * (1 + _bonus.trainingSpeedBonus);
 
     while (_building.trainQueue > 0 && _building.trainProgress >= _building.trainTime) {
         _building.trainProgress -= _building.trainTime;
@@ -332,4 +352,8 @@ function DrawTrainingQueueBars() {
         draw_set_color(c_black);
         draw_rectangle(_left.x, _left.y, _right.x, _left.y + 1, false);
         if (_fraction > 0) {
-            draw_set_color(HOVER_CAR
+            draw_set_color(HOVER_CARD_TEXT_COLOR);
+            draw_rectangle(_left.x, _left.y, _left.x + (_right.x - _left.x) * _fraction, _left.y + 1, false);
+        }
+    }
+}

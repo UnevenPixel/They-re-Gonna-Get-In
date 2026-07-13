@@ -55,6 +55,31 @@
 ///        "guard" or "defend"; a unit already fighting (attack,
 ///        attackRanged, siege, combat, combatRanged) just keeps doing what
 ///        it was doing.
+///
+///        2026-07-12 addition ("set up gibbing" request) -- the FIRST
+///        on-hit/on-death visual hook in this codebase (previously
+///        "nothing in this codebase runs on unit death at all", per Mud
+///        Golem's Deployed Effect note, UnitDefinitions.gml). Every
+///        non-lethal hit against a UNIT (buildings don't bleed) spawns 2-4
+///        blood pixels (SpawnUnitHitBlood, GibScripts.gml). The instant a
+///        unit dies, BEFORE instance_destroy below, it gets the full gib
+///        sequence (SpawnUnitDeathGibs) -- splatter + general chunks +
+///        its own unique gib + 4-8 more blood pixels. Both hard-exit
+///        immediately for Mud Golem specifically (excluded entirely per
+///        explicit request -- see SpawnUnitHitBlood/SpawnUnitDeathGibs' own
+///        doc comments).
+///
+///        2026-07-12 follow-up -- non-lethal hits against a BUILDING now
+///        spawn 2-4 gray placeholder particles (SpawnBuildingHitParticles,
+///        GibScripts.gml) in the same else branch, mirroring
+///        SpawnUnitHitBlood's unit case. No building death-particle
+///        equivalent to SpawnUnitDeathGibs exists yet -- the request only
+///        covered the hit reaction, not destruction; the lethal/building
+///        branch below still only calls BuildingFreePlot.
+///
+///        Routes through this ONE function for both melee (UnitTryDealDamage)
+///        and ranged (ProjectileResolveHit) damage, same as everything
+///        else ApplyDamage already does -- no changes needed anywhere else.
 /// @param {Id.Instance} _target
 /// @param {Real} _amount
 /// @param {Id.Instance} [_source] The attacking unit, for kill-credit via
@@ -79,8 +104,16 @@ function ApplyDamage(_target, _amount, _source = noone) {
     }
 
     if (GetCurrentHealth(_target) > 0) {
+        var _isUnitHit = variable_instance_exists(_target, "fsm");
+
+        if (_isUnitHit) {
+            SpawnUnitHitBlood(_target, _source); // 2026-07-12 -- GibScripts.gml, no-ops for Mud Golem internally
+        } else {
+            SpawnBuildingHitParticles(_target, _source); // 2026-07-12 follow-up -- GibScripts.gml, gray placeholder particles
+        }
+
         if (_source != noone && instance_exists(_source)
-            && variable_instance_exists(_target, "fsm")
+            && _isUnitHit
             && (_target.fsm.Is("guard") || _target.fsm.Is("defend"))) {
             UnitEnterCombat(_target, _source);
         }
@@ -104,6 +137,11 @@ function ApplyDamage(_target, _amount, _source = noone) {
             var _tierXp = ((_tier >= 3) ? COMBAT_XP_TIER_3 : ((_tier == 2) ? COMBAT_XP_TIER_2 : COMBAT_XP_TIER_1));
             GainXP(_source.team, _tierXp);
         }
+
+        // 2026-07-12 -- must run BEFORE instance_destroy below (reads
+        // _target.x/y/object_index); no-ops for Mud Golem internally. See
+        // this function's doc comment and GibScripts.gml.
+        SpawnUnitDeathGibs(_target, _source);
     } else {
         // Building destroyed -- always free up whatever plot it was built
         // on (BuildingFreePlot, PlotScripts.gml) so the plot is buildable
@@ -165,6 +203,25 @@ function UnitRevertFromCombat(_machine) {
 /// Guards against multiple hits per swing via _machine.data.hitDealtThisSwing.
 /// Returns true the frame the hit lands, false every other frame.
 ///
+/// 2026-07-12 follow-up additions -- this is the single melee damage choke
+/// point (attack-vs-building, attack's DEFENDER sub-phase vs a unit, combat,
+/// AND siege all route through here, see each state's own file), so both
+/// land here rather than in any one state:
+///   - Knight's productionBuildingDamageBonus (UnitDefinitions.gml, +50%)
+///     applies when _target is an oResourceBuildingParent (production
+///     building only -- not training buildings or the castle), per its
+///     own flavor text ("Bonus damage against production buildings").
+///   - Bomb Goblin ("die when it explodes" request) sets
+///     _unit.pendingSelfDestruct = true the instant its swing actually
+///     connects, instead of destroying it synchronously here -- this
+///     function runs INSIDE the attacking unit's own FSM step (_unit ==
+///     id), and every caller (Attack_Step/UnitStateCombat/UnitStateSiege)
+///     keeps reading _unit's fields immediately after this call returns
+///     (UnitAttackAnimComplete, UnitEndSwing, etc.); destroying it here
+///     would run that code against an already-destroyed instance. The flag
+///     is consumed AFTER fsm.Step() finishes for the frame, in
+///     oUnitParent/Step_0.gml, once it's safe.
+///
 /// @param {Id.Instance} _unit
 /// @param {Id.Instance} _target Any instance with maxHealth (unit or building).
 /// @param {Struct}      _machine
@@ -179,7 +236,18 @@ function UnitTryDealDamage(_unit, _target, _machine) {
 
     if (!instance_exists(_target)) return false;
 
-    ApplyDamage(_target, _unit.attackDamage, _unit);
+    var _damage = _unit.attackDamage;
+    var _attackerDef = GetUnitDefinition(_unit.object_index);
+    if (_attackerDef != undefined && _attackerDef.productionBuildingDamageBonus > 0
+        && object_is_ancestor(_target.object_index, oResourceBuildingParent)) {
+        _damage = round(_damage * (1 + _attackerDef.productionBuildingDamageBonus));
+    }
+
+    ApplyDamage(_target, _damage, _unit);
+
+    if (_unit.object_index == oBombGoblinUnit) {
+        _unit.pendingSelfDestruct = true;
+    }
 
     // Knockback (units only, buildings don't move) -- not implemented,
     // left as the same suggestion this TODO always had:

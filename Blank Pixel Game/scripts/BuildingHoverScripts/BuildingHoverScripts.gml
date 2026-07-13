@@ -188,25 +188,66 @@ function BuildingHoverDescriptionText(_def) {
     return _def.description;
 }
 
-/// @function BuildingHoverTimerText(_def, _building, _isBlueprint)
+/// @function BuildingHoverTimerText(_def, _building, _isBlueprint, _team)
 /// @description The label drawn below the Timer icon -- "{rate} /sec" for
 ///        production buildings, "{trainTime} sec" for training buildings,
 ///        "" for anything else (no Timer icon is drawn at all in that
-///        case -- see BuildingHoverExtras.Layout).
+///        case -- see BuildingHoverExtras.Layout). 2026-07-12 follow-up: the
+///        displayed number now reflects _team's LIVE stationed-unit bonuses
+///        (GetStationedPassiveBonuses, StationScripts.gml -- same source
+///        BuildingUpdateProduction/TrainingUpdateQueue already apply every
+///        tick) instead of the static unmodified definition value, and is
+///        wrapped in PLOT_HOVER_GOOD_COLOR_TAG (green, PlotHoverScripts.gml)
+///        when that makes the number MORE beneficial than the base (more
+///        per second, or less time to train), or PLOT_HOVER_BAD_COLOR_TAG
+///        (red) if it's WORSE -- no active bonus today ever makes either
+///        value worse, but this stays symmetric in case a future negative
+///        modifier is added. No color tag at all (falls back to the card's
+///        default HOVER_CARD_TEXT_COLOR) when the effective value equals
+///        the base, same as before this change. Values are rounded (rate to
+///        the nearest 0.01, time to the nearest 0.1) only when a bonus is
+///        actually skewing them away from the base whole number -- picked
+///        for readability, not specified by the request; flag if a
+///        different precision reads better in practice.
 /// @param {Struct.BuildingDefinition} _def
 /// @param {Id.Instance|Constant.NoOne} _building A placed building
 ///        instance, or noone when _isBlueprint is true.
 /// @param {Bool} _isBlueprint
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY -- indexes
+///        GetStationedPassiveBonuses. Blueprint hover shows what the bonus
+///        WOULD currently grant on placement, same team-awareness
+///        BuildingHoverExtras.Layout's cost row already has.
 /// @returns {String}
-function BuildingHoverTimerText(_def, _building, _isBlueprint) {
+function BuildingHoverTimerText(_def, _building, _isBlueprint, _team) {
+    var _bonus = GetStationedPassiveBonuses(_team);
+
     if (_def.productionResource != undefined) {
-        var _rate = _isBlueprint ? _def.productionRate : _building.productionRate;
-        return $"{_rate} /sec";
+        var _baseRate = _isBlueprint ? _def.productionRate : _building.productionRate;
+        var _goldBonus = (_def.productionResource == "gold") ? _bonus.goldProductionBonus : 0;
+        var _multiplier = 1 + _bonus.allResourceProductionBonus + _goldBonus;
+        var _effectiveRate = round(_baseRate * _multiplier * 100) / 100;
+
+        var _rateText = string(_effectiveRate);
+        if (_effectiveRate > _baseRate) {
+            _rateText = $"[{PLOT_HOVER_GOOD_COLOR_TAG}]{_rateText}[/c]";
+        } else if (_effectiveRate < _baseRate) {
+            _rateText = $"[{PLOT_HOVER_BAD_COLOR_TAG}]{_rateText}[/c]";
+        }
+        return $"{_rateText} /sec";
     }
 
     if (_def.trainsUnit != undefined) {
-        var _time = _isBlueprint ? _def.trainTime : _building.trainTime;
-        return $"{_time} sec";
+        var _baseTime = _isBlueprint ? _def.trainTime : _building.trainTime;
+        var _multiplier = 1 + _bonus.trainingSpeedBonus;
+        var _effectiveTime = (_multiplier > 0) ? round((_baseTime / _multiplier) * 10) / 10 : _baseTime;
+
+        var _timeText = string(_effectiveTime);
+        if (_effectiveTime < _baseTime) {
+            _timeText = $"[{PLOT_HOVER_GOOD_COLOR_TAG}]{_timeText}[/c]";
+        } else if (_effectiveTime > _baseTime) {
+            _timeText = $"[{PLOT_HOVER_BAD_COLOR_TAG}]{_timeText}[/c]";
+        }
+        return $"{_timeText} sec";
     }
 
     return "";
@@ -364,17 +405,19 @@ function BuildingHoverExtras() constructor {
     ///        needed for the blueprint-only cost row's best-available-cost
     ///        lookup (GetBestAvailablePlacementCost, BlueprintScripts.gml)
     ///        and per-resource affordability coloring
-    ///        (CostToScribbleTextWithDiscount, ResourceUIScripts.gml).
-    ///        Unused when _isBlueprint is false, but still required since
-    ///        this is one shared function -- callers always have a team
-    ///        handy (BlueprintController owns one; BuildingHoverController
-    ///        passes the hovered building's own instance team).
+    ///        (CostToScribbleTextWithDiscount, ResourceUIScripts.gml). ALSO
+    ///        used (2026-07-12 follow-up, no longer blueprint-only) by
+    ///        BuildingHoverTimerText's live stationed-bonus lookup
+    ///        (GetStationedPassiveBonuses) for both blueprint AND placed-
+    ///        building hover -- callers always have a team handy
+    ///        (BlueprintController owns one; BuildingHoverController passes
+    ///        the hovered building's own instance team).
     /// @returns {Struct} { topContentHeight, bottomContentHeight } -- both
     ///        already-scaled on-screen px, see HoverCard.Show()'s doc.
     static Layout = function(_def, _building, _isBlueprint, _team) {
         buildingSprite = _def.sprite;
 
-        var _timerString = BuildingHoverTimerText(_def, _building, _isBlueprint);
+        var _timerString = BuildingHoverTimerText(_def, _building, _isBlueprint, _team);
         hasTimerText = (_timerString != "");
         if (hasTimerText) {
             timerText = scribble(_timerString, $"__buildingHoverExtras{__id}Timer__")
@@ -779,4 +822,23 @@ function BuildingHoverController() constructor {
             // is showing -- passing noone otherwise reproduces the original
             // single-card anchor/clamp math exactly. _secondaryAlwaysRight =
             // true (2026-07-11 follow-up): the unit card always sits on the
-            // building card's right,
+            // building card's right, regardless of cursor quadrant -- see
+            // PositionHoverCardPair's doc for the tradeoff this accepts.
+            PositionHoverCardPair(_mx, _my, card, hasUnitCard ? unitCard : noone, HOVER_CARD_PAIR_GAP, true);
+        }
+    }
+
+    /// @function Draw()
+    /// @description Call once per Draw GUI event. No-ops while fully faded
+    ///        out, same as PlotHoverController.Draw.
+    static Draw = function() {
+        if (alpha <= 0) return;
+        card.Draw(alpha);
+        extras.Draw(card, alpha);
+
+        if (hasUnitCard) {
+            unitCard.Draw(alpha);
+            unitExtras.Draw(unitCard, alpha);
+        }
+    }
+}

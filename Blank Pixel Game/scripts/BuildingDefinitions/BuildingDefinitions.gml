@@ -54,6 +54,21 @@
 ///               (or don't produce at all) -- per the 2026-07-06
 ///               "Resource_Infrastructure Buildings" doc, which only
 ///               specifies limits for actual resource buildings.
+///        hitParticleColorDark   {Constant.Color} [optional] Per-building
+///               override for SpawnBuildingHitParticles' (GibScripts.gml)
+///               dark end of its color-interpolation range. Defaults to
+///               undefined -- every building falls back to the shared
+///               BUILDING_HIT_PARTICLE_COLOR_DARK gray until a future pass
+///               gives specific building types their own colors (2026-07-12
+///               request: "we will make specific color coded particles for
+///               each building later, but we will default everything to
+///               shades of gray for now").
+///        hitParticleColorBright {Constant.Color} [optional] Same as above,
+///               bright end of the range. Must be set together with
+///               hitParticleColorDark to take effect (SpawnBuildingHitParticles
+///               checks both independently, so setting only one still falls
+///               back to the default for the other -- fine for now, but
+///               worth knowing if a future override looks half-applied).
 function BuildingDefinition(_data) constructor {
     name        = _data.name;
     description = _data.description;
@@ -70,6 +85,9 @@ function BuildingDefinition(_data) constructor {
     trainTime        = variable_struct_exists(_data, "trainTime")        ? _data.trainTime        : 0;
 
     maxHealth = variable_struct_exists(_data, "maxHealth") ? _data.maxHealth : 200;
+
+    hitParticleColorDark   = variable_struct_exists(_data, "hitParticleColorDark")   ? _data.hitParticleColorDark   : undefined;
+    hitParticleColorBright = variable_struct_exists(_data, "hitParticleColorBright") ? _data.hitParticleColorBright : undefined;
 }
 
 // -----------------------------------------------------------
@@ -373,12 +391,25 @@ function ApplyPlotBonuses(_building, _plot) {
 ///        death already used here (ApplyDamage, UnitCombatHelpers.gml),
 ///        which also has no dedicated building-destroy cleanup step to
 ///        mirror. No depletion VFX/SFX exists yet -- flag if one's wanted.
+///
+///        2026-07-12 addition: rate is scaled by _building.team's current
+///        stationed passive bonuses (GetStationedPassiveBonuses,
+///        StationScripts.gml) -- allResourceProductionBonus (Peasant)
+///        applies to every resource, goldProductionBonus (Bomb Goblin)
+///        applies only when productionResource == "gold" and stacks
+///        additively on top of the all-resource bonus. This is exactly
+///        the "stacked bonuses" case this function's own header already
+///        anticipated above.
 /// @param {Id.Instance} _building
 function BuildingUpdateProduction(_building) {
     if (_building.productionRate <= 0 || _building.productionResource == undefined) return;
 
+    var _bonus      = GetStationedPassiveBonuses(_building.team);
+    var _goldBonus  = (_building.productionResource == "gold") ? _bonus.goldProductionBonus : 0;
+    var _multiplier = 1 + _bonus.allResourceProductionBonus + _goldBonus;
+
     var _dt = delta_time / 1000000; // microseconds -> seconds, same idiom as oOpeningCredits/Step_0.gml
-    _building.productionAccumulator += _building.productionRate * global.matchSpeed * _dt;
+    _building.productionAccumulator += _building.productionRate * _multiplier * global.matchSpeed * _dt;
 
     var _wholeUnits = floor(_building.productionAccumulator);
     if (_wholeUnits <= 0) return;

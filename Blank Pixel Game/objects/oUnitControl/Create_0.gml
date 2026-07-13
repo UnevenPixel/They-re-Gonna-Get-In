@@ -7,3 +7,5 @@ buildingHoverController = new BuildingHoverController(); // placed building hove
 unitSelectHoverController = new UnitSelectHoverController(); // top-left single-unit-selected info card -- 2026-07-11 request
 rulerPortraitController = new RulerPortraitController(GetRulerPortraitDefinition(global.selectedRuler)); // animated ruler portrait on the UI bar -- 2026-07-11 request
 castleGarrisonMenu = new CastleGarrisonMenu(); // castle-wall-click garrison dropdown -- 2026-07-11 request, see CastleGarrisonMenu.gml
+selectionSummaryMenu = new SelectionSummaryMenu(); // top-left multi-unit-selected panel -- 2026-07-12 request, see SelectionSummaryMenu.gml
+castleBonusHoverController = new CastleBonusHoverController(); // castle hover panel listing active stationed passive bonuses -- 2026-07-12 request, see CastleBonusHoverScripts.gml
