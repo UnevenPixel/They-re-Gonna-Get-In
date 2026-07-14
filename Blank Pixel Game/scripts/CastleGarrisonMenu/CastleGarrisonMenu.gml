@@ -94,23 +94,25 @@ function CastleGarrisonMenu() constructor {
     consumedClick = false; // true for exactly the Step a left click was handled while open (row or dismiss) -- see oUnitControl/Step_0.gml, which skips its own room-space left-click handling when this is true so the same click can't ALSO start a drag-select/etc. this same frame. 2026-07-12 fix -- SelectionSummaryMenu.gml needed the identical guard, and this menu had the same unpatched gap.
 
     /// @function Open(_x, _y, _rows)
-    /// Opens the menu at a GUI-space position with the given rows.
-    /// @param {Real} _x
-    /// @param {Real} _y
+    /// Opens the menu, anchored away from the triggering click at (_x, _y)
+    /// -- 2026-07-13 request: matches the same mouse-dependent, quadrant-
+    /// anchor-away-from-cursor logic every hover card already uses, via
+    /// PositionDropDownMenuFromClick (DropDownMenuScripts.gml) -- see that
+    /// function's own doc comment for the full reasoning, and OrderMenu.Open
+    /// for the identical change made there in the same pass. Previously this
+    /// opened flush at (_x, _y) with only a far-edge overflow clamp; that
+    /// behavior is superseded by this pass.
+    /// @param {Real} _x GUI-space X of the triggering click.
+    /// @param {Real} _y GUI-space Y of the triggering click.
     /// @param {Array<Struct.CastleGarrisonRow>} _rows
     /// @returns {Struct.CastleGarrisonMenu} self
     static Open = function(_x, _y, _rows) {
-        x      = _x;
-        y      = _y;
         rows   = _rows;
         isOpen = true;
 
-        // Keep the menu on-screen if opened near an edge -- same containment
-        // math as OrderMenu.Open.
-        var _w = DropDownMenuWidth();
-        var _h = DropDownMenuTotalHeight(array_length(rows));
-        if (x + _w > display_get_gui_width())  x = display_get_gui_width() - _w;
-        if (y + _h > display_get_gui_height()) y = display_get_gui_height() - _h;
+        var _pos = PositionDropDownMenuFromClick(_x, _y, array_length(rows));
+        x = _pos.x;
+        y = _pos.y;
 
         return self;
     }

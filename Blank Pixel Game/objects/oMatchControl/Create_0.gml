@@ -74,11 +74,11 @@ global.armyLimit = [6, 6];
 // so it's now fully affordable from this starting loadout same as every
 // other tier-1 building here.
 for (var i = 0; i < 2; i++) {
-    global.resources[i].wood  = 50;
-    global.resources[i].water = 50;
-    global.resources[i].iron  = 50;
-    global.resources[i].gold  = 50;
-    global.resources[i].wheat = 50;
+    global.resources[i].wood  = 100;
+    global.resources[i].water = 100;
+    global.resources[i].iron  = 100;
+    global.resources[i].gold  = 100;
+    global.resources[i].wheat = 100;
 }
 
 // TEST DATA: one of every registered building blueprint per side, for

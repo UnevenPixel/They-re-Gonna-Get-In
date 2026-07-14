@@ -15,13 +15,16 @@
 //      nothing new can be queued for that type until either more
 //      training buildings go up, or losses bring the count back under
 //      the (now lower) cap.
-//   2. Army-wide cap: global.armyLimit[team], regardless of unit type or
-//      station status.
+//   2. Army-wide cap: global.armyLimit[team], regardless of unit type.
 //
-// Both caps count existing units + everything currently queued ACROSS
-// EVERY training building the team owns (not just the one being clicked)
-// -- "the queue + existing friendly units + other friendly queues cannot
-// exceed either limit," per the design spec.
+// Both caps count existing units (LIVE + STATIONED, 2026-07-13 -- see
+// CountTeamStationedUnits/CountTeamStationedUnitsOfType, StationScripts.gml)
+// + everything currently queued ACROSS EVERY training building the team
+// owns (not just the one being clicked) -- "the queue + existing friendly
+// units + other friendly queues cannot exceed either limit," per the
+// design spec. Station status never lets a team exceed either cap --
+// converting a live unit to stationed moves it between buckets, it
+// doesn't shrink the army for cap purposes.
 // -----------------------------------------------------------
 
 #macro STRATEGIC_XP_FIRST_DEPLOYMENT 5 // "First deployment of unit type" -- "XP Age Progression System" doc, 2026-07-06. Awarded once per team per unit type, the first time TrainingSpawnUnit ever spawns it -- see global.unitsDeployed (oMatchControl/Create_0.gml).
@@ -97,16 +100,33 @@ function TrainingQueuedCountAll(_team) {
 
 /// @function TrainingTryQueueUnit(_building)
 /// @description Attempts to add one unit to _building's training queue.
-///        Checks, in order: (1) this unit type's cap (existing units of
-///        that type + everything queued for that type across every
-///        training building the team owns -- TrainingTypeLimit), (2) the
-///        team's army-wide cap (existing units of ANY type + everything
-///        queued for ANY type -- global.armyLimit), (3) affordability of
-///        trainCost. Deducts trainCost and increments the queue only if
-///        every check passes. Every rejection is logged via
-///        show_debug_message and simply leaves the queue unchanged --
-///        same convention as BlueprintController.EndDrag's rejection
-///        paths (BlueprintScripts.gml), no popup yet.
+///        Checks, in order: (1) this unit type's cap (LIVE + STATIONED
+///        units of that type + everything queued for that type across
+///        every training building the team owns -- TrainingTypeLimit),
+///        (2) the team's army-wide cap (existing units of ANY type +
+///        everything queued for ANY type -- global.armyLimit),
+///        (3) affordability of trainCost. Deducts trainCost and
+///        increments the queue only if every check passes. Every
+///        rejection is logged via show_debug_message and simply leaves
+///        the queue unchanged -- same convention as
+///        BlueprintController.EndDrag's rejection paths
+///        (BlueprintScripts.gml), no popup yet.
+///
+///        2026-07-13 correction: the army-wide check now also counts
+///        CountTeamStationedUnits (StationScripts.gml) -- previously it
+///        only summed live oUnitParent + queued, so a team could station
+///        units and then keep training past global.armyLimit entirely
+///        (stationing was never actually shrinking the army for cap
+///        purposes, it just wasn't being counted). Applies identically to
+///        both teams since this one function gates every training queue
+///        attempt, player and AI alike.
+///
+///        2026-07-13 follow-up ("update Training type limit to include
+///        the stationed units as well"): the per-TYPE cap now also adds
+///        CountTeamStationedUnitsOfType (StationScripts.gml) -- a
+///        stationed Peasant now counts against "how many Peasants can
+///        this team ever have via Peasant Wards," the same way it already
+///        counted against the army-wide cap above.
 /// @param {Id.Instance} _building An oTrainingBuildingParent instance.
 /// @returns {Bool} True if a unit was successfully queued.
 function TrainingTryQueueUnit(_building) {
@@ -119,18 +139,18 @@ function TrainingTryQueueUnit(_building) {
     }
 
     var _typeLimit    = TrainingTypeLimit(_team, _unitType);
-    var _typeExisting = CountTeamUnitsOfType(_team, _unitType);
+    var _typeExisting = CountTeamUnitsOfType(_team, _unitType) + CountTeamStationedUnitsOfType(_team, _unitType);
     var _typeQueued   = TrainingQueuedCountForType(_team, _unitType);
     if (_typeExisting + _typeQueued + 1 > _typeLimit) {
-        show_debug_message($"TrainingTryQueueUnit: {object_get_name(_unitType)} is at its type limit for team {_team} ({_typeExisting} existing + {_typeQueued} queued, limit {_typeLimit}). Build more training buildings, or wait for losses.");
+        show_debug_message($"TrainingTryQueueUnit: {object_get_name(_unitType)} is at its type limit for team {_team} ({_typeExisting} existing/stationed + {_typeQueued} queued, limit {_typeLimit}). Build more training buildings, or wait for losses.");
         return false;
     }
 
-    var _armyLimit    = global.armyLimit[_team];
-    var _armyExisting = array_length(GatherTeamUnits(_team));
-    var _armyQueued   = TrainingQueuedCountAll(_team);
+    var _armyLimit     = global.armyLimit[_team];
+    var _armyExisting  = array_length(GatherTeamUnits(_team)) + CountTeamStationedUnits(_team);
+    var _armyQueued    = TrainingQueuedCountAll(_team);
     if (_armyExisting + _armyQueued + 1 > _armyLimit) {
-        show_debug_message($"TrainingTryQueueUnit: team {_team} is at its army limit ({_armyExisting} existing + {_armyQueued} queued, limit {_armyLimit}).");
+        show_debug_message($"TrainingTryQueueUnit: team {_team} is at its army limit ({_armyExisting} existing/stationed + {_armyQueued} queued, limit {_armyLimit}).");
         return false;
     }
 

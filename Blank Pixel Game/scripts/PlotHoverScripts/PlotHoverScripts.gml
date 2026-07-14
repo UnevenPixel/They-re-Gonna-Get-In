@@ -5,8 +5,7 @@
 // plot into one of 4 kinds (name + normal "bonus" body text + italic
 // flavor text) and drives a HoverCard's visibility through a dwell timer +
 // fade in/out, suppressed while the player is mid-action elsewhere
-// (targeting, dragging a blueprint, or -- once it exists -- the Fate
-// Engine overlay being open).
+// (targeting, dragging a blueprint, or the Fate Engine overlay being open).
 //
 // Plot classification (see oBuildingPlot's inside/far/blocked fields --
 // PlotScripts.gml, oPlotSpawner/Create_0.gml, oOuterPlotSpawner/Create_0.gml):
@@ -47,14 +46,12 @@
 // Suppression: per request, this must NOT trigger while the player is
 // mid-action elsewhere -- SelectionController.isTargeting (attack/defend
 // target selection), BlueprintController.dragging (placing a building), or
-// global.fateEngineOverlayActive. That last flag is NEW infrastructure,
-// not a wired feature: the only Fate Engine object that exists today
-// (oFateEngineDrumTest) is an explicitly TEMPORARY test harness with no
-// open/closed state of its own (see its header comment -- "the real
-// session overlay... gets built in a later task"). Nothing sets
-// global.fateEngineOverlayActive true yet; it exists now so the real
-// overlay can flip it later without this file needing another pass.
-// Flagging this rather than guessing at wiring that doesn't exist yet.
+// global.fateEngineOverlayActive. 2026-07-13: that flag is now real,
+// wired infrastructure -- FateEngineOverlay.Open()/Leave()
+// (FateEngineOverlayScripts.gml) sets/clears it. Belt-and-suspenders at
+// this point rather than load-bearing: oUnitControl/Step_0.gml's own
+// isOpen early-exit guard already stops this controller's Step() from
+// running at all while the overlay is open.
 // -----------------------------------------------------------
 
 #macro PLOT_HOVER_DELAY_STEPS  60 // 5 sec * option_game_speed (60fps) -- see below, deliberately NOT scaled by global.matchSpeed
@@ -78,8 +75,9 @@
 #macro PLOT_HOVER_GOOD_COLOR_TAG "c_lime"
 #macro PLOT_HOVER_BAD_COLOR_TAG  "c_red"
 
-// New suppression hook for the (not yet built) real Fate Engine overlay --
-// see file header. Defaults false; nothing currently sets it true.
+// Suppression hook for the Fate Engine overlay -- see file header. Defaults
+// false; set/cleared by FateEngineOverlay.Open()/Leave()
+// (FateEngineOverlayScripts.gml, 2026-07-13).
 global.fateEngineOverlayActive = false;
 
 /// @function PlotHoverName(_plot)

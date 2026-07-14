@@ -25,6 +25,40 @@
 #macro AI_PROBE_INTERVAL_FRAMES     900  // ~15s -- minimum gap between successful probes within that window
 #macro AI_PROBE_ATTACK_SIZE         2    // units sent per probe
 
+// 2026-07-13 follow-up ("lower the AI siege power fraction based on army
+// limit... if it has reached army limit, it should utilize those units in
+// one way or another"). Diagnosed 2026-07-13: with global.armyLimit == 6
+// and AI_SIEGE_POWER_FRACTION == 0.6, a 6-unit Peasant/Archer army can
+// physically never reach AI_SiegePowerThreshold (max ~114 power vs a 300
+// bar) -- it just sits at the cap forever, never sieging. All three
+// placeholders below, not tuned against a real balance pass, same status
+// as every other AI macro in this file.
+//
+// CORRECTION (same day): stationed units still count against
+// global.armyLimit (CountTeamStationedUnits, StationScripts.gml;
+// TrainingTryQueueUnit, TrainingScripts.gml) -- stationing does NOT free
+// army-cap room, it just moves a unit from one bucket (live) to another
+// (stationed) without changing the total. AI_STATION_MIN_GUARD_RESERVE_AT_CAP's
+// comment below is corrected accordingly.
+#macro AI_SIEGE_POWER_FRACTION_AT_CAP 0.15 // AI_SiegePowerThreshold uses THIS instead of AI_SIEGE_POWER_FRACTION once AI_TeamAtArmyLimit(_team) is true -- lets a capped-out, mostly-weak-unit army still eventually commit to siege instead of stalling indefinitely
+#macro AI_STATION_MIN_GUARD_RESERVE_AT_CAP 1 // AI_TryStationUnits' reserve floor drops to THIS (down from AI_STATION_MIN_GUARD_RESERVE) once AI_TeamAtArmyLimit(_team) is true -- holding back 3 idle guards exists to protect a future training pipeline, but once the team is AT its army-wide cap (live+stationed+queued >= global.armyLimit) there IS no future training to protect regardless of how many of those units are guard vs. stationed, so the reserve can safely shrink; converting more of them to stationed at that point is purely for their own passive bonus value, NOT because it frees any army-cap room (it doesn't -- see the 2026-07-13 correction above)
+#macro AI_STATION_FAVOR_POWER_CEILING 20 // AI_UnitFavorsStationing's flat cutoff on AI_UnitDefPowerScore -- only Peasant (14) clears this today; Soldier (33)/Knight (40)/Mud Golem (65)/Bomb Goblin (102, skewed high by its one-shot attackDamage) all sit above it. A flat cutoff rather than a relative "weakest of all registered unit types" comparison -- simpler, doesn't need to iterate global.__unitDefRegistry, and is just as valid a placeholder as everything else here; revisit if a future weak-but-useful unit type should also qualify
+
+// 2026-07-13 playtesting-checklist additions -- four independent fixes:
+// (1) Age I only proactively defends production buildings (see
+//     AI_UncoveredBuildingsByTier's doc comment); (2) the AI keeps a gold
+//     reserve, sized here, so an emergency un-garrison always has real
+//     money (AI_GoldReserveAmount/AI_HideGoldReserve/AI_RestoreGoldReserve,
+//     "AI economy" section below); (3) "defending" with zero live units
+//     un-garrisons + trains reinforcements (AI_TryReinforceDefense, near
+//     AI_Defending_Step); (4) at the army cap, once the AI could plausibly
+//     rebuild what it's about to spend, surplus units attack an ordinary
+//     enemy building instead of sitting idle (AI_CanReplaceDeployedUnits/
+//     AI_TryAttackSurplusAtCap, "AI economy" section below). All four
+//     placeholders below, not tuned against a real balance pass, same
+//     status as every other AI macro in this file.
+#macro AI_GOLD_RESERVE_UNIT_COUNT 2 // AI_GoldReserveAmount reserves enough gold to redeploy this many stationed units (at the cheapest registered stationCost) before AI_TryPlaceBlueprints/AI_TryTrainComposition are allowed to spend a single gold piece
+
 /// @function AIBrain(_team)
 /// @description Top-level decision-maker for a computer-controlled team. Call
 ///        Step() once per Step event; internally ticks a think timer and only
@@ -251,13 +285,34 @@ function AI_ReserveDefensiveUnits(_units, _reserveCount) {
 ///        call (same "don't cache, recompute" convention as
 ///        GetStationedPassiveBonuses/TrainingTypeLimit) -- building/unit
 ///        counts are small enough that this is cheap.
+///
+///        2026-07-13 follow-up (playtesting checklist, item 2 -- "during
+///        the first age, the AI should only prioritize protecting its
+///        production buildings, not its training buildings"): while
+///        global.age[_team] == 1, oTrainingBuildingParent buildings are
+///        excluded from this list entirely -- they simply never get a
+///        proactive defender posted during Age I, no matter how uncovered
+///        they are. Per explicit clarification, this is PROACTIVE COVERAGE
+///        ONLY -- a training building that's actually, directly attacked
+///        still triggers "defending" and pulls responders exactly as
+///        before (AI_DetectThreat/AI_DetectThreats, both untouched by this
+///        change); it just never gets a standing defender assigned to it
+///        ahead of time while still in Age I.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @returns {Array<Id.Instance>}
 function AI_UncoveredBuildingsByTier(_team) {
     var _byTier = [[], [], []]; // index = AI_PLOT_TIER_*
 
+    // 2026-07-13: Age I proactively covers production buildings only --
+    // see doc comment above. object_is_ancestor (not ==) so this also
+    // catches every actual training-building TYPE (oPeasantWard, etc.),
+    // not just literal oTrainingBuildingParent instances, same idiom
+    // OrderWiring.gml already uses for "is this an oBuildingParent".
+    var _skipTraining = (global.age[_team] == 1);
+
     with (oBuildingParent) {
         if (team != _team) continue;
+        if (_skipTraining && object_is_ancestor(object_index, oTrainingBuildingParent)) continue;
         array_push(_byTier[AI_BuildingPlotTier(id)], id);
     }
 
@@ -341,9 +396,29 @@ function AI_TryMaintainDefensiveSpread(_team) {
 ///          6. Offers _surplus to AI_TryProbeAttack (2026-07-12 addition --
 ///             small early-game harassment against an ordinary enemy
 ///             building, separate from the siege threshold below).
-///          7. Whatever's left of _surplus after that, once its combined
-///             AI_ArmyPower reaches AI_SiegePowerThreshold(), commits to
-///             "siege" against the enemy castle.
+///          7. Offers whatever's left to AI_TryAttackSurplusAtCap
+///             (2026-07-13, "using the AI's deployed units when unit cap
+///             is reached") -- once at global.armyLimit AND replacement-
+///             ready (AI_CanReplaceDeployedUnits), sends surplus to attack
+///             an ordinary enemy building instead of leaving it idle.
+///          8. Whatever's left of _surplus after THAT, once its combined
+///             AI_ArmyPower reaches AI_SiegePowerThreshold(_brain.team),
+///             commits to "siege" against the enemy castle. That threshold
+///             itself drops once the team is at global.armyLimit (see
+///             AI_TeamAtArmyLimit, 2026-07-13) -- a capped-out army of
+///             mostly weak units still eventually pushes out instead of
+///             idling at the cap forever. This siege gate is UNCHANGED by
+///             step 7 above -- per explicit clarification, step 7 is a new,
+///             separate outlet for cap-surplus layered ahead of it, not a
+///             new precondition ON it.
+///
+///        2026-07-13 addition -- steps 1/2 (AI_TryPlaceBlueprints/
+///        AI_TryTrainComposition) now run with AI_GoldReserveAmount's worth
+///        of gold hidden first (AI_HideGoldReserve/AI_RestoreGoldReserve),
+///        so ordinary economy spending can never eat into the gold the AI
+///        keeps on hand for an emergency un-garrison (AI_TryReinforceDefense,
+///        AI_Defending_Step) -- "make sure the AI is keeping a reserve of
+///        gold for this reason."
 /// @param {Struct.AIBrain} _brain
 /// @param {Struct.StateMachine} _machine
 function AI_BuildUp_Step(_brain, _machine) {
@@ -357,8 +432,15 @@ function AI_BuildUp_Step(_brain, _machine) {
         return;
     }
 
+    // 2026-07-13: hide the gold reserve floor before any ordinary economy
+    // spending, restore it immediately after -- see AI_HideGoldReserve's
+    // own doc comment. Nothing else touches _brain.team's gold between
+    // these two calls.
+    var _hiddenGold = AI_HideGoldReserve(_brain.team);
     AI_TryPlaceBlueprints(_brain.team);
     AI_TryTrainComposition(_brain.team);
+    AI_RestoreGoldReserve(_brain.team, _hiddenGold);
+
     AI_TryMaintainDefensiveSpread(_brain.team);
     AI_TryStationUnits(_brain.team);
 
@@ -367,8 +449,9 @@ function AI_BuildUp_Step(_brain, _machine) {
     var _surplus       = AI_ReserveDefensiveUnits(_available, _reserveNeeded);
 
     _surplus = AI_TryProbeAttack(_brain, _surplus);
+    _surplus = AI_TryAttackSurplusAtCap(_brain, _surplus);
 
-    if (array_length(_surplus) > 0 && AI_ArmyPower(_surplus) >= AI_SiegePowerThreshold()) {
+    if (array_length(_surplus) > 0 && AI_ArmyPower(_surplus) >= AI_SiegePowerThreshold(_brain.team)) {
         IssueOrderToUnits("siege", _surplus);
     }
 }
@@ -411,7 +494,15 @@ function AI_BuildUp_Step(_brain, _machine) {
 ///        Economy/training pause while defending (does not call
 ///        AI_TryPlaceBlueprints/AI_TryTrainComposition/AI_TryStationUnits)
 ///        -- a deliberate scope choice, not an oversight; flag if the AI
-///        should keep building through a skirmish instead.
+///        should keep building through a skirmish instead. 2026-07-13
+///        EXCEPTION to that pause: if the team has literally ZERO live
+///        units (nothing at all to send, not just nothing "available"),
+///        AI_TryReinforceDefense runs first -- un-garrisoning stationed
+///        units AND queuing training in the same tick, per "when the AI is
+///        'defending threatened buildings', check if it has any deployed
+///        units. If not, have it either train more or un-garrison units
+///        from the castle to defend with." This is the one case training
+///        still happens while "defending".
 /// @param {Struct.AIBrain} _brain
 /// @param {Struct.StateMachine} _machine
 function AI_Defending_Step(_brain, _machine) {
@@ -424,6 +515,12 @@ function AI_Defending_Step(_brain, _machine) {
     if (array_length(_threatened) == 0) {
         _machine.ChangeState("build_up");
         return;
+    }
+
+    // 2026-07-13: zero deployed units at all -- nothing to redirect below,
+    // so reinforce first. See AI_TryReinforceDefense's own doc comment.
+    if (array_length(GatherTeamUnits(_brain.team)) == 0) {
+        AI_TryReinforceDefense(_brain.team);
     }
 
     var _available = AI_GatherAvailableUnits(_brain.team);
@@ -463,6 +560,64 @@ function AI_Defending_Step(_brain, _machine) {
             IssueOrderToUnits("defend", _groups[i], _threatened[i]);
         }
     }
+}
+
+#macro AI_REINFORCE_MAX_DEPLOYS 20 // safety cap on how many stationed units AI_TryReinforceDefense will un-garrison in one think tick -- not a real gameplay number, just a guard against ever looping indefinitely
+
+/// @function AI_FirstStationedType(_team)
+/// @description The unitType of ANY one currently-stationed unit belonging
+///        to _team, or undefined if the team has nothing stationed at all.
+///        Used by AI_TryReinforceDefense to pick what to un-garrison next
+///        without caring which specific type it grabs first -- same "any
+///        one of them, iteration order isn't meaningful" caveat
+///        DeployStationedUnit's own doc comment already flags.
+/// @param {Real} _team
+/// @returns {Asset.GMObject|Undefined}
+function AI_FirstStationedType(_team) {
+    var _found = undefined;
+    with (oUnitStationed) {
+        if (team == _team) {
+            _found = unitData.unitType;
+            break;
+        }
+    }
+    return _found;
+}
+
+/// @function AI_TryReinforceDefense(_team)
+/// @description 2026-07-13 request: called from AI_Defending_Step exactly
+///        when _team has zero live units of any kind (nothing at all to
+///        redirect toward a threat). Does two things every think tick this
+///        condition holds, in parallel, not one gated behind the other:
+///
+///        1. Un-garrisons EVERY currently-stationed unit it can afford,
+///           one DeployStationedUnit call at a time (any type each pass,
+///           via AI_FirstStationedType) -- "zero deployed units" is an
+///           emergency, so this brings back as many bodies as the team's
+///           gold allows rather than a single token unit. Deliberately NOT
+///           wrapped in AI_HideGoldReserve/AI_RestoreGoldReserve -- the
+///           gold reserve exists specifically so THIS spend always has
+///           something to work with, so it's allowed to use all of it,
+///           reserve included. Bounded by AI_REINFORCE_MAX_DEPLOYS purely
+///           as a runaway-loop safety net, not a real gameplay limit --
+///           DeployStationedUnit's own affordability check is what
+///           actually stops this once the team runs out of gold.
+///        2. Queues training via AI_TryTrainComposition -- the one
+///           exception to "defending" pausing economy/training (see
+///           AI_Defending_Step's own doc comment). Also NOT reserve-gated,
+///           same reasoning as above: an active "we have no army at all
+///           and are under attack" emergency should spend freely.
+/// @param {Real} _team
+function AI_TryReinforceDefense(_team) {
+    var _deploys = 0;
+    while (_deploys < AI_REINFORCE_MAX_DEPLOYS) {
+        var _type = AI_FirstStationedType(_team);
+        if (_type == undefined) break; // nothing left stationed
+        if (!DeployStationedUnit(_team, _type)) break; // can't afford another -- stop rather than spin
+        _deploys++;
+    }
+
+    AI_TryTrainComposition(_team);
 }
 
 /// @function AI_CastleDefense_Step(_brain, _machine)
@@ -661,7 +816,33 @@ function AI_ArmyPower(_units) {
     return _total;
 }
 
-/// @function AI_SiegePowerThreshold()
+/// @function AI_TeamAtArmyLimit(_team)
+/// @description True once _team's live + stationed + queued unit count has
+///        reached global.armyLimit[_team] -- the SAME saturation check
+///        TrainingTryQueueUnit (TrainingScripts.gml) uses to reject a new
+///        queue attempt, factored out here so AI_SiegePowerThreshold and
+///        AI_TryStationUnits can react to it too (2026-07-13 request:
+///        "if the AI opponent has reached army limit, it should utilize
+///        those units in one way or another").
+///
+///        2026-07-13 correction: now includes CountTeamStationedUnits
+///        (StationScripts.gml), matching TrainingTryQueueUnit's own
+///        corrected math -- stationed units still count against
+///        global.armyLimit, they don't shrink the army for cap purposes.
+///        Before this fix, this function (and the training gate it
+///        mirrors) both under-counted, which meant a team could station
+///        units and this would still report "not at cap" even though the
+///        TRUE live+stationed+queued total already matched or exceeded
+///        the limit.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Bool}
+function AI_TeamAtArmyLimit(_team) {
+    var _existing = array_length(GatherTeamUnits(_team)) + CountTeamStationedUnits(_team);
+    var _queued   = TrainingQueuedCountAll(_team);
+    return (_existing + _queued) >= global.armyLimit[_team];
+}
+
+/// @function AI_SiegePowerThreshold(_team)
 /// @description The AI_ArmyPower an available force must reach before
 ///        AI_BuildUp_Step commits it to "siege" -- AI_SIEGE_POWER_FRACTION
 ///        of CASTLE_MAX_HEALTH (CastleScripts.gml). Both the fraction and
@@ -669,9 +850,24 @@ function AI_ArmyPower(_units) {
 ///        elsewhere already -- this inherits that same "not balanced yet"
 ///        status, just gives the AI SOME sense of scale instead of a flat
 ///        headcount that ignores castle HP entirely.
+///
+///        2026-07-13 follow-up ("lower the AI siege power fraction based
+///        on army limit"): now takes _team, and drops to the much smaller
+///        AI_SIEGE_POWER_FRACTION_AT_CAP the instant AI_TeamAtArmyLimit is
+///        true. Diagnosed 2026-07-13: at the flat 0.6 fraction, a 6-unit
+///        (global.armyLimit) army of Peasants/Archers tops out around 114
+///        AI_ArmyPower against a 300 bar -- mathematically unreachable, so
+///        the AI would sit at the cap forever, never sieging. This doesn't
+///        change the fraction for a team that's still BELOW its army
+///        limit (still building up normally, still gated by the full
+///        300-power bar) -- only kicks in once training more units isn't
+///        even possible anymore, i.e. exactly the situation the request
+///        describes.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @returns {Real}
-function AI_SiegePowerThreshold() {
-    return CASTLE_MAX_HEALTH * AI_SIEGE_POWER_FRACTION;
+function AI_SiegePowerThreshold(_team) {
+    var _fraction = AI_TeamAtArmyLimit(_team) ? AI_SIEGE_POWER_FRACTION_AT_CAP : AI_SIEGE_POWER_FRACTION;
+    return CASTLE_MAX_HEALTH * _fraction;
 }
 
 // -----------------------------------------------------------
@@ -690,27 +886,128 @@ function AI_SiegePowerThreshold() {
 // affordable spend never just sits idle.
 // -----------------------------------------------------------
 
-/// @function AI_FindEmptyOwnedPlot(_team)
+/// @function AI_CheapestStationCost()
+/// @description The lowest UnitDefinition.stationCost across every
+///        registered unit type -- team-independent (stationCost isn't
+///        scoped per team). Sizes the AI's gold reserve floor
+///        (AI_GoldReserveAmount) against whatever the CHEAPEST unit it
+///        could ever redeploy from its garrison would cost, since it has
+///        no way to know in advance which type(s) it'll actually need to
+///        un-garrison during a future emergency.
+/// @returns {Real} 0 if no unit types are registered (shouldn't happen).
+function AI_CheapestStationCost() {
+    var _types    = ds_map_keys_to_array(global.__unitDefRegistry);
+    var _cheapest = infinity;
+    for (var i = 0; i < array_length(_types); i++) {
+        var _def = GetUnitDefinition(_types[i]);
+        if (_def != undefined && _def.stationCost < _cheapest) _cheapest = _def.stationCost;
+    }
+    return (_cheapest == infinity) ? 0 : _cheapest;
+}
+
+/// @function AI_GoldReserveAmount(_team)
+/// @description How much gold AI_BuildUp_Step's economy spending
+///        (AI_TryPlaceBlueprints/AI_TryTrainComposition) must leave
+///        untouched -- 2026-07-13 request ("make sure the AI is keeping a
+///        reserve of gold for this reason"): sized to cover redeploying
+///        AI_GOLD_RESERVE_UNIT_COUNT stationed units at the cheapest
+///        registered stationCost (AI_CheapestStationCost), so an emergency
+///        "zero deployed units" un-garrison (AI_TryReinforceDefense, near
+///        AI_Defending_Step) always has real gold to spend even if the
+///        AI's ordinary spending would otherwise have used every last
+///        piece of it. _team is kept for symmetry/future per-team tuning
+///        even though today's formula doesn't actually vary by team.
+/// @param {Real} _team
+/// @returns {Real}
+function AI_GoldReserveAmount(_team) {
+    return AI_GOLD_RESERVE_UNIT_COUNT * AI_CheapestStationCost();
+}
+
+/// @function AI_HideGoldReserve(_team)
+/// @description Temporarily removes AI_GoldReserveAmount's worth of gold
+///        from _team's visible resources (clamped so it can never go
+///        negative), so any CanAfford/Purchase check made while it's
+///        hidden can only ever succeed against the SURPLUS above the
+///        reserve. Must be paired with AI_RestoreGoldReserve using this
+///        call's own return value once the bracketed spending finishes, in
+///        the SAME think tick, with nothing else touching _team's gold in
+///        between (see AI_BuildUp_Step for the one place this is used).
+///        Deliberately NOT used around AI_TryReinforceDefense's own
+///        spending (DeployStationedUnit/AI_TryTrainComposition) -- the
+///        whole point of the reserve is to have real gold available for
+///        exactly that emergency, so that path spends freely, reserve
+///        included.
+/// @param {Real} _team
+/// @returns {Real} The amount actually hidden -- pass this straight to
+///        AI_RestoreGoldReserve.
+function AI_HideGoldReserve(_team) {
+    var _reserve = AI_GoldReserveAmount(_team);
+    var _hidden  = min(_reserve, global.resources[_team].gold);
+    global.resources[_team].gold -= _hidden;
+    return _hidden;
+}
+
+/// @function AI_RestoreGoldReserve(_team, _hiddenAmount)
+/// @description Adds back exactly what the matching AI_HideGoldReserve
+///        call removed. Always succeeds -- nothing was actually spent by
+///        hiding it, so there's no affordability check to make here.
+/// @param {Real} _team
+/// @param {Real} _hiddenAmount
+function AI_RestoreGoldReserve(_team, _hiddenAmount) {
+    global.resources[_team].gold += _hiddenAmount;
+}
+
+/// @function AI_FindEmptyOwnedPlot(_team, _preferInside)
 /// @description First unblocked, unoccupied oBuildingPlot belonging to
 ///        _team, or noone -- excludes both meta-progression-locked slots
 ///        (blocked, see oPlotSpawner/Create_0.gml) and slots that already
 ///        have a building on them (occupied, TryPlaceBlueprint,
-///        BlueprintScripts.gml). No inside/outside preference -- STILL
-///        true as of 2026-07-07, but the reason changed: the placement
-///        bonus split oOuterPlotSpawner's header comment describes
-///        (resource buildings outside, training buildings inside, extra
-///        stat bonus on Distant/"far" plots) is now REAL (see
-///        GetPlacementCost, BlueprintScripts.gml, and ApplyPlotBonuses,
-///        BuildingDefinitions.gml) -- this function just doesn't take
-///        advantage of it yet. The AI will happily place a training
+///        BlueprintScripts.gml). Still no general inside/outside
+///        preference as of 2026-07-07 -- the placement bonus split
+///        oOuterPlotSpawner's header comment describes (resource buildings
+///        outside, training buildings inside, extra stat bonus on
+///        Distant/"far" plots) is real (see GetPlacementCost,
+///        BlueprintScripts.gml, and ApplyPlotBonuses, BuildingDefinitions.gml)
+///        but this function still doesn't take advantage of it for the
+///        general case. The AI will still happily place a RESOURCE
 ///        building on an Exterior plot at full price when a discounted
 ///        Castle plot sits empty, and never seeks out Distant plots for
-///        their maxHealth/resourceLimit bonus. Flagging as a real
-///        (if minor) AI inefficiency, not fixing here -- out of scope for
-///        the "set up those bonuses" request this comment was updated for.
+///        their maxHealth/resourceLimit bonus -- flagging as a real
+///        (if minor) AI inefficiency, not fixing here, out of scope for
+///        this pass.
+///
+///        2026-07-13 addition ("building the Peasant Ward inside the
+///        castle to begin with"): optional _preferInside, defaults false.
+///        When true, does a first pass looking ONLY at inside==true plots,
+///        falling back to the normal any-plot search if none are free.
+///        Used by AI_TryPlaceBlueprints for training buildings whose
+///        trained unit favors stationing (AI_UnitFavorsStationing) --
+///        placing THOSE specifically on an inside plot means every unit
+///        they ever train spawns directly as stationed via
+///        TrainingSpawnUnit's `if (_building.inside)` branch
+///        (TrainingScripts.gml -> StationSpawnDirectly, StationScripts.gml),
+///        skipping the extra "train live, then separately order it to
+///        station" step. NOTE (corrected 2026-07-13): this does NOT
+///        bypass global.armyLimit -- stationed units still count against
+///        it (CountTeamStationedUnits, StationScripts.gml; see
+///        AI_TeamAtArmyLimit) -- the benefit here is purely the discounted
+///        inside-plot placement cost plus skipping the manual station
+///        step, not any army-cap workaround.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @param {Bool} [_preferInside] Defaults to false.
 /// @returns {Id.Instance|Constant.NoOne}
-function AI_FindEmptyOwnedPlot(_team) {
+function AI_FindEmptyOwnedPlot(_team, _preferInside = false) {
+    if (_preferInside) {
+        var _insideFound = noone;
+        with (oBuildingPlot) {
+            if (team == _team && !blocked && !occupied && inside) {
+                _insideFound = id;
+                break;
+            }
+        }
+        if (_insideFound != noone) return _insideFound;
+    }
+
     var _found = noone;
     with (oBuildingPlot) {
         if (team == _team && !blocked && !occupied) {
@@ -797,7 +1094,22 @@ function AI_TryPlaceBlueprints(_team) {
         var _def = GetBuildingDefinition(_buildingType);
         if (_def == undefined || !_def.cost.CanAfford(_team)) continue;
 
-        var _plot = AI_FindEmptyOwnedPlot(_team);
+        // 2026-07-13 addition ("building the Peasant Ward inside the
+        // castle to begin with") -- a training building whose trained
+        // unit favors stationing (AI_UnitFavorsStationing) seeks an
+        // inside plot first, see AI_FindEmptyOwnedPlot's doc comment for
+        // why (spawns units directly as stationed, skipping the manual
+        // station step -- does NOT bypass global.armyLimit, stationed
+        // units still count against it). Every other blueprint (resource
+        // buildings, and training buildings whose unit is better fielded)
+        // keeps the old no-preference behavior.
+        var _preferInside = false;
+        if (_def.trainsUnit != undefined) {
+            var _unitDef = GetUnitDefinition(_def.trainsUnit);
+            _preferInside = (_unitDef != undefined) && AI_UnitFavorsStationing(_unitDef);
+        }
+
+        var _plot = AI_FindEmptyOwnedPlot(_team, _preferInside);
         if (_plot == noone) continue;
 
         TryPlaceBlueprint(_team, _buildingType, _plot);
@@ -884,14 +1196,14 @@ function AI_TryTrainComposition(_team) {
 /// @function AI_CurrentStationedCount(_team)
 /// @description Total live oUnitStationed belonging to _team, any type.
 ///        Used by AI_TryStationUnits to respect AI_STATION_MAX_STATIONED.
+///        2026-07-13: thin wrapper around the shared CountTeamStationedUnits
+///        (StationScripts.gml) -- kept as its own AI_-prefixed name since
+///        every other AI call site in this file already uses it, but the
+///        actual counting logic now lives in one place instead of two.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @returns {Real}
 function AI_CurrentStationedCount(_team) {
-    var _count = 0;
-    with (oUnitStationed) {
-        if (team == _team) _count++;
-    }
-    return _count;
+    return CountTeamStationedUnits(_team);
 }
 
 /// @function AI_UnitStationedBonusValue(_def)
@@ -910,6 +1222,40 @@ function AI_UnitStationedBonusValue(_def) {
         _total += _def.stationedBonuses[i].amount;
     }
     return _total;
+}
+
+/// @function AI_UnitDefPowerScore(_def)
+/// @description Definition-level counterpart to AI_UnitPowerScore -- same
+///        formula (maxHealth/attackDamage weighted the same way), just
+///        evaluated straight off a UnitDefinition instead of a live
+///        instance's current HP. Needed for AI_UnitFavorsStationing, which
+///        compares unit TYPES against each other before any instance of
+///        one necessarily exists yet (e.g. deciding where to place a
+///        not-yet-built training building).
+/// @param {Struct.UnitDefinition} _def
+/// @returns {Real}
+function AI_UnitDefPowerScore(_def) {
+    return (_def.maxHealth * AI_POWER_HEALTH_WEIGHT) + (_def.attackDamage * AI_POWER_DAMAGE_WEIGHT);
+}
+
+/// @function AI_UnitFavorsStationing(_def)
+/// @description Whether _def's unit type is more valuable stationed than
+///        fielded -- 2026-07-13 request ("make sure it's placing buildings
+///        with units that have higher benefits to station than to be
+///        abroad... if it built peasants, it should be... building the
+///        Peasant Ward inside the castle to begin with"). True only when
+///        BOTH: (1) the unit actually gains something from being
+///        stationed (AI_UnitStationedBonusValue > 0 -- Archer's empty
+///        stationedBonuses fails this immediately), AND (2) its
+///        definition-level combat power (AI_UnitDefPowerScore) sits below
+///        the flat AI_STATION_FAVOR_POWER_CEILING cutoff. See that macro's
+///        comment for why a flat cutoff was chosen over a registry-wide
+///        relative comparison, and which unit types clear it today (only
+///        Peasant, as of this writing).
+/// @param {Struct.UnitDefinition} _def
+/// @returns {Bool}
+function AI_UnitFavorsStationing(_def) {
+    return AI_UnitStationedBonusValue(_def) > 0 && AI_UnitDefPowerScore(_def) < AI_STATION_FAVOR_POWER_CEILING;
 }
 
 /// @function AI_TryStationUnits(_team)
@@ -933,21 +1279,45 @@ function AI_UnitStationedBonusValue(_def) {
 ///        preserving some of the old greedy-affordability behavior when
 ///        power scores are equal.
 ///
-///        The AI_STATION_MIN_GUARD_RESERVE floor is still checked against
-///        the TOTAL guard count (not just eligible ones) -- ineligible
-///        guards (no stationed bonus) still count as "kept back" even
-///        though they'd never be picked anyway. Posts up to
-///        AI_STATION_ATTEMPTS_PER_TICK per tick, same gradual-not-lump-dump
-///        reasoning as before.
+///        The reserve floor is still checked against the TOTAL guard count
+///        (not just eligible ones) -- ineligible guards (no stationed
+///        bonus) still count as "kept back" even though they'd never be
+///        picked anyway.
+///
+///        2026-07-13 follow-up ("if the AI opponent has reached army
+///        limit, it should utilize those units in one way or another"):
+///        the floor itself is now AI_STATION_MIN_GUARD_RESERVE_AT_CAP
+///        (smaller) instead of AI_STATION_MIN_GUARD_RESERVE whenever
+///        AI_TeamAtArmyLimit is true. Holding back 3 idle guards exists to
+///        protect a future training pipeline from being hollowed out --
+///        but once the team is AT its army cap, nothing new can be queued
+///        regardless of how many of those units are guard vs. stationed
+///        (stationed units still count against global.armyLimit --
+///        CountTeamStationedUnits, StationScripts.gml -- converting a
+///        guard to stationed does NOT free any army-cap room), so that
+///        protection has nothing left to protect either way. Letting more
+///        of them station instead is purely about putting otherwise-idle
+///        units to their passive-bonus use once there's no longer a
+///        training pipeline to guard them for -- NOT an army-cap
+///        workaround. The broader AI_MIN_DEFENSIVE_ARMY_FRACTION floor
+///        (25% of total army, AI_MinDefensiveReserve) is untouched by this
+///        and still protects against total defenselessness regardless of
+///        army-cap status -- this only relaxes stationing's OWN local
+///        safety rail.
+///
+///        Posts up to AI_STATION_ATTEMPTS_PER_TICK per tick, same
+///        gradual-not-lump-dump reasoning as before.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 function AI_TryStationUnits(_team) {
     if (AI_CurrentStationedCount(_team) >= AI_STATION_MAX_STATIONED) return;
+
+    var _reserveFloor = AI_TeamAtArmyLimit(_team) ? AI_STATION_MIN_GUARD_RESERVE_AT_CAP : AI_STATION_MIN_GUARD_RESERVE;
 
     var _guards = [];
     with (oUnitParent) {
         if (team == _team && fsm.Is("guard")) array_push(_guards, id);
     }
-    if (array_length(_guards) <= AI_STATION_MIN_GUARD_RESERVE) return;
+    if (array_length(_guards) <= _reserveFloor) return;
 
     var _eligible = [];
     for (var i = 0; i < array_length(_guards); i++) {
@@ -964,7 +1334,7 @@ function AI_TryStationUnits(_team) {
         return GetUnitDefinition(_a.object_index).stationCost - GetUnitDefinition(_b.object_index).stationCost;
     });
 
-    var _spareCount = array_length(_guards) - AI_STATION_MIN_GUARD_RESERVE;
+    var _spareCount = array_length(_guards) - _reserveFloor;
     var _attempts   = min(AI_STATION_ATTEMPTS_PER_TICK, min(_spareCount, array_length(_eligible)));
     for (var i = 0; i < _attempts; i++) {
         IssueOrderToUnits("station", [_eligible[i]]);
@@ -1038,4 +1408,317 @@ function AI_TryProbeAttack(_brain, _surplus) {
         if (!array_contains(_raiders, _surplus[i])) array_push(_remaining, _surplus[i]);
     }
     return _remaining;
+}
+
+/// @function AI_CanReplaceDeployedUnits(_team)
+/// @description True once _team could plausibly rebuild whatever it's
+///        about to commit to an attack -- 2026-07-13 request ("using the
+///        AI's deployed units when unit cap is reached... after the AI
+///        determines it can either replace those units with resources and
+///        training, or once it can train other units in their place").
+///        Either of these is enough:
+///          (a) Resource-ready: at least one owned oTrainingBuildingParent
+///              can currently afford its OWN trainCost right now.
+///              Deliberately does NOT check TrainingTypeLimit/
+///              global.armyLimit here -- those caps are exactly what
+///              sending surplus off to attack is about to relieve (losses
+///              free room), so gating on them being already-clear would be
+///              circular. This only asks "does the team have the money
+///              banked to retrain something the instant a slot frees up."
+///          (b) Composition-ready: the team's OWNED training buildings
+///              collectively train 2+ DISTINCT unit types -- "train other
+///              units in their place," i.e. losing one type doesn't leave
+///              the team with nothing else it could ever train.
+/// @param {Real} _team
+/// @returns {Bool}
+function AI_CanReplaceDeployedUnits(_team) {
+    var _distinctTypes = [];
+    var _resourceReady = false;
+
+    with (oTrainingBuildingParent) {
+        if (team != _team || trainsUnit == undefined) continue;
+        if (!array_contains(_distinctTypes, trainsUnit)) array_push(_distinctTypes, trainsUnit);
+        if (!_resourceReady && trainCost.CanAfford(_team)) _resourceReady = true;
+    }
+
+    return _resourceReady || (array_length(_distinctTypes) >= 2);
+}
+
+/// @function AI_TryAttackSurplusAtCap(_brain, _surplus)
+/// @description 2026-07-13 request: once _brain.team is at its army cap
+///        (AI_TeamAtArmyLimit) AND AI_CanReplaceDeployedUnits says it's
+///        ready to lose some units, redirects _surplus (whatever's left
+///        after AI_ReserveDefensiveUnits/AI_TryProbeAttack) to ATTACK one
+///        of the enemy's ordinary buildings, instead of leaving it idle to
+///        wait on the separately-gated siege threshold below it in
+///        AI_BuildUp_Step.
+///
+///        This is a NEW, additional outlet for cap-surplus layered AHEAD
+///        of the existing siege check -- per explicit clarification, it
+///        does NOT change AI_SiegePowerThreshold or when siege itself
+///        fires. If the enemy has no ordinary buildings left standing
+///        (only their castle remains), this returns _surplus completely
+///        untouched, so the UNCHANGED at-cap siege logic below is exactly
+///        what handles that case -- "siege should continue using the AI's
+///        existing at-cap siege commitment, unless its opponent has no
+///        buildings outside of the castle to attack."
+///
+///        Targets a single random enemy oBuildingParent (never the castle
+///        -- same "attack" order/building-only scope AI_TryProbeAttack
+///        already uses) and commits the ENTIRE _surplus to it via
+///        IssueOrderToUnits("attack", ...), same dispatch every other AI
+///        attack goes through. Sending everything (not a token slice, and
+///        with no cooldown/window the way AI_TryProbeAttack has) is a
+///        judgment call, not an explicit spec answer -- flag if a partial
+///        commitment or its own cooldown reads better once playtested.
+/// @param {Struct.AIBrain} _brain
+/// @param {Array<Id.Instance>} _surplus
+/// @returns {Array<Id.Instance>} Whatever's LEFT of _surplus -- empty if a
+///        target was found (everyone was committed to it), unchanged
+///        otherwise.
+function AI_TryAttackSurplusAtCap(_brain, _surplus) {
+    if (array_length(_surplus) == 0) return _surplus;
+    if (!AI_TeamAtArmyLimit(_brain.team)) return _surplus;
+    if (!AI_CanReplaceDeployedUnits(_brain.team)) return _surplus;
+
+    var _enemyTeam = (_brain.team == TEAM.PLAYER) ? TEAM.ENEMY : TEAM.PLAYER;
+    var _targets = [];
+    with (oBuildingParent) {
+        if (team == _enemyTeam) array_push(_targets, id);
+    }
+    if (array_length(_targets) == 0) return _surplus; // nothing but the castle left -- let the siege check below handle it, unchanged
+
+    var _target = _targets[irandom(array_length(_targets) - 1)];
+    IssueOrderToUnits("attack", _surplus, _target);
+    return [];
+}
+
+// -----------------------------------------------------------
+// AI debug introspection -- 2026-07-13 request ("add AI debug data to the
+// list on the right of the UI stating its quotas, and what it is
+// intending to do next"). Everything below is READ-ONLY: it inspects
+// current state and re-checks the same conditions AI_BuildUp_Step/
+// AI_TryPlaceBlueprints/AI_TryTrainComposition/AI_TryStationUnits already
+// gate on, but never issues an order, spends anything, or mutates a
+// queue -- purely for the debug readout in oAIControl/Draw_64.gml. Some
+// duplication of those functions' own gating logic is deliberate here: a
+// dry-run preview needs to answer "would this succeed" without the real
+// side effects, and there's no non-mutating variant of
+// TrainingTryQueueUnit to call instead. Flagging the duplication risk --
+// if TrainingTryQueueUnit's own gates change, AI_WouldTrainSucceed below
+// needs a matching update, or this readout will quietly drift out of sync
+// with real behavior (display-only drift, not a functional bug either
+// way, but worth knowing about).
+// -----------------------------------------------------------
+
+/// @function AI_WouldTrainSucceed(_building)
+/// @description Dry-run mirror of TrainingTryQueueUnit's three gates
+///        (type limit, army-wide limit, affordability) for ONE additional
+///        unit, without spending anything or touching the queue. Debug-
+///        readout use only -- see file header above.
+///
+///        2026-07-13 correction: the army-wide gate now also counts
+///        CountTeamStationedUnits (StationScripts.gml), matching
+///        TrainingTryQueueUnit's own corrected math -- without this, the
+///        debug readout could claim training would succeed when the real
+///        call (which does count stationed units) would actually reject it.
+///
+///        2026-07-13 follow-up: the type-limit gate now also counts
+///        CountTeamStationedUnitsOfType (StationScripts.gml), matching
+///        TrainingTryQueueUnit's matching per-type correction.
+/// @param {Id.Instance} _building An oTrainingBuildingParent instance.
+/// @returns {Bool}
+function AI_WouldTrainSucceed(_building) {
+    var _unitType = _building.trainsUnit;
+    if (_unitType == undefined) return false;
+
+    var _team = _building.team;
+
+    var _typeLimit    = TrainingTypeLimit(_team, _unitType);
+    var _typeExisting = CountTeamUnitsOfType(_team, _unitType) + CountTeamStationedUnitsOfType(_team, _unitType);
+    var _typeQueued   = TrainingQueuedCountForType(_team, _unitType);
+    if (_typeExisting + _typeQueued + 1 > _typeLimit) return false;
+
+    var _armyLimit    = global.armyLimit[_team];
+    var _armyExisting = array_length(GatherTeamUnits(_team)) + CountTeamStationedUnits(_team);
+    var _armyQueued   = TrainingQueuedCountAll(_team);
+    if (_armyExisting + _armyQueued + 1 > _armyLimit) return false;
+
+    return _building.trainCost.CanAfford(_team);
+}
+
+/// @function AI_NextAffordableBlueprintName(_team)
+/// @description First blueprint _team currently holds that's both
+///        affordable and has a free plot to go on (any plot -- doesn't
+///        distinguish the inside-preference AI_TryPlaceBlueprints now
+///        applies, just "would placement be attempted at all"), or
+///        undefined. Mirrors AI_TryPlaceBlueprints' second (greedy) pass
+///        only, not its resource-priority first pass -- good enough for a
+///        debug readout, not a full re-derivation.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {String|Undefined}
+function AI_NextAffordableBlueprintName(_team) {
+    var _stacks = global.blueprints[_team];
+    for (var i = array_length(_stacks) - 1; i >= 0; i--) {
+        var _def = GetBuildingDefinition(_stacks[i].buildingType);
+        if (_def == undefined || !_def.cost.CanAfford(_team)) continue;
+        if (AI_FindEmptyOwnedPlot(_team) == noone) continue;
+        return _def.name;
+    }
+    return undefined;
+}
+
+/// @function AI_NextTrainableUnitName(_team)
+/// @description First owned training building that would successfully
+///        queue a unit right now (AI_WouldTrainSucceed), or undefined.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {String|Undefined}
+function AI_NextTrainableUnitName(_team) {
+    var _name = undefined;
+    with (oTrainingBuildingParent) {
+        if (team == _team && AI_WouldTrainSucceed(id)) {
+            var _unitDef = GetUnitDefinition(trainsUnit);
+            _name = (_unitDef != undefined) ? _unitDef.name : object_get_name(trainsUnit);
+            break;
+        }
+    }
+    return _name;
+}
+
+/// @function AI_TeamHasSpareGuard(_team)
+/// @description Whether _team has at least one unit currently in "guard".
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Bool}
+function AI_TeamHasSpareGuard(_team) {
+    var _found = false;
+    with (oUnitParent) {
+        if (team == _team && fsm.Is("guard")) {
+            _found = true;
+            break;
+        }
+    }
+    return _found;
+}
+
+/// @function AI_NextStationCandidateName(_team)
+/// @description Dry-run mirror of AI_TryStationUnits' own eligibility/
+///        selection logic (same at-cap-aware reserve floor, same nonzero-
+///        stationed-bonus filter, same weakest-power-first pick) --
+///        returns the unit type name that WOULD be stationed next, or
+///        undefined.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {String|Undefined}
+function AI_NextStationCandidateName(_team) {
+    if (AI_CurrentStationedCount(_team) >= AI_STATION_MAX_STATIONED) return undefined;
+
+    var _reserveFloor = AI_TeamAtArmyLimit(_team) ? AI_STATION_MIN_GUARD_RESERVE_AT_CAP : AI_STATION_MIN_GUARD_RESERVE;
+
+    var _guards = [];
+    with (oUnitParent) {
+        if (team == _team && fsm.Is("guard")) array_push(_guards, id);
+    }
+    if (array_length(_guards) <= _reserveFloor) return undefined;
+
+    var _best      = undefined;
+    var _bestScore = infinity;
+    for (var i = 0; i < array_length(_guards); i++) {
+        var _def = GetUnitDefinition(_guards[i].object_index);
+        if (_def == undefined || AI_UnitStationedBonusValue(_def) <= 0) continue;
+        var _score = AI_UnitPowerScore(_guards[i]);
+        if (_score < _bestScore) {
+            _bestScore = _score;
+            _best      = _def;
+        }
+    }
+    return (_best != undefined) ? _best.name : undefined;
+}
+
+/// @function AI_DebugIntent(_brain)
+/// @description Debug-only, READ-ONLY preview of what _brain's next think
+///        tick would do if it ran right now -- see file header above for
+///        the "why this duplicates gating logic" caveat. Mirrors
+///        AI_BuildUp_Step/AI_Defending_Step/AI_CastleDefense_Step's own
+///        priority order (castle defense > building defense > blueprints >
+///        training > defensive spread > stationing > siege > probe > idle)
+///        but stops at the first applicable action instead of actually
+///        doing it. Not guaranteed to exactly match the NEXT real think
+///        tick -- state can shift between frames (e.g. a threat appearing)
+///        -- good enough for a debug readout, not a substitute for reading
+///        the real functions.
+/// @param {Struct.AIBrain} _brain
+/// @returns {String}
+function AI_DebugIntent(_brain) {
+    var _team = _brain.team;
+
+    if (_brain.fsm.Is("castle_defense")) return "Defending own castle";
+    if (_brain.fsm.Is("defending"))      return "Defending threatened building(s)";
+
+    if (AI_CastleUnderThreat(_team))     return "About to defend own castle";
+    if (AI_DetectThreat(_team) != noone) return "About to defend a building";
+
+    var _blueprintName = AI_NextAffordableBlueprintName(_team);
+    if (_blueprintName != undefined) return "Placing: " + _blueprintName;
+
+    var _trainName = AI_NextTrainableUnitName(_team);
+    if (_trainName != undefined) return "Training: " + _trainName;
+
+    if (array_length(AI_UncoveredBuildingsByTier(_team)) > 0 && AI_TeamHasSpareGuard(_team)) {
+        return "Posting a defender";
+    }
+
+    var _stationName = AI_NextStationCandidateName(_team);
+    if (_stationName != undefined) return "Stationing: " + _stationName;
+
+    var _available     = AI_GatherAvailableUnits(_team);
+    var _reserveNeeded = max(0, AI_MinDefensiveReserve(_team) - AI_CurrentStationedCount(_team));
+    var _surplus       = AI_ReserveDefensiveUnits(_available, _reserveNeeded);
+
+    if (array_length(_surplus) > 0 && AI_ArmyPower(_surplus) >= AI_SiegePowerThreshold(_team)) {
+        return "Attacking (siege)";
+    }
+
+    if (_brain.age < AI_PROBE_WINDOW_FRAMES && _brain.probeCooldown <= 0 && array_length(_surplus) >= AI_PROBE_ATTACK_SIZE) {
+        return "Probing an enemy building";
+    }
+
+    return "Idle / accumulating";
+}
+
+/// @function AI_DebugQuotasText(_team)
+/// @description One "\n"-joined block of the raw quota numbers driving
+///        _team's AI decisions this tick -- 2026-07-13 debug request.
+///        Recomputed fresh every call, same "don't cache" convention as
+///        everything else in this file.
+///
+///        2026-07-13 correction: the "Army" line now shows live +
+///        stationed + queued, all three, against global.armyLimit --
+///        stationed units count against that cap the same as live ones
+///        (CountTeamStationedUnits, StationScripts.gml), so a line that
+///        only showed live+queued could misleadingly suggest room existed
+///        that was actually already used up by stationed units.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {String}
+function AI_DebugQuotasText(_team) {
+    var _armyLive      = array_length(GatherTeamUnits(_team));
+    var _stationed     = AI_CurrentStationedCount(_team);
+    var _armyQueued    = TrainingQueuedCountAll(_team);
+    var _armyLimit     = global.armyLimit[_team];
+    var _capSuffix     = AI_TeamAtArmyLimit(_team) ? " (CAP)" : "";
+
+    var _tankPct   = string(round(AI_ArmyTagFraction(_team, "tank")   * 100));
+    var _tankTgt   = string(round(AI_TANK_TARGET_RATIO   * 100));
+    var _rangedPct = string(round(AI_ArmyTagFraction(_team, "ranged") * 100));
+    var _rangedTgt = string(round(AI_RANGED_TARGET_RATIO * 100));
+
+    var _available     = AI_GatherAvailableUnits(_team);
+    var _reserveNeeded = max(0, AI_MinDefensiveReserve(_team) - _stationed);
+    var _surplus       = AI_ReserveDefensiveUnits(_available, _reserveNeeded);
+    var _surplusPower  = string(round(AI_ArmyPower(_surplus)));
+    var _siegeNeeded   = string(round(AI_SiegePowerThreshold(_team)));
+
+    return
+        "Army: " + string(_armyLive) + "L+" + string(_stationed) + "S+" + string(_armyQueued) + "Q/" + string(_armyLimit) + _capSuffix + "\n" +
+        "Stationed: " + string(_stationed) + "/" + string(AI_STATION_MAX_STATIONED) + "\n" +
+        "Tank: " + _tankPct + "%/" + _tankTgt + "%  Ranged: " + _rangedPct + "%/" + _rangedTgt + "%\n" +
+        "Siege power: " + _surplusPower + "/" + _siegeNeeded;
 }

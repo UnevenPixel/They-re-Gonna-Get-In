@@ -224,9 +224,17 @@ function TryPlaceBlueprint(_team, _buildingType, _plot) {
 //
 // Pagination: GetStackIndexAtSlot()/GetSlotRect() already key off `page`,
 // so a second page works the moment inventory exceeds
-// BLUEPRINT_SLOTS_PER_PAGE -- but there's no next/prev page button wired
-// up yet, since nothing can exceed one page right now (only one building
-// type exists). Add page-nav input once that's actually needed.
+// BLUEPRINT_SLOTS_PER_PAGE. 2026-07-13: prev/next arrow buttons flank the
+// panel (GetPageArrowRects/NextPage/PrevPage/UpdatePaging below), plus
+// scroll-wheel paging while the mouse sits anywhere over the panel or the
+// arrows themselves. Pages are just contiguous slices of a flat array (no
+// sparse/empty-middle pages ever occur -- RemoveBlueprintOne/array_delete
+// always shifts everything down), so "placing the last blueprint on a
+// page" can only ever empty out the LAST page; ClampPage() (called from
+// EndDrag and every UpdatePaging tick) snaps `page` back down to the new
+// last valid page whenever that happens, satisfying "if you place the last
+// blueprint on a page, go to an earlier page" without needing any special-
+// case logic beyond a plain clamp.
 // -----------------------------------------------------------
 
 #macro BLUEPRINT_SLOT_SIZE      48
@@ -235,8 +243,19 @@ function TryPlaceBlueprint(_team, _buildingType, _plot) {
 #macro BLUEPRINT_GRID_ROWS      2
 #macro BLUEPRINT_SLOTS_PER_PAGE 10 // BLUEPRINT_GRID_COLS * BLUEPRINT_GRID_ROWS
 #macro BLUEPRINT_UI_SCALE       2  // panel render/interact scale -- 2026-07-05 request; slot size/padding/icon draws all scale off this, single source of truth
-#macro BLUEPRINT_UI_ORIGIN_X    654 // fixed top-left anchor (2026-07-05 request) -- replaced the old bottom-centered GetOrigin()
+#macro BLUEPRINT_UI_ORIGIN_X    648 // fixed top-left anchor (2026-07-05 request) -- replaced the old bottom-centered GetOrigin()
 #macro BLUEPRINT_UI_ORIGIN_Y    824
+
+// 2026-07-13 pagination arrows -- raw px, scaled by BLUEPRINT_UI_SCALE same
+// as every other size/padding constant in this file. No arrow/button sprite
+// asset exists anywhere in the project yet (confirmed via grep) -- drawn as
+// plain triangles, same "temporary primitive shape" idiom the Fate Engine
+// overlay's buttons used (FateEngineOverlayScripts.gml) given there's
+// nothing else to reuse.
+#macro BLUEPRINT_PAGE_ARROW_WIDTH  16
+#macro BLUEPRINT_PAGE_ARROW_GAP    4  // gap between the grid and each arrow
+#macro BLUEPRINT_PAGE_ARROW_COLOR            c_white
+#macro BLUEPRINT_PAGE_ARROW_DISABLED_COLOR   c_dkgray // matches BLUEPRINT_UNAFFORDABLE_BORDER_COLOR
 
 /// @function BlueprintController(_team)
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY -- whose blueprint
@@ -314,6 +333,115 @@ function BlueprintController(_team) constructor {
         return (_stackIndex < array_length(global.blueprints[team])) ? _stackIndex : -1;
     }
 
+    /// @function GetPageCount()
+    /// @description How many pages this team's current inventory spans --
+    ///        always at least 1 (an empty inventory still shows one, empty,
+    ///        page) so `page` always has a valid page to sit on.
+    /// @returns {Real}
+    static GetPageCount = function() {
+        return max(1, ceil(array_length(global.blueprints[team]) / BLUEPRINT_SLOTS_PER_PAGE));
+    }
+
+    /// @function ClampPage()
+    /// @description Snaps `page` back into [0, GetPageCount() - 1] --
+    ///        called after anything that might shrink the inventory (see
+    ///        EndDrag) and every UpdatePaging tick, so `page` can never sit
+    ///        on a now-nonexistent page. 2026-07-13 request: "if you place
+    ///        the last blueprint on a page, go to an earlier page" -- see
+    ///        file header for why a plain clamp is sufficient (pages are
+    ///        always contiguous, so only the LAST page can ever empty out).
+    /// @returns {Struct.BlueprintController} self
+    static ClampPage = function() {
+        page = clamp(page, 0, GetPageCount() - 1);
+        return self;
+    }
+
+    /// @function NextPage()
+    /// @description Advances to the next page, if one exists.
+    /// @returns {Struct.BlueprintController} self
+    static NextPage = function() {
+        if (page < GetPageCount() - 1) page += 1;
+        return self;
+    }
+
+    /// @function PrevPage()
+    /// @description Goes back to the previous page, if one exists.
+    /// @returns {Struct.BlueprintController} self
+    static PrevPage = function() {
+        if (page > 0) page -= 1;
+        return self;
+    }
+
+    /// @function GetPageArrowRects()
+    /// @description GUI-space rects for the prev/next page arrows, flanking
+    ///        the grid on either side -- same "derive from the same anchor/
+    ///        scale math the grid itself uses" idiom as GetSlotRect, so
+    ///        Draw()/UpdatePaging() always agree on hit boxes.
+    /// @returns {Struct} { prev, next }, each { x1, y1, x2, y2 }.
+    static GetPageArrowRects = function() {
+        var _origin      = GetOrigin();
+        var _size        = BLUEPRINT_SLOT_SIZE * BLUEPRINT_UI_SCALE;
+        var _padding     = BLUEPRINT_SLOT_PADDING * BLUEPRINT_UI_SCALE;
+        var _panelWidth  = BLUEPRINT_GRID_COLS * (_size + _padding) + _padding;
+        var _panelHeight = BLUEPRINT_GRID_ROWS * (_size + _padding) + _padding;
+        var _arrowW      = BLUEPRINT_PAGE_ARROW_WIDTH * BLUEPRINT_UI_SCALE;
+        var _gap         = BLUEPRINT_PAGE_ARROW_GAP * BLUEPRINT_UI_SCALE;
+
+        var _prev = {
+            x1: _origin.x - _gap - _arrowW, y1: _origin.y,
+            x2: _origin.x - _gap,           y2: _origin.y + _panelHeight
+        };
+        var _next = {
+            x1: _origin.x + _panelWidth + _gap,           y1: _origin.y,
+            x2: _origin.x + _panelWidth + _gap + _arrowW, y2: _origin.y + _panelHeight
+        };
+        return { prev: _prev, next: _next };
+    }
+
+    /// @function UpdatePaging()
+    /// @description Call once per Step. Handles a left-click on either
+    ///        arrow (only if that direction is actually valid) AND
+    ///        scroll-wheel paging (up = previous, down = next) while the
+    ///        mouse sits anywhere over the panel or either arrow --
+    ///        2026-07-13 request. Also re-clamps `page` every tick (see
+    ///        ClampPage) so any external inventory shrink self-corrects
+    ///        within one frame even if EndDrag's own clamp was bypassed
+    ///        somehow.
+    /// @returns {Bool} True if a click was consumed by an arrow this frame
+    ///        -- callers should treat this the same as any other
+    ///        `consumedClick`-style flag and not also start a competing
+    ///        action (e.g. a unit-selection drag) from the same press.
+    static UpdatePaging = function() {
+        ClampPage();
+
+        var _mx    = device_mouse_x_to_gui(0);
+        var _my    = device_mouse_y_to_gui(0);
+        var _rects = GetPageArrowRects();
+
+        var _onPrev = (_mx >= _rects.prev.x1 && _mx <= _rects.prev.x2 && _my >= _rects.prev.y1 && _my <= _rects.prev.y2);
+        var _onNext = (_mx >= _rects.next.x1 && _mx <= _rects.next.x2 && _my >= _rects.next.y1 && _my <= _rects.next.y2);
+
+        var _clickedArrow = false;
+        if (mouse_check_button_pressed(mb_left)) {
+            if (_onPrev && page > 0) {
+                PrevPage();
+                _clickedArrow = true;
+            } else if (_onNext && page < GetPageCount() - 1) {
+                NextPage();
+                _clickedArrow = true;
+            }
+        }
+
+        // IsMouseOverPanel() already covers both arrows too (2026-07-13) --
+        // no need to re-check _onPrev/_onNext here.
+        if (IsMouseOverPanel()) {
+            if (mouse_wheel_up())   PrevPage();
+            if (mouse_wheel_down()) NextPage();
+        }
+
+        return _clickedArrow;
+    }
+
     /// @function TryBeginDrag()
     /// @description Call from a left-mouse-pressed check. Starts a drag if
     ///        the press landed on a filled slot.
@@ -368,6 +496,12 @@ function BlueprintController(_team) constructor {
 
         var _plot = instance_position(mouse_x, mouse_y, oBuildingPlot);
         TryPlaceBlueprint(team, _buildingType, _plot);
+
+        // 2026-07-13: if that placement just consumed the last stack on the
+        // current (necessarily last) page, snap back to an earlier one
+        // immediately rather than leaving `page` pointing at a now-empty
+        // page for a frame -- see ClampPage's doc comment.
+        ClampPage();
     }
 
     /// @function IsMouseOverPanel()
@@ -378,7 +512,10 @@ function BlueprintController(_team) constructor {
     ///        BuildingHoverSuppressed (BuildingHoverScripts.gml) to keep
     ///        plot/building world-space hover data from showing underneath
     ///        this GUI-space panel -- see BuildingHoverScripts.gml's file
-    ///        header for why that conflict exists at all.
+    ///        header for why that conflict exists at all. 2026-07-13: now
+    ///        also true over either page arrow -- they're visually part of
+    ///        the panel now, so world-space hover data shouldn't peek
+    ///        through underneath them either.
     /// @returns {Bool}
     static IsMouseOverPanel = function() {
         var _origin  = GetOrigin();
@@ -390,7 +527,14 @@ function BlueprintController(_team) constructor {
         var _mx = device_mouse_x_to_gui(0);
         var _my = device_mouse_y_to_gui(0);
 
-        return _mx >= _origin.x && _mx <= _origin.x + _width && _my >= _origin.y && _my <= _origin.y + _height;
+        if (_mx >= _origin.x && _mx <= _origin.x + _width && _my >= _origin.y && _my <= _origin.y + _height) {
+            return true;
+        }
+
+        var _arrowRects = GetPageArrowRects();
+        var _onPrev = (_mx >= _arrowRects.prev.x1 && _mx <= _arrowRects.prev.x2 && _my >= _arrowRects.prev.y1 && _my <= _arrowRects.prev.y2);
+        var _onNext = (_mx >= _arrowRects.next.x1 && _mx <= _arrowRects.next.x2 && _my >= _arrowRects.next.y1 && _my <= _arrowRects.next.y2);
+        return _onPrev || _onNext;
     }
 
     /// @function GetHoveredStackIndex()
@@ -556,6 +700,59 @@ function BlueprintController(_team) constructor {
                     draw_sprite_ext(_def.sprite, 0, device_mouse_x_to_gui(0), device_mouse_y_to_gui(0), BLUEPRINT_UI_SCALE, BLUEPRINT_UI_SCALE, 0, c_white, 1);
                 }
             }
+        }
+
+        DrawPageArrows(); // 2026-07-13 request
+    }
+
+    /// @function DrawPageArrows()
+    /// @description Draws the prev/next page arrows flanking the grid
+    ///        (greyed out via BLUEPRINT_PAGE_ARROW_DISABLED_COLOR whenever
+    ///        that direction isn't valid), plus a small "page N/M" counter
+    ///        centered under the grid -- only shown once there's more than
+    ///        one page, since a single-page inventory has nothing to count.
+    ///        Internal helper for Draw().
+    static DrawPageArrows = function() {
+        var _rects     = GetPageArrowRects();
+        var _pageCount = GetPageCount();
+
+        DrawOnePageArrow(_rects.prev, true,  page > 0);
+        DrawOnePageArrow(_rects.next, false, page < _pageCount - 1);
+
+        if (_pageCount > 1) {
+            var _origin      = GetOrigin();
+            var _size        = BLUEPRINT_SLOT_SIZE * BLUEPRINT_UI_SCALE;
+            var _padding     = BLUEPRINT_SLOT_PADDING * BLUEPRINT_UI_SCALE;
+            var _panelWidth  = BLUEPRINT_GRID_COLS * (_size + _padding) + _padding;
+            var _panelHeight = BLUEPRINT_GRID_ROWS * (_size + _padding) + _padding;
+
+            draw_set_halign(fa_center);
+            draw_set_valign(fa_top);
+            draw_set_color(HOVER_CARD_TEXT_COLOR); // 2026-07-11 convention -- see the stack-count text above
+            draw_text(_origin.x + _panelWidth / 2, _origin.y + _panelHeight + 4, $"{page + 1}/{_pageCount}");
+            draw_set_halign(fa_left);
+            draw_set_valign(fa_top);
+        }
+    }
+
+    /// @function DrawOnePageArrow(_rect, _pointsLeft, _enabled)
+    /// @description Draws one triangular arrow -- plain primitive, not a
+    ///        sprite, since no arrow/button asset exists anywhere in the
+    ///        project yet (confirmed via grep). Points left or right to
+    ///        fill _rect exactly; greyed out (BLUEPRINT_PAGE_ARROW_DISABLED_COLOR)
+    ///        when _enabled is false.
+    /// @param {Struct} _rect { x1, y1, x2, y2 }
+    /// @param {Bool} _pointsLeft
+    /// @param {Bool} _enabled
+    static DrawOnePageArrow = function(_rect, _pointsLeft, _enabled) {
+        var _color = _enabled ? BLUEPRINT_PAGE_ARROW_COLOR : BLUEPRINT_PAGE_ARROW_DISABLED_COLOR;
+        var _midY  = (_rect.y1 + _rect.y2) / 2;
+
+        draw_set_color(_color);
+        if (_pointsLeft) {
+            draw_triangle_color(_rect.x2, _rect.y1, _rect.x2, _rect.y2, _rect.x1, _midY, _color, _color, _color, false);
+        } else {
+            draw_triangle_color(_rect.x1, _rect.y1, _rect.x1, _rect.y2, _rect.x2, _midY, _color, _color, _color, false);
         }
     }
 }

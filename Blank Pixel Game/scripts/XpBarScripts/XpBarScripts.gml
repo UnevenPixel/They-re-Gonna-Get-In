@@ -35,8 +35,9 @@
 //
 // XP_BAR_ORIGIN_X/Y and the milestone offsets are GUI-space coordinates
 // that already account for the 2x render scale -- same convention as the
-// Fate Engine drum layout (oFateEngineDrumTest) -- only sprite RENDERING
-// needs the explicit xscale/yscale = XP_BAR_SCALE, not the positions.
+// Fate Engine drum layout (FateEngineOverlay, FateEngineOverlayScripts.gml)
+// -- only sprite RENDERING needs the explicit xscale/yscale = XP_BAR_SCALE,
+// not the positions.
 //
 // Not a GM instance -- same "plain struct, owner calls Step()/Draw()"
 // pattern as BlueprintController/FateDrum. Wired into oUnitControl
@@ -87,6 +88,28 @@ function XpBarFillPercent(_team) {
     var _required = AgeXpRequired(global.age[_team]);
     if (_required == undefined) return 1;
     return clamp(global.resources[_team].xp / _required, 0, 1);
+}
+
+/// @function XpBarWidgetHitRect()
+/// @description GUI-space bounding rect of the XP bar's backer sprite
+///        (sXpBar), computed from the EXACT same anchor/offset/scale math
+///        Draw() uses to draw it (XP_BAR_ORIGIN_X/Y, XP_BAR_SCALE, sXpBar's
+///        own custom origin) -- same "derive from the actual sprite,
+///        don't hardcode a rect" idiom as ArmyLimitWidgetIconRect
+///        (HUDWidgetScripts.gml), so this can never drift out of sync with
+///        where the bar is actually rendered. 2026-07-13 request: clicking
+///        the XP bar opens the Fate Engine overlay -- oUnitControl's
+///        click-to-open hit-test (Step_0.gml) reads this.
+/// @returns {Struct} { x1, y1, x2, y2 }, all GUI-space.
+function XpBarWidgetHitRect() {
+    var _x1 = XP_BAR_ORIGIN_X - sprite_get_xoffset(sXpBar) * XP_BAR_SCALE;
+    var _y1 = XP_BAR_ORIGIN_Y - sprite_get_yoffset(sXpBar) * XP_BAR_SCALE;
+    return {
+        x1: _x1,
+        y1: _y1,
+        x2: _x1 + sprite_get_width(sXpBar) * XP_BAR_SCALE,
+        y2: _y1 + sprite_get_height(sXpBar) * XP_BAR_SCALE
+    };
 }
 
 /// @function XpBarWidget(_team)

@@ -1,4 +1,4 @@
-depth = 0;
+depth = -480;
 
 castleOffset = 180;
 

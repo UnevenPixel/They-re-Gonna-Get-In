@@ -5,6 +5,16 @@
 // with the sDropDownMenuTop/sDropDownMenuMiddle/sDropDowmMenuBottom sprite
 // set, plus a title on every menu ("Orders"/"Castle"/"Selected").
 //
+// 2026-07-13 addition: PositionDropDownMenuFromClick (see below) -- shared
+// mouse-dependent anchoring for menus that open from a click, matching the
+// same "quadrant-anchor-away-from-cursor + screen-edge clamp" logic every
+// hover card already uses (PositionHoverCardPair, HoverCardScripts.gml).
+// OrderMenu and CastleGarrisonMenu both now call this from their own Open().
+// Deliberately NOT used by ArmyLimitMenu (no click position exists to
+// anchor from -- fixed HUD-icon trigger) or SelectionSummaryMenu (stays a
+// fixed top-left panel, unrelated to any click) -- both explicitly excluded
+// from this request.
+//
 // NOTE: the bottom sprite's actual asset name is "sDropDowmMenuBottom"
 // (missing the second "n" in "Down") -- a pre-existing typo in the asset
 // as it was added to the project. Used verbatim below rather than renamed,
@@ -145,6 +155,70 @@ function DrawDropDownMenuTitle(_x, _y, _text) {
 function DrawDropDownMenuRowBackground(_x, _y, _isBottom, _hovered) {
     var _sprite = _isBottom ? sDropDowmMenuBottom : sDropDownMenuMiddle;
     draw_sprite_ext(_sprite, _hovered ? 1 : 0, _x, _y, DROPDOWN_MENU_SCALE, DROPDOWN_MENU_SCALE, 0, c_white, 1);
+}
+
+/// @function PositionDropDownMenuFromClick(_mx, _my, _rowCount)
+/// @description Computes a drop-down menu's top-left GUI-space position,
+///        anchored away from the initiating click -- 2026-07-13 request:
+///        match the same "quadrant-anchor-away-from-cursor + screen-edge
+///        clamp" logic every hover card already uses (PositionHoverCardPair,
+///        HoverCardScripts.gml; also PlotHoverController/
+///        BuildingHoverController/CastleBonusHoverController, all built on
+///        the same pattern), instead of the previous "flush at the click,
+///        clamp only if the far edge overflows" logic OrderMenu/
+///        CastleGarrisonMenu used before this pass. Whichever screen HALF
+///        the click landed in (horizontally and vertically, independently)
+///        decides which side of the click point the menu grows into -- so
+///        it always grows back toward screen-center, away from whichever
+///        edge is nearest, same reasoning the hover cards use -- offset by
+///        PLOT_HOVER_CURSOR_GAP px of daylight between the cursor and the
+///        menu's nearest edge (PlotHoverScripts.gml -- reused directly, not
+///        redeclared, same precedent HOVER_CARD_PAIR_GAP already set for
+///        this exact value/reasoning).
+///
+///        Deliberately NOT used by ArmyLimitMenu (opens from a fixed HUD
+///        icon, not a click -- no click position exists to anchor from) or
+///        SelectionSummaryMenu (a fixed top-left panel, never opened from a
+///        click at all) -- both explicitly excluded from the 2026-07-13
+///        request this function was added for.
+/// @param {Real} _mx GUI-space X of the triggering click.
+/// @param {Real} _my GUI-space Y of the triggering click.
+/// @param {Real} _rowCount Row count the menu is about to open with --
+///        needed up front to know its total on-screen height/width for the
+///        anchor-flip and edge-clamp math below.
+/// @returns {Struct} { x, y } -- the menu's top-left corner, GUI-space.
+function PositionDropDownMenuFromClick(_mx, _my, _rowCount) {
+    var _w = DropDownMenuWidth();
+    var _h = DropDownMenuTotalHeight(_rowCount);
+
+    var _anchorLeft = (_mx < display_get_gui_width()  / 2);
+    var _anchorTop  = (_my < display_get_gui_height() / 2);
+
+    var _x = _anchorLeft ? (_mx + PLOT_HOVER_CURSOR_GAP) : (_mx - PLOT_HOVER_CURSOR_GAP - _w);
+    var _y = _anchorTop  ? (_my + PLOT_HOVER_CURSOR_GAP) : (_my - PLOT_HOVER_CURSOR_GAP - _h);
+
+    _x = clamp(_x, 0, display_get_gui_width()  - _w);
+    _y = clamp(_y, 0, display_get_gui_height() - _h);
+
+    return { x: _x, y: _y };
+}
+
+/// @function PositionDropDownMenuCentered(_rowCount)
+/// @description Computes a drop-down menu's top-left GUI-space position,
+///        centered on screen both horizontally and vertically -- 2026-07-13
+///        request (PauseMenu, PauseMenuScripts.gml), for a menu that isn't
+///        triggered by a click at all (a keyboard shortcut) so there's no
+///        cursor position to anchor away from, unlike
+///        PositionDropDownMenuFromClick above.
+/// @param {Real} _rowCount Row count the menu is about to open with.
+/// @returns {Struct} { x, y } -- the menu's top-left corner, GUI-space.
+function PositionDropDownMenuCentered(_rowCount) {
+    var _w = DropDownMenuWidth();
+    var _h = DropDownMenuTotalHeight(_rowCount);
+    return {
+        x: (display_get_gui_width()  - _w) / 2,
+        y: (display_get_gui_height() - _h) / 2
+    };
 }
 
 /// @function DropDownMenuRowContentX(_x)

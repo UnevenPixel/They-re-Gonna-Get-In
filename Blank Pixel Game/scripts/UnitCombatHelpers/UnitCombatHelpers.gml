@@ -42,7 +42,15 @@
 ///            team-tagged killer, its team gets COMBAT_XP_STRUCTURE, PLUS
 ///            COMBAT_XP_RESOURCE_BLDG on top if _target is also an
 ///            oResourceBuildingParent (so destroying a resource building
-///            nets +10 total, confirmed stacking).
+///            nets +10 total, confirmed stacking). 2026-07-13: that same
+///            killer, if on a DIFFERENT team than the building (no reward
+///            for self-destruction), also receives one blueprint of the
+///            destroyed building's own type (AddBlueprint,
+///            BlueprintScripts.gml) -- "prevents lockouts where neither
+///            side can get blueprints." No-ops if the building type isn't
+///            actually registered (GetBuildingDefinition returns undefined
+///            for oPlayerCastle/oEnemyCastle -- there's no blueprint to
+///            hand out for those).
 ///        Economic XP ("resource building depletes naturally") is NOT
 ///        wired here or anywhere -- no depletion mechanic exists yet, see
 ///        PATCH_NOTES.md.
@@ -156,6 +164,27 @@ function ApplyDamage(_target, _amount, _source = noone) {
             GainXP(_source.team, COMBAT_XP_STRUCTURE);
             if (object_is_ancestor(_target.object_index, oResourceBuildingParent)) {
                 GainXP(_source.team, COMBAT_XP_RESOURCE_BLDG);
+            }
+
+            // 2026-07-13 request: "if a unit destroys a building, they get
+            // a blueprint of that building. This prevents lockouts where
+            // neither side can get blueprints." Cross-team only
+            // (_source.team != _target.team) -- otherwise self-destructing
+            // your own building (e.g. a Bomb Goblin detonating near one, or
+            // deliberately scrapping one) would farm free blueprints, which
+            // isn't what "prevents lockouts" is asking for. Guarded by
+            // GetBuildingDefinition != undefined so this can never hand out
+            // a blueprint for something that isn't actually a registered,
+            // placeable building type (e.g. oPlayerCastle/oEnemyCastle
+            // aren't in global.__buildingDefRegistry at all -- see
+            // BuildingDefinitions.gml -- so destroying a castle correctly
+            // grants nothing here rather than creating a permanently-stuck,
+            // unplaceable blueprint slot).
+            if (_source.team != _target.team) {
+                var _destroyedDef = GetBuildingDefinition(_target.object_index);
+                if (_destroyedDef != undefined) {
+                    AddBlueprint(_source.team, _target.object_index, 1);
+                }
             }
         }
     }

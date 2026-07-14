@@ -142,12 +142,47 @@ function Defend_Step(_unit, _machine) {
 }
 
 /// @function Defend_Exit(_unit, _machine)
-/// @description StateMachine onExit for "defend". Clears defendTarget so it
-///        doesn't linger if the unit re-enters a different defend assignment later.
+/// @description StateMachine onExit for "defend". Deliberately does NOT
+///        touch defendTarget -- 2026-07-13 bugfix. It used to unconditionally
+///        clear it (`_unit.defendTarget = noone`), which broke two real
+///        cases:
+///
+///        1. Reassigning an already-defending unit to a DIFFERENT building
+///           (e.g. AI_Defending_Step/AI_TryMaintainDefensiveSpread/
+///           AI_CastleDefense_Step, all via the "defend" order's onIssue,
+///           OrderWiring.gml) sets the new defendTarget BEFORE calling
+///           ChangeState("defend", true) -- but since that call re-enters
+///           the SAME state name, ChangeState runs this Exit first, which
+///           would immediately wipe the freshly-assigned new target back to
+///           `noone` before Defend_Enter ever got to read it. Enter would
+///           then see `!instance_exists(noone)` and bounce straight to
+///           "guard" -- the unit's defendTarget field silently ends up
+///           correct-looking from the outside, but the unit itself falls
+///           back to aimless guard patrol instead of marching to the new
+///           building. This is the reported bug: units already posted to
+///           defend one building would not respond when the AI tried to
+///           redirect them to a newly-threatened one.
+///        2. "combat"/"combatRanged" is only ever entered FROM "guard" or
+///           "defend" (UnitEnterCombat) and reverts back to whichever one
+///           via RevertToPrevious (UnitRevertFromCombat,
+///           UnitCombatHelpers.gml) once the fight ends. A defending unit
+///           that aggros into combat exits "defend" (wiping the target,
+///           pre-fix) then later reverts back to "defend" -- Defend_Enter
+///           would find its own target already gone and, again, silently
+///           demote the unit to "guard" instead of resuming its patrol.
+///           Every defend assignment should survive a combat interruption;
+///           this was quietly breaking that too.
+///
+///        Nothing reads defendTarget while NOT in "defend" (every reader --
+///        Defend_Enter, Defend_Step, AI_UncoveredBuildingsByTier -- either
+///        runs only during "defend" or explicitly checks fsm.Is("defend")
+///        first), and every path that ENTERS "defend" (the order's onIssue,
+///        TrainingSpawnUnit) always sets defendTarget immediately beforehand
+///        -- so there's no stale-value hazard left to guard against by
+///        clearing it here. See OrderWiring.gml's "defend" onIssue for the
+///        matching half of this fix (now passes `_force = true`).
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Defend_Exit(_unit, _machine) {
-    // Clear the stored waypoints and target so they don't linger if the
-    // unit re-enters a different defend assignment later.
-    _unit.defendTarget = noone;
+    // Intentionally empty -- see doc comment above.
 }

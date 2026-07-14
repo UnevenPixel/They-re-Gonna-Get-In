@@ -23,6 +23,13 @@
 // confirmed 2026-07-06 that it's meant to keep layering on top of
 // whatever XP system exists underneath.
 //
+// 2026-07-13 playtesting-checklist change: TEAM.ENEMY (the AI) no longer
+// gets Fate Tokens at all -- it has no Fate Engine UI to ever spend one on,
+// so they'd just pile up doing nothing. Each milestone crossed grants it
+// 1-3 random blueprints instead, standing in for what the payout would
+// eventually be once the real Fate Engine reward table exists. See
+// GainXP's own doc comment below. TEAM.PLAYER is unaffected.
+//
 // Ages/blueprint-tier-acquisition odds are still NOT designed yet (per
 // 2026-07-04 discussion) -- this file only tracks the numbers. Nothing
 // reads global.age to affect blueprint odds yet; that's future work.
@@ -78,7 +85,8 @@ function AgeUpCost(_age) {
 ///        5 equal 20%-marks (20/40/60/80/100%) crossed by this gain --
 ///        computed from before/after position so a single large gain that
 ///        crosses more than one mark still awards every token earned, not
-///        just one.
+///        just one. 2026-07-13: TEAM.ENEMY gets 1-3 random blueprints per
+///        mark instead of a token -- see the milestone-award block below.
 ///
 ///        Does NOT advance global.age[_team] itself anymore (2026-07-06
 ///        doc change) -- once the bar fills, this just raises
@@ -105,11 +113,36 @@ function GainXP(_team, _amount) {
     global.resources[_team].xp = _xpAfter;
     AnalyticsRecordResourceProduced(_team, "xp", _toAdd);
 
-    // Award a Fate Token for every 20%-mark crossed in (before, after].
+    // Award a Fate Token for every 20%-mark crossed in (before, after] --
+    // 2026-07-13 playtesting-checklist change: TEAM.ENEMY gets 1-3 random
+    // blueprints per milestone instead. The AI has no Fate Engine UI to
+    // ever spend a token on -- that whole payout pipeline isn't built yet
+    // either (FateEngineDrumScripts.gml's drum is still a visual-only test
+    // harness, see its own file header) -- so tokens would just accumulate
+    // uselessly forever for the AI. This "simulates the player receiving
+    // blueprints from the fate engine" directly instead: for EACH milestone
+    // crossed this call, rolls a fresh irandom_range(1, 3) count and grants
+    // that many blueprints, each independently a random registered building
+    // type (ds_map_keys_to_array(global.__buildingDefRegistry), same idiom
+    // FateDrumRandomPlaceholderItem already uses for its own "blueprint"
+    // look). TEAM.PLAYER's behavior is completely unchanged.
     var _tokensEarned = floor(_xpAfter / _interval) - floor(_xpBefore / _interval);
     if (_tokensEarned > 0) {
-        global.resources[_team].fateTokens += _tokensEarned;
-        AnalyticsRecordResourceProduced(_team, "fateTokens", _tokensEarned);
+        if (_team == TEAM.ENEMY) {
+            var _buildingTypes = ds_map_keys_to_array(global.__buildingDefRegistry);
+            if (array_length(_buildingTypes) > 0) {
+                for (var m = 0; m < _tokensEarned; m++) {
+                    var _blueprintCount = irandom_range(1, 3);
+                    for (var b = 0; b < _blueprintCount; b++) {
+                        var _buildingType = _buildingTypes[irandom(array_length(_buildingTypes) - 1)];
+                        AddBlueprint(_team, _buildingType, 1);
+                    }
+                }
+            }
+        } else {
+            global.resources[_team].fateTokens += _tokensEarned;
+            AnalyticsRecordResourceProduced(_team, "fateTokens", _tokensEarned);
+        }
     }
 
     if (_xpAfter >= _required) {

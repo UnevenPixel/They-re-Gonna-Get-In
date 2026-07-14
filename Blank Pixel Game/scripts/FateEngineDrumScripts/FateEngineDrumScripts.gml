@@ -23,75 +23,104 @@
 // the front/landing position (angle 0) -- that's what a hover tooltip (or
 // eventually the cash-out payout) reads off (requirement 2).
 //
-// The actual weighted Fate Engine reward table (resource building /
-// training building / resource bundle / event, scaled by corruption) is
-// NOT built yet -- see the 2026-07-05 Fate Engine design discussion. Slots
-// are populated by FateDrumRandomPlaceholderItem, a stand-in that mixes
-// "resource stack" items (sFateEngineResources) and "blueprint" items
-// (a random registered building's own sprite), purely so this render/spin
-// mechanic is visually testable in isolation with roughly the right look.
-// Stop() already accepts an optional _targetItem so the future
-// reward-resolution task can force a drum to land on a specific resolved
-// result without touching this file again.
+// The real weighted Fate Engine reward table lives in FateEngineRollReward()
+// below (2026-07-13) -- a straight coin-flip between a blueprint reward
+// (uniform over every currently-registered building type,
+// global.__buildingDefRegistry) and a resource bundle (uniform over the 5
+// CURRENTLY ACTIVE base resources -- wood/wheat/water/iron/gold; the other
+// 5 slots in global.resourceIconOrder -- meat/bones/coal/weapons/coins --
+// aren't produced or spent by anything yet, confirmed via grep, so
+// rewarding them would just be inert). This replaces the old
+// FateDrumRandomPlaceholderItem stub, which only ever produced a LOOK
+// (sprite/subimg/label) with no data behind it -- FateEngineItem now
+// carries rewardType/rewardData too so FateEngineOverlay.Cashout()
+// (FateEngineOverlayScripts.gml) can actually grant what a drum landed on.
+// Odds/amounts below are a first-pass judgment call, not a tuned design
+// (no corruption-scaling/event-type rewards exist yet either) -- see
+// PATCH_NOTES.md for the full list of what's still a placeholder here.
+// Stop() already accepts an optional _targetItem so a future weighted-
+// odds-by-corruption pass can still force a drum to land on a specific
+// resolved result without touching this file's mechanics again.
 //
 // All drum items are 48x48 (sFateEngineResources' native size, and every
 // building sprite -- oBuildingParent is always 48x48). Drawing them at
 // FATE_DRUM_ITEM_SCALE (2x, per 2026-07-05 request) is handled entirely in
 // Draw() below -- callers just position drums in GUI space and don't need
 // to think about the scale themselves.
+//
+// 2026-07-13: drum animation (spin/decel/landing, Step() below) no longer
+// scales by global.matchSpeed -- the drums are a UI mechanic independent of
+// the battlefield's speed control, and FateEngineOverlay freezes
+// global.matchSpeed to 0 while open anyway (FateEngineOverlayScripts.gml),
+// which would have frozen the drums too if they'd stayed coupled to it.
+// Every rate below is now a flat degrees/step (or fraction/step) value.
 // -----------------------------------------------------------
 
 #macro FATE_DRUM_SLOT_COUNT       5    // items spaced evenly around the cylinder
-#macro FATE_DRUM_SPIN_SPEED       18   // degrees/step at 1x match speed while spinning
+#macro FATE_DRUM_SPIN_SPEED       18   // degrees/step while spinning -- independent of global.matchSpeed, see file header
 #macro FATE_DRUM_STOP_DECEL       0.6  // degrees/step^2 shed from spin speed while stopping
 #macro FATE_DRUM_BACK_ZONE_MIN    150  // degrees -- a slot inside [MIN,MAX] is "at the back", hidden, and eligible to swap
 #macro FATE_DRUM_BACK_ZONE_MAX    210
 #macro FATE_DRUM_ITEM_SCALE       2    // GUI render scale for every item sprite (48x48 -> 96x96) -- 2026-07-05 request
-#macro FATE_DRUM_LAND_EASE_RATE   0.2  // fraction of the remaining angle-to-target closed per step at 1x match speed, while "landing"
+#macro FATE_DRUM_LAND_EASE_RATE   0.2  // fraction of the remaining angle-to-target closed per step while "landing"
 #macro FATE_DRUM_LAND_SNAP_EPSILON 0.5 // degrees -- close enough to the target to snap exactly and finish landing
 
-/// @function FateEngineItem(_sprite, _subimg, _label)
-/// @description One item shown on a Fate Engine drum -- just enough to
-///        draw an icon and label it on hover. This is deliberately
-///        generic (sprite/subimg/label, nothing reward-specific) so the
-///        real reward-resolution task can hand the drum any resolved
-///        reward (a building, a resource bundle, an event) through the
-///        same shape.
+#macro FATE_ENGINE_REWARD_BLUEPRINT_CHANCE 0.5  // odds a roll resolves to a blueprint instead of a resource bundle -- arbitrary 50/50 placeholder, not a tuned design
+#macro FATE_ENGINE_REWARD_RESOURCE_MIN     20   // resource bundle amount range -- rough middle-of-the-road against tier-1 building costs (20-150), not tuned
+#macro FATE_ENGINE_REWARD_RESOURCE_MAX     60
+
+// The 5 CURRENTLY ACTIVE base resources -- see file header for why
+// meat/bones/coal/weapons/coins are excluded. Plain global array (not a
+// #macro), same "allocate once" reasoning as global.resourceIconOrder
+// (ResourceUIScripts.gml).
+global.fateEngineRewardResourceTypes = ["wood", "wheat", "water", "iron", "gold"];
+
+/// @function FateEngineItem(_sprite, _subimg, _label, _rewardType, _rewardData)
+/// @description One item shown on a Fate Engine drum -- an icon/label to
+///        draw plus, since 2026-07-13, enough data to actually GRANT the
+///        reward it represents. Still deliberately generic on the display
+///        side (sprite/subimg/label) so a future event-type reward can
+///        reuse the same shape; rewardType/rewardData is where the actual
+///        payload lives.
 /// @param {Asset.GMSprite} _sprite
 /// @param {Real} _subimg
 /// @param {String} _label Display text for the hover tooltip.
-function FateEngineItem(_sprite, _subimg, _label) constructor {
-    sprite = _sprite;
-    subimg = _subimg;
-    label  = _label;
+/// @param {String} _rewardType "resource" | "blueprint".
+/// @param {Struct} _rewardData "resource": { resourceName, amount }.
+///        "blueprint": { buildingType }.
+function FateEngineItem(_sprite, _subimg, _label, _rewardType, _rewardData) constructor {
+    sprite     = _sprite;
+    subimg     = _subimg;
+    label      = _label;
+    rewardType = _rewardType;
+    rewardData = _rewardData;
 }
 
-/// @function FateDrumRandomPlaceholderItem()
-/// @description STUB item source -- a coin-flip between a "resource
-///        stack" look (sFateEngineResources, one of the 10 base
-///        resources via global.resourceIconOrder, same frame order as
-///        sResourceIcons, with a placeholder amount) and a "blueprint"
-///        look (a random currently-registered building's own sprite +
-///        display name, read generically off
-///        global.__buildingDefRegistry so this doesn't need updating as
-///        buildings are added). Stands in for the real weighted Fate
-///        Engine reward table (resource building / training building /
-///        resource bundle / event, scaled by corruption -- not designed
-///        yet) purely so the drum's spin/swap/lock mechanic can be built
-///        and tested now with roughly the right visual mix. Replace the
-///        calls in FateDrum's constructor/Step once that table exists.
+/// @function FateEngineRollReward()
+/// @description The real Fate Engine reward roll -- see file header for
+///        the full table/odds reasoning. Replaces the old
+///        FateDrumRandomPlaceholderItem stub, which only produced a LOOK
+///        with no data behind it. Coin-flips (FATE_ENGINE_REWARD_BLUEPRINT_CHANCE)
+///        between:
+///        - A blueprint: uniform over every currently-registered building
+///          type (global.__buildingDefRegistry, read generically so this
+///          doesn't need updating as buildings are added -- same idiom
+///          GainXP's AI blueprint grant already uses, ProgressionScripts.gml).
+///        - A resource bundle: uniform over global.fateEngineRewardResourceTypes
+///          (the 5 currently-active base resources), amount uniformly
+///          between FATE_ENGINE_REWARD_RESOURCE_MIN/MAX.
 /// @returns {Struct.FateEngineItem}
-function FateDrumRandomPlaceholderItem() {
-    if (irandom(1) == 0) {
-        var _index    = irandom(array_length(global.resourceIconOrder) - 1);
-        var _resource = global.resourceIconOrder[_index];
-        var _amount   = irandom_range(10, 100); // placeholder -- real bundle sizing/odds not designed yet
-        return new FateEngineItem(sFateEngineResources, _index, $"{_amount} {_resource}");
-    } else {
+function FateEngineRollReward() {
+    if (random(1) < FATE_ENGINE_REWARD_BLUEPRINT_CHANCE) {
         var _buildingTypes = ds_map_keys_to_array(global.__buildingDefRegistry);
         var _buildingType  = _buildingTypes[irandom(array_length(_buildingTypes) - 1)];
         var _def           = GetBuildingDefinition(_buildingType);
-        return new FateEngineItem(_def.sprite, 0, _def.name);
+        return new FateEngineItem(_def.sprite, 0, _def.name, "blueprint", { buildingType: _buildingType });
+    } else {
+        var _index    = irandom(array_length(global.fateEngineRewardResourceTypes) - 1);
+        var _resource = global.fateEngineRewardResourceTypes[_index];
+        var _amount   = irandom_range(FATE_ENGINE_REWARD_RESOURCE_MIN, FATE_ENGINE_REWARD_RESOURCE_MAX);
+        return new FateEngineItem(sFateEngineResources, ResourceIconIndex(_resource), $"{_amount} {_resource}", "resource", { resourceName: _resource, amount: _amount });
     }
 }
 
@@ -110,7 +139,7 @@ function FateDrum(_x, _y, _radius = 48) constructor {
     radius = _radius;
 
     spinAngle     = 0;         // current overall rotation, degrees, 0-360
-    spinSpeed     = 0;         // degrees/step, at 1x match speed
+    spinSpeed     = 0;         // degrees/step -- independent of global.matchSpeed, see file header
     state         = "stopped"; // "stopped" | "spinning" | "stopping" | "landing"
     pendingResult = undefined; // Struct.FateEngineItem|Undefined -- see Stop()
     landingTarget = undefined; // Real|Undefined -- the slot-boundary angle "landing" is easing toward, see Step()
@@ -121,7 +150,7 @@ function FateDrum(_x, _y, _radius = 48) constructor {
     slots = array_create(FATE_DRUM_SLOT_COUNT, undefined);
     for (var i = 0; i < FATE_DRUM_SLOT_COUNT; i++) {
         slots[i] = {
-            item          : FateDrumRandomPlaceholderItem(),
+            item          : FateEngineRollReward(),
             wasInBackZone : false,
         };
     }
@@ -163,12 +192,14 @@ function FateDrum(_x, _y, _radius = 48) constructor {
     /// @description Call once per Step while this drum exists. Advances
     ///        rotation, hands off from "stopping" to a "landing" ease
     ///        once slow enough (see below), and refreshes any slot that
-    ///        just entered the hidden back zone.
+    ///        just entered the hidden back zone. 2026-07-13: runs at a flat
+    ///        per-step rate, independent of global.matchSpeed -- see file
+    ///        header.
     static Step = function() {
         if (state == "spinning") {
-            spinAngle += spinSpeed * global.matchSpeed;
+            spinAngle += spinSpeed;
         } else if (state == "stopping") {
-            spinSpeed -= FATE_DRUM_STOP_DECEL * global.matchSpeed;
+            spinSpeed -= FATE_DRUM_STOP_DECEL;
 
             // Once slow enough, stop decelerating and hand off to
             // "landing" rather than snapping straight to the nearest slot
@@ -181,7 +212,7 @@ function FateDrum(_x, _y, _radius = 48) constructor {
                 spinSpeed     = 0;
                 state         = "landing";
             } else {
-                spinAngle += spinSpeed * global.matchSpeed;
+                spinAngle += spinSpeed;
             }
         } else if (state == "landing") {
             // Ease the remaining gap to landingTarget down every step
@@ -210,7 +241,7 @@ function FateDrum(_x, _y, _radius = 48) constructor {
                     pendingResult = undefined;
                 }
             } else {
-                spinAngle += _delta * FATE_DRUM_LAND_EASE_RATE * global.matchSpeed;
+                spinAngle += _delta * FATE_DRUM_LAND_EASE_RATE;
             }
         }
 
@@ -222,7 +253,7 @@ function FateDrum(_x, _y, _radius = 48) constructor {
             var _inBackZone = (_theta >= FATE_DRUM_BACK_ZONE_MIN && _theta <= FATE_DRUM_BACK_ZONE_MAX);
 
             if (_inBackZone && !_slot.wasInBackZone) {
-                _slot.item = FateDrumRandomPlaceholderItem();
+                _slot.item = FateEngineRollReward();
             }
             _slot.wasInBackZone = _inBackZone;
         }

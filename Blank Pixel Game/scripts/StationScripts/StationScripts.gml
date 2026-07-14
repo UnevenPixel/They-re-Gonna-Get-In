@@ -6,6 +6,56 @@
 // walk-to-castle FSM state that calls UnitBecomeStationed on arrival.
 // -----------------------------------------------------------
 
+/// @function CountTeamStationedUnits(_team)
+/// @description Total live oUnitStationed belonging to _team, any type.
+///        2026-07-13 correction: stationed units still count against
+///        global.armyLimit (TrainingScripts.gml) -- they didn't before
+///        this function existed, which meant a team could station units
+///        to quietly train PAST its intended army-wide cap (stationing
+///        never freed real capacity, it just wasn't being counted at
+///        all). Shared by TrainingTryQueueUnit's army-wide check (so both
+///        the player and the AI are bound by the same corrected math) and
+///        AIControl.gml's AI_TeamAtArmyLimit/AI_CurrentStationedCount --
+///        one source of truth for "how many stationed units does this
+///        team have" instead of duplicating this same `with` loop in two
+///        files.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Real}
+function CountTeamStationedUnits(_team) {
+    var _count = 0;
+    with (oUnitStationed) {
+        if (team == _team) _count++;
+    }
+    return _count;
+}
+
+/// @function CountTeamStationedUnitsOfType(_team, _unitType)
+/// @description Counts live oUnitStationed belonging to _team whose
+///        preserved unitData.unitType matches _unitType specifically --
+///        the stationed counterpart to CountTeamUnitsOfType
+///        (TrainingScripts.gml), which only ever sees LIVE instances of
+///        _unitType (e.g. oPeasantUnit) and can't see a stationed one,
+///        since a stationed unit is a completely different object
+///        (oUnitStationed) with its original type preserved only inside
+///        unitData (see UnitDataBlock, UnitScripts.gml).
+///
+///        2026-07-13 addition ("update Training type limit to include the
+///        stationed units as well") -- used by TrainingTryQueueUnit's
+///        per-type cap check (TrainingTypeLimit's companion existing-count)
+///        alongside AI_WouldTrainSucceed's (AIControl.gml) matching dry-run,
+///        so a stationed Peasant now counts against "how many Peasants can
+///        this team ever have via Peasant Wards," not just a live one.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @param {Asset.GMObject} _unitType e.g. oPeasantUnit.
+/// @returns {Real}
+function CountTeamStationedUnitsOfType(_team, _unitType) {
+    var _count = 0;
+    with (oUnitStationed) {
+        if (team == _team && unitData.unitType == _unitType) _count++;
+    }
+    return _count;
+}
+
 /// @function StationCastleCorner(_castle)
 /// @description Fixed storage point for stationed units at _castle -- the
 ///        top-left corner of its bbox. Arbitrary: oUnitStationed has no

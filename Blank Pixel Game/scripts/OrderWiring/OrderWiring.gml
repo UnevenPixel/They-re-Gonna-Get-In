@@ -19,7 +19,22 @@ function RegisterAllOrders() {
                 // in UnitSelection.gml and NIGHTLY_REVIEW_2026-07-09.md §3.1.
                 if (!instance_exists(_units[i])) continue;
                 _units[i].defendTarget = _context;
-                _units[i].fsm.ChangeState("defend");
+                // 2026-07-13 bugfix: _force = true. ChangeState no-ops if the
+                // unit is ALREADY in "defend" (StateMachine.gml) -- without
+                // forcing, reassigning a unit that's already defending one
+                // building to a DIFFERENT one (e.g. AI_Defending_Step
+                // redirecting defenders to a newly-threatened building,
+                // AIControl.gml) would silently do nothing: defendTarget
+                // above updates, but Defend_Enter never re-runs to rebuild
+                // the patrol waypoints from it, so the unit just keeps
+                // patrolling its OLD building forever. Forcing re-entry
+                // makes every "defend" order -- reassignment or not --
+                // actually (re)commit to whatever target was just set. See
+                // Defend_Exit's doc comment (UnitStateDefend.gml) for the
+                // other half of this fix (it no longer clears defendTarget
+                // on exit, which would otherwise wipe the new target we just
+                // assigned above before Defend_Enter ever reads it).
+                _units[i].fsm.ChangeState("defend", true);
             }
         },
         true, // requiresTarget = true -- menu click starts targeting mode

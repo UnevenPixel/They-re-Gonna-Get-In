@@ -9,3 +9,6 @@ rulerPortraitController = new RulerPortraitController(GetRulerPortraitDefinition
 castleGarrisonMenu = new CastleGarrisonMenu(); // castle-wall-click garrison dropdown -- 2026-07-11 request, see CastleGarrisonMenu.gml
 selectionSummaryMenu = new SelectionSummaryMenu(); // top-left multi-unit-selected panel -- 2026-07-12 request, see SelectionSummaryMenu.gml
 castleBonusHoverController = new CastleBonusHoverController(); // castle hover panel listing active stationed passive bonuses -- 2026-07-12 request, see CastleBonusHoverScripts.gml
+armyLimitMenu = new ArmyLimitMenu(); // "Unit Limits" dropdown, opened by clicking the Army Limit Widget icon -- 2026-07-13 request, see ArmyLimitMenu.gml
+fateEngineOverlay = new FateEngineOverlay(); // Fate Engine session overlay, opened by clicking the XP bar -- 2026-07-13 request, see FateEngineOverlayScripts.gml
+pauseMenu = new PauseMenu(); // pause menu, opened via Escape -- 2026-07-13 request, see PauseMenuScripts.gml

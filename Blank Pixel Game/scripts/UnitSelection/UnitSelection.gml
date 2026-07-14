@@ -226,6 +226,50 @@ function SelectionController(_unitObject, _team) constructor {
         return self;
     }
 
+    /// @function Deselect()
+    /// @description Instantly clears the current selection and cancels
+    ///        target-selection mode if active -- does NOT touch `dragging`
+    ///        (a drag box is a mouse-button-held gesture, not a persistent
+    ///        state, so there's nothing meaningful to cancel there; EndDrag
+    ///        still resolves normally on mouse-up). 2026-07-13: added for
+    ///        the Fate Engine overlay's Open() ("all selections will be
+    ///        unselected instantly, and submenus will close") -- the only
+    ///        prior way to clear `selected` was the two inline
+    ///        `selected = []` assignments inside IssueOrder/UpdateTargeting,
+    ///        neither of which fit an external caller wanting a clean-slate
+    ///        reset outside the normal order-issuing flow.
+    /// @returns {Struct.SelectionController} self
+    static Deselect = function() {
+        selected = [];
+        if (isTargeting) CancelTargeting();
+        return self;
+    }
+
+    /// @function SelectAllOfType(_unitType)
+    /// @description Selects every live instance of _unitType belonging to
+    ///        this controller's own team, replacing whatever was
+    ///        previously selected -- 2026-07-13 request (Army Limit
+    ///        Widget's "Unit Limits" dropdown, ArmyLimitMenu.gml: "select
+    ///        all deployed units of that type"). "Deployed" means live
+    ///        oUnitParent instances actually on the battlefield --
+    ///        stationed (garrisoned) units of the same type are
+    ///        deliberately NOT included; they're a different object
+    ///        (oUnitStationed), have no FSM, and were never selectable to
+    ///        begin with, same reasoning AI_GatherAvailableUnits
+    ///        (AIControl.gml) uses to treat live and stationed units as
+    ///        separate pools entirely.
+    /// @param {Asset.GMObject} _unitType e.g. oPeasantUnit.
+    /// @returns {Struct.SelectionController} self
+    static SelectAllOfType = function(_unitType) {
+        var _team = team; // capture before `with` changes the instance context
+        var _found = [];
+        with (_unitType) {
+            if (team == _team) array_push(_found, id);
+        }
+        selected = _found;
+        return self;
+    }
+
     /// @function AvailableOrders()
     /// @returns {Array<Struct.Order>} Orders common to the current selection.
     static AvailableOrders = function() {

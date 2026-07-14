@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"TitleMenuScripts",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"TitleMenuScripts",
+  "parent":{
+    "name":"TitleScreen",
+    "path":"folders/Menus/TitleScreen.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

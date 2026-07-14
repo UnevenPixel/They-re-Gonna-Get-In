@@ -9,6 +9,33 @@
 /// to the given position -- used so the unit targets the surface
 /// of the building rather than its center, which would put the
 /// attack trigger point 24px inside the building.
+///
+/// 2026-07-13 bugfix ("soldiers in the center of the wheat field" report):
+/// a plain clamp() of _fromPos to the box only produces a point ON the
+/// edge when _fromPos starts OUTSIDE the box -- if _fromPos is already
+/// INSIDE (both axes already within range), clamp() is a no-op and just
+/// hands back _fromPos itself, i.e. "the nearest edge point" degenerates
+/// into wherever the unit already happens to be standing, dead center
+/// included. That's reachable in practice because buildings were dropped
+/// from units' hard collision list back on 2026-07-06 (move_and_collide
+/// only checks oEnvironmentSolid now) -- Steering_AvoidObstacles is a soft
+/// lookahead force, not a wall, so a unit converging on a small building
+/// alongside allies (separation pressure) or approaching at a sharp angle
+/// can clip past the corner the feeler missed and end up inside. Once
+/// inside, Attack_Step/AttackRanged_Step read _distToEdge as ~0 and the
+/// unit just locks in place right there instead of continuing out to the
+/// real surface.
+///
+/// Now explicitly detects the inside case and pushes back out to whichever
+/// side has the least penetration depth, same "always a real point on the
+/// actual perimeter, never the interior" guarantee CastleFrontEdgePoint
+/// (CastleScripts.gml) already gives for the castle (it sidesteps this
+/// entirely by always returning a fixed edge-line X rather than blending
+/// toward _fromPos). Since this function is called fresh every step, a
+/// unit that's already stuck inside from before this fix self-corrects
+/// the very next frame -- UnitPursueTarget just steers it out to the
+/// newly-correct edge point (buildings still don't hard-block movement,
+/// so nothing stops it walking back out).
 /// @param {Id.Instance}    _building
 /// @param {Struct.Vector2} _fromPos
 /// @returns {Struct.Vector2}
@@ -18,8 +45,32 @@ function NearestBuildingEdgePoint(_building, _fromPos) {
     var _hw = ATTACK_BUILDING_HALF;
     var _hh = ATTACK_BUILDING_HALF;
 
-    var _cx = clamp(_fromPos.x, _bx - _hw, _bx + _hw);
-    var _cy = clamp(_fromPos.y, _by - _hh, _by + _hh);
+    var _left   = _bx - _hw;
+    var _right  = _bx + _hw;
+    var _top    = _by - _hh;
+    var _bottom = _by + _hh;
+
+    var _insideX = (_fromPos.x > _left && _fromPos.x < _right);
+    var _insideY = (_fromPos.y > _top  && _fromPos.y < _bottom);
+
+    if (_insideX && _insideY) {
+        // _fromPos is inside the box -- clamp() alone would just hand back
+        // _fromPos itself here. Push out to the shallowest side instead.
+        var _distLeft   = _fromPos.x - _left;
+        var _distRight  = _right - _fromPos.x;
+        var _distTop    = _fromPos.y - _top;
+        var _distBottom = _bottom - _fromPos.y;
+
+        var _minDist = min(_distLeft, _distRight, _distTop, _distBottom);
+
+        if (_minDist == _distLeft)       return new Vector2(_left, _fromPos.y);
+        else if (_minDist == _distRight) return new Vector2(_right, _fromPos.y);
+        else if (_minDist == _distTop)   return new Vector2(_fromPos.x, _top);
+        else                              return new Vector2(_fromPos.x, _bottom);
+    }
+
+    var _cx = clamp(_fromPos.x, _left, _right);
+    var _cy = clamp(_fromPos.y, _top, _bottom);
     return new Vector2(_cx, _cy);
 }
 

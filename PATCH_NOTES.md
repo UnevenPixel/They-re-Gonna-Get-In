@@ -1,5 +1,376 @@
 # Patch Notes
 
+## v0.0.4.8 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+New title/main menu screen (rmTitleMenu, oTitleMenu, TitleMenuScripts.gml), wired in after the disclaimer. Also fixes a pre-existing, unrelated `Blank Pixel Game.yyp` corruption discovered while registering the new assets.
+
+### Added
+
+- **`TitleMenuScripts.gml`** (new file, `TitleMenu()` struct owned by `oTitleMenu` — same "plain struct + thin object wrapper" split as `PauseMenu`/`FateEngineOverlay`/`BlueprintController`) — full title-screen sequence: `fadeIn` (background fades in from black) → `titleDrop` (`sTitle` falls from off-screen-top to screen-center on both axes via a standard easeOutBounce curve, landing with a visible bounce) → `prompt` ("Press Any Key" typewriters in below the title via Scribble's `scribble_typist`, `[wave]` tag, white text with a manually 8-way-offset black outline — see below) → `transition` (on any key/gamepad-face/click: prompt slides off the bottom, title eases to the docked top-right corner at `TITLE_MENU_PADDING`, all four buttons slide in from off-screen-right staggered per row — all three run concurrently) → `menu` (buttons hover-shift left by `TITLE_MENU_BUTTON_HOVER_SHIFT`, smoothly both ways; click fires that button's action).
+- **Menu buttons, in request order** — Play (`room_goto(rmTestGameplay)`), Settings (explicit no-op stub), Credits (explicit no-op stub, "we will add this shortly" per the request), Exit (opens a Yes/No confirm sub-panel — mirrors `PauseMenu`'s `RequestConfirm`/`CancelConfirm` shape and reuses the same shared `DropDownMenuScripts.gml` row/title helpers, but isn't the literal same struct instance, since `PauseMenu`'s instance lives on `oUnitControl` in the gameplay room and doesn't exist on the title screen — "Yes" calls `game_end()`, "No"/Escape/a miss-click cancels, same rule `PauseMenu`'s own confirm sub-menu already uses).
+- **`oTitleMenu`** (new object, `Menus/TitleScreen` folder) — Create/Step/Draw GUI wrapper (`titleMenu = new TitleMenu();` / `.Update()` / `.Draw()`).
+- **`rmTitleMenu`** (new room, `Menus/TitleScreen` folder) — 1920x1080, `enableViews:false`, matching `rmDisclaimer`/`rmOpeningCredits`/`rmInit` exactly (same "GUI-space-drawn, no camera view" shape). Inserted into `RoomOrderNodes` between `rmDisclaimer` and `rmTestGameplay`.
+
+### Changed
+
+- **`oAlphaDisclaimer/Step_0.gml`** — "press any key to continue" now goes to `rmTitleMenu` instead of straight to `rmTestGameplay`, per explicit request ("Wire in the disclaimer screen to go to this menu instead"). `oOpeningCredits`'s own target (`rmDisclaimer`) was left untouched — not part of this request, and the disclaimer still needs to show before the title menu.
+
+### Fixed
+
+- **`Blank Pixel Game.yyp` was found silently corrupted** (truncated mid-string partway through the sprites section, invalid JSON — same recurring "IDE reopened the project while a save was in flight" cause documented several times earlier in this file, e.g. the 2026-07-05 entries) while trying to register the new title-screen assets — unrelated to anything from this session, but it meant the project would not have opened in GameMaker at all regardless of this feature. Reconstructed the full `resources` array from disk ground truth (scanned every real `sprites/objects/scripts/rooms/fonts/shaders/extensions/*/*.yy` self-named resource file, 362 total, sorted case-insensitively to match the project's existing convention) rather than hand-patching the truncated file or blindly reverting to the last git commit (which predates several sessions' worth of still-uncommitted work, e.g. `PauseMenuScripts`, the four title-screen option sprites, and `sTitle`/`sTitleBackground` itself — reverting would have silently dropped all of it). The file's header (`Folders`/`configs`/etc., through the `"resources":[` line) and its trailing `RoomOrderNodes`/`TextureGroups` structure were preserved/reconstructed from the last known-good commit, with `rmTitleMenu` inserted into `RoomOrderNodes`. Verified: resource count (362), zero brace/bracket imbalance, and spot-checked that every asset referenced by this pass's own new code (and everything else already known to be in use, e.g. `oWheatField`, `sWheatField`, `DropDownMenuScripts`) is present exactly once.
+
+### Flagged
+
+- **`_OpenSettings()`/`_OpenCredits()` are explicit empty stubs** for this pass, per your own answer to the earlier clarifying question ("stub Settings like Credits for now") — clicking either currently does nothing observable. No shared `SettingsOverlay` object was built this pass.
+- **Manual 8-offset outline instead of Scribble's built-in `.outline()`/`.sdf_outline()`** — that feature exists in this project's bundled Scribble build (`__scribble_class_element.gml`) but its own comments tie it to SDF-imported fonts, and `fntResource` is a plain bitmap font with no SDF configuration. Rather than risk an outline that silently doesn't render (or renders incorrectly) on a non-SDF font, went with the standard font-agnostic "draw the text 8 times at a 1px offset in black, then once in white on top" trick instead. Confirmed this is safe to call multiple times per frame against one shared `scribble_typist` — its reveal state is keyed off `current_time` (frame-constant), not a per-call counter, so it doesn't type any faster than a single draw would.
+- **Button entrance stagger (`TITLE_MENU_BUTTON_STAGGER`, 0.08s/row) and all animation durations are first-pass judgment calls**, not specified by the request — easy to retune, all are named macros at the top of `TitleMenuScripts.gml`.
+- **Mouse click added to the "press any key" trigger**, alongside the keyboard/gamepad combo `oAlphaDisclaimer` already uses — not explicitly requested, but conventional for a title screen.
+- **Title's move to the docked corner and the button slide-ins are eased/tweened animations**, not an instant snap — not specified either way by the request; flag if an instant snap was actually wanted for the docking step specifically.
+- No `TitleMenuScripts.md` Notion doc exists yet — same longstanding gap noted in prior passes for other libraries.
+
+### Build
+
+- Windows export version bumped `0.0.4.7` → `0.0.4.8` — 4th-digit bump, routine convention.
+
+## v0.0.4.7 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+Bugfix: melee/ranged units attacking a building could end up standing inside its footprint (reported as "soldiers in the center of the wheat field"), confusing nearby allies' steering.
+
+### Fixed
+
+- **`NearestBuildingEdgePoint(_building, _fromPos)`** (`UnitStateAttackMelee.gml`, shared by `Attack_Step` and `AttackRanged_Step`) — previously computed the "nearest edge point" with a plain `clamp()` of `_fromPos` to the building's box, which only returns a true edge point when `_fromPos` starts OUTSIDE the box. If a unit was already standing inside (reachable because buildings were dropped from units' hard collision list on 2026-07-06 — `move_and_collide` only checks `oEnvironmentSolid` now, and `Steering_AvoidObstacles` is a soft lookahead force a unit can clip past, especially with several allies converging on a small building and pushing each other via separation), `clamp()` was a no-op and handed back the unit's own current position as the "edge" — `_distToEdge` read as ~0 and the unit just locked in place wherever it was, including dead center. Fixed by detecting the inside case explicitly and pushing out to whichever side has the shallowest penetration depth, matching the same "always a real point on the perimeter, never the interior" guarantee `CastleFrontEdgePoint` (`CastleScripts.gml`) already has for castle sieging. Self-heals units already stuck from before this fix — the function is called fresh every step, so the very next frame steers them back out to the corrected edge point (nothing physically stops that walk-out, same reason they could get in).
+
+### Build
+
+- Windows export version bumped `0.0.4.6` → `0.0.4.7` — 4th-digit bump, routine convention.
+
+## v0.0.4.6 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+Order menu now opens instantly the moment a selection is made (instead of waiting for a right-click) and gets a per-row mnemonic hotkey. Melee-attack-vs-building edge targeting was checked against the request and confirmed already implemented from an earlier pass — no code change needed there.
+
+### Added
+
+- **`OrderMenu.OpenCentered(_orders)`** (`OrderMenu.gml`) — a second entry point alongside the existing click-anchored `Open()`, for auto-open call sites with no triggering click to anchor away from. Uses `PositionDropDownMenuCentered` (`DropDownMenuScripts.gml`, added last pass for `PauseMenu`).
+- **Mnemonic hotkeys** (`OrderMenu.gml`) — `AssignMnemonics()` picks one letter per currently-shown order (the label's own first letter, or the next unclaimed letter in that label if an earlier row in the same menu already claimed it — e.g. "Siege Castle" and "Station" both start with S, so one of them falls back to its second letter), recomputed every time the menu (re)opens since which orders show up depends on the current selection. `Update()` now checks each row's assigned letter (`keyboard_check_pressed`) before mouse handling — pressing it acts exactly like clicking that row, same return-value contract. `Draw()` recolors that one letter `c_white` (against the rest of the label's `HOVER_CARD_TEXT_COLOR`) rather than underlining it — checked this project's bundled Scribble build (`__scribble_gen_2_parser.gml`'s `_command_tag_lookup_accelerator_map`) and confirmed there is no underline tag (only font/colour/alpha/scale/alignment/`b`/`i`/`bi`/etc.), so the request's explicit fallback applies.
+- **Instant auto-open on selection** (`oUnitControl/Step_0.gml`) — the order menu now opens the moment the selection becomes non-empty, from every path that populates `selectionController.selected`: `EndDrag()` (covers both a drag-box and a single-unit click) opens click-anchored via `orderMenu.Open()` at the release point, same anchoring rule the manual right-click path already used; `SelectAllOfType()` (Army Limit Widget row click) and `SelectionSummaryMenu`'s row-narrow click both open centered via `orderMenu.OpenCentered()`, since neither has a playfield click position to anchor away from. All three no-op via `Open()`/`OpenCentered()`'s own empty-orders guard if the resulting selection has no common order (or is empty). The existing manual right-click-to-open path is unchanged and still works (e.g. to bring the menu back after dismissing it without changing selection).
+
+### Investigated, no change made
+
+- **Melee-attack-vs-building edge targeting** (the request: "let them sit on the outside edge of that building, not the center of it") — already implemented (`NearestBuildingEdgePoint`, `UnitCombatHelpers.gml`; consumed by `Attack_Step`'s APPROACH/RECOVER phases, `UnitStateAttackMelee.gml`) from an earlier pass, predating this session's visible history. Sieging the castle has its own equivalent (`CastleFrontEdgePoint`, `UnitStateSiege.gml`). No `PATCH_NOTES.md` entry for it was found, so flagging this explicitly rather than silently re-doing (or silently skipping) it — if something about the current edge-targeting behavior isn't matching what's actually observed in-game, let me know specifics (which unit/building/state) and I'll dig further.
+
+### Flagged
+
+- **Auto-open repositions the menu on every selection change**, including a shift-click that only adds one unit to an already-selected group — if the player is mid-multi-select in different screen areas, the menu will jump to re-anchor at each new click point rather than staying put. Matches the request's literal "open it with the same anchoring rules it normally uses" read literally per-click, but worth double-checking it doesn't feel twitchy in practice.
+- **Mnemonic collision resolution picks the next unclaimed letter in reading order**, not necessarily the most memorable one (e.g. "Station"'s "t" rather than something more distinctive) — simplest rule that satisfies "the first letter if possible, unless it is used by another order," but a hand-picked mapping might read better if this comes up in practice (today only "Siege Castle"/"Station" can collide, since "Guard"/"Defend Building"/"Attack Building" all have unique first letters).
+- No `OrderMenu.md`/`DropDownMenuScripts.md` Notion doc exists yet — flagged again, still not closed (same longstanding gap noted in prior passes for other libraries).
+
+### Build
+
+- Windows export version bumped `0.0.4.5` → `0.0.4.6` — 4th-digit bump, routine convention.
+
+## v0.0.4.5 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+The pause menu — Escape dims the screen, freezes the match, and centers a Resume/Restart/Settings/Quit to Desktop/End Match list, with a Yes/No confirm step on the two destructive options.
+
+### Added
+
+- **`PauseMenuScripts.gml`** (new file) — `PauseMenu` struct, built on the shared drop-down menu sprite set (`DropDownMenuScripts.gml`) same as `OrderMenu`/`CastleGarrisonMenu`/`ArmyLimitMenu`, but centered on screen rather than click-anchored (new `PositionDropDownMenuCentered(_rowCount)` helper, `DropDownMenuScripts.gml`, since Escape has no click position to anchor away from). `Open(...)` takes the same 5 cross-controller dependencies `FateEngineOverlay.Open()` does, for the same reason: saves/zeroes `global.matchSpeed`, clears selection, closes every other dropdown, cancels a blueprint drag. Main list: Resume / Restart / Settings / Quit to Desktop / End Match, in that order. Quit to Desktop and End Match both open a Yes/No confirm sub-menu (`RequestConfirm`/`CancelConfirm`) before doing anything — "No", Escape, or a click that misses "Yes" all cancel back to the main list. Restart calls `room_restart()`; Quit/End Match's "Yes" calls `game_end()` for both, per explicit request. Settings is an explicit stub (`OpenSettings()`, intentionally empty) — clicking that row does nothing yet.
+- **`PositionDropDownMenuCentered(_rowCount)`** (`DropDownMenuScripts.gml`) — centers a drop-down menu on screen, parallel to the existing `PositionDropDownMenuFromClick`.
+
+### Changed
+
+- **`oUnitControl/Create_0.gml`** — instantiates `pauseMenu = new PauseMenu()`.
+- **`oUnitControl/Step_0.gml`** — Escape opens the pause menu (checked right after the Fate Engine overlay's own early-exit, before the XP-bar click check) — same `isOpen` early-exit pattern as the Fate Engine overlay, which is also what makes the two overlays mutually exclusive: the Fate Engine overlay's own check runs first and exits if it's open (blocking Escape that frame), and the pause menu's early-exit sits before the XP-bar check (blocking the Fate Engine overlay from opening while paused).
+- **`oUnitControl/Draw_64.gml`** — `pauseMenu.Draw()` is the LAST call in the event, on top of the UI bar and every other HUD element — the opposite draw-order choice from the Fate Engine overlay (which stays behind the bar). See Flagged.
+
+### Flagged
+
+- **Draw-order deviation from the Fate Engine overlay**: the request said pause should do "the same black overlay" as the Fate Engine overlay, which draws its dim FIRST so the persistent UI bar stays visible on top of it. Pausing reads as a different, more total kind of interruption (leaving the play state entirely, not just consulting a HUD widget), so the pause menu's dim/panel are drawn LAST instead, covering the UI bar too. Flag if the Fate-Engine-style "stay behind the bar" placement was actually wanted here.
+- **Open trigger is Escape** — not specified in the request (no button/icon was described this time); Escape is the universal pause convention and nothing else in the project currently uses `vk_escape` (confirmed via grep), so there was no conflict to resolve.
+- **Click-away on the main list does nothing** (must pick an option or use Escape/Resume) — a deliberate choice so a stray click near the menu's edge can't silently resume the match. Click-away on the confirm sub-menu, by contrast, cancels back to the main list (treated as an implicit "No") — different behavior between the two lists, worth double-checking it feels right.
+- **`DoQuitOrEndMatch(_action)` takes `_action` but ignores it today** — both branches call `game_end()`. Kept as one function with the parameter in place so a future pass that actually diverges "quit" vs. "end match" behavior only needs to change this one function.
+- **Settings row is a true no-op** — clicking it doesn't close the menu or show any feedback, per explicit "leave it as a stub" instruction; flagging so it isn't mistaken for a bug during a playtest.
+
+### Build
+
+- Windows export version bumped `0.0.4.4` → `0.0.4.5` — 4th-digit bump, routine convention.
+
+## v0.0.4.4 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+Two independent additions: paginated Blueprint UI (prev/next arrows + scroll-wheel) now that inventories can exceed one page, and destroying an enemy building grants the destroyer a blueprint of that building type.
+
+### Added
+
+- **Blueprint panel pagination** (`BlueprintScripts.gml`) — `GetPageCount()`/`ClampPage()`/`NextPage()`/`PrevPage()`/`GetPageArrowRects()`/`UpdatePaging()`/`DrawPageArrows()`/`DrawOnePageArrow()`. Prev/next arrows (plain triangles — no arrow/button sprite asset exists anywhere in the project yet) flank the grid, greyed out when that direction isn't valid. `UpdatePaging()` handles both an arrow click and scroll-wheel paging (up = previous, down = next) while the mouse sits anywhere over the panel or either arrow (`IsMouseOverPanel()` extended to cover the arrows too). A small "page N/M" counter is drawn centered under the grid, only once there's more than one page. `ClampPage()` is called from `EndDrag()` right after a placement AND every `UpdatePaging()` tick, so placing the last blueprint on the current (necessarily last) page snaps `page` back to an earlier one immediately — pages are always contiguous slices of the flat inventory array (`RemoveBlueprintOne` always shifts everything down), so a plain clamp is sufficient; no special-casing needed.
+- **Blueprint reward on building kill** (`UnitCombatHelpers.gml`'s `ApplyDamage`) — in the building-destroyed branch, the killer's team now receives one blueprint (`AddBlueprint`) of the destroyed building's own type, cross-team only (`_source.team != _target.team` — no reward for self-destruction, e.g. a Bomb Goblin detonating near your own building) and only if the building type is actually registered (`GetBuildingDefinition != undefined` — excludes `oPlayerCastle`/`oEnemyCastle`, which aren't in `global.__buildingDefRegistry` and have no placeable blueprint to hand out). "Prevents lockouts where neither side can get blueprints."
+
+### Changed
+
+- **`oUnitControl/Step_0.gml`** — `blueprintController.UpdatePaging()` now runs early (same "must run before this frame's open-click handling" tier as the other menus' `.Update()` calls), and its return value gates the big left-click block the same way `castleGarrisonMenu.consumedClick`/etc. already do, so an arrow click doesn't also fall through to blueprint-drag/selection-drag logic.
+
+### Flagged
+
+- **Page-arrow visuals are plain triangles**, not a sprite — no arrow/button asset exists anywhere in the project yet (confirmed via grep), same reasoning as the Fate Engine overlay's temporary buttons last pass.
+- **Scroll direction convention (up = previous page, down = next page)** is a judgment call, not specified — flag if the opposite reads better.
+- **AI blueprint-on-kill**: `AI_TryPlaceBlueprints`/combat AI code is untouched — the AI benefits from this the same way the player does (it routes through the same `ApplyDamage`), no separate AI-specific wiring was needed or added.
+
+### Build
+
+- Windows export version bumped `0.0.4.3` → `0.0.4.4` — 4th-digit bump, routine convention.
+
+## v0.0.4.3 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+The Fate Engine drums now roll a real reward table instead of a display-only placeholder, run on their own clock independent of match speed, and `oFateEngineDrumTest` (the old test harness, fully superseded by last pass's overlay) is deleted.
+
+### Added
+
+- **`FateEngineRollReward()`** (`FateEngineDrumScripts.gml`) — replaces `FateDrumRandomPlaceholderItem`. Coin-flips (`FATE_ENGINE_REWARD_BLUEPRINT_CHANCE`, 0.5) between a blueprint (uniform over every currently-registered building type, `global.__buildingDefRegistry`) and a resource bundle (uniform over `global.fateEngineRewardResourceTypes` — the 5 CURRENTLY ACTIVE base resources: wood/wheat/water/iron/gold — amount uniform between `FATE_ENGINE_REWARD_RESOURCE_MIN`/`MAX`, 20-60). Deliberately excludes meat/bones/coal/weapons/coins from `global.resourceIconOrder` — confirmed via grep that nothing produces or spends those yet, so rewarding them would be inert.
+- **`FateEngineItem`'s `rewardType`/`rewardData` fields** (`FateEngineDrumScripts.gml`) — the constructor was already deliberately generic for this; now actually carries `"resource"` (`{ resourceName, amount }`) or `"blueprint"` (`{ buildingType }`) so a landed spin can be applied for real.
+- **`FateEngineOverlay.Cashout()` now grants real rewards** (`FateEngineOverlayScripts.gml`) — no longer a stub. Applies each banked `pendingRewards` entry: `resource` adds `rewardData.amount` to `global.resources[TEAM.PLAYER][rewardData.resourceName]`; `blueprint` calls `AddBlueprint(TEAM.PLAYER, rewardData.buildingType, 1)`.
+
+### Changed
+
+- **`FateDrum.Step()`** (`FateEngineDrumScripts.gml`) — no longer scales spin/decel/landing by `global.matchSpeed`; every rate is now a flat per-step value. The drums are a UI mechanic independent of the battlefield's speed control — and since `FateEngineOverlay.Open()` forces `global.matchSpeed` to 0 anyway, leaving them coupled would have frozen them solid the instant the overlay opened.
+- **`FateEngineOverlay.Update()`** (`FateEngineOverlayScripts.gml`) — removed the temporary `global.matchSpeed = 1 ... = 0` flip around the drums' `Step()` calls from last pass; no longer needed now that the drums don't read it at all.
+- **`FateEngineOverlay.Open()`/`Leave()`** now set/clear `global.fateEngineOverlayActive` — this was pre-existing suppression infrastructure in `PlotHoverScripts.gml`/`BuildingHoverScripts.gml` (their own hover-suppression checks already OR it in) explicitly built ahead of time for "the real overlay" to flip later, and last pass's overlay never did. `Step_0.gml`'s `isOpen` early-exit guard already made this behaviorally redundant (those controllers' `Step()` never runs while the overlay is open), but leaving a pre-wired hook permanently false was an inconsistency worth closing while touching this area.
+
+### Removed
+
+- **`oFateEngineDrumTest`** (object + `.yyp` registration) — the old visual-only test harness, deleted per explicit request. Confirmed via grep it was never placed in any room, so nothing else referenced it. Stale comments in `PlotHoverScripts.gml`/`XpBarScripts.gml`/`FateEngineOverlayScripts.gml`'s own header that described it as "not yet built"/a live reference point were updated to stop pointing at a deleted object.
+
+### Flagged
+
+- **`FATE_ENGINE_REWARD_BLUEPRINT_CHANCE`/`_RESOURCE_MIN`/`_RESOURCE_MAX` are a first-pass placeholder split**, not a tuned design — no corruption-scaling or event-type rewards exist yet either (per `FateEngineDrumScripts.gml`'s own longstanding note).
+- **Only 5 of the 10 base resources are reward-eligible** (wood/wheat/water/iron/gold) — a judgment call reading "current resource types" as "resources actually in play," not the full `resourceIconOrder` strip. Revisit once meat/bones/coal/weapons/coins are wired to any real building/cost.
+- No `FateEngineDrumScripts.md`/`FateEngineOverlayScripts.md` Notion doc exists yet — flagged, still not closed.
+
+### Build
+
+- Windows export version bumped `0.0.4.2` → `0.0.4.3` — 4th-digit bump, routine convention.
+
+## v0.0.4.2 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+The real Fate Engine session overlay: clicking the XP bar now freezes the match, dims the screen, and opens the drum machine with temporary Leave/Spin/Cashout buttons. Replaces `oFateEngineDrumTest` as the "later task" that object's own header comment always said this would be.
+
+### Added
+
+- **`FateEngineOverlayScripts.gml`** (new file) — `FateEngineOverlay` struct: `Open(_selectionController, _orderMenu, _castleGarrisonMenu, _armyLimitMenu, _blueprintController)` saves and zeroes `global.matchSpeed`, clears selection (`SelectionController.Deselect()`, new — see below), closes every dropdown menu, and cancels an in-progress blueprint drag. `Leave()` restores `global.matchSpeed` and closes the overlay — no-ops while a session is active (see Flagged). `Spin()` is a bare function call per explicit request ("I will add a lever later... make the 'spin' a simple function call"): spends one `TEAM.PLAYER` Fate Token to start a session if none is active (no-op if none held), then spins all 3 drums and starts a fixed-length decel timer (`FATE_ENGINE_SPIN_DURATION_STEPS`) before calling `Stop()` on each. `Cashout()` ends the session and clears `pendingRewards` — a STUB, see Flagged. `Update()`/`Draw()` are called from `oUnitControl`'s Step/Draw GUI (see below).
+- **`SelectionController.Deselect()`** (`UnitSelection.gml`) — clears `selected` and cancels targeting if active. Didn't exist before; the only prior way to clear selection was two inline `selected = []` assignments inside `IssueOrder`/`UpdateTargeting`, neither reachable from an external caller wanting a clean-slate reset.
+- **`XpBarWidgetHitRect()`** (`XpBarScripts.gml`) — GUI-space hit-rect for `sXpBar`, derived from `XP_BAR_ORIGIN_X/Y`/`XP_BAR_SCALE`/the sprite's own xoffset/yoffset, same "derive, don't hardcode" idiom as `ArmyLimitWidgetIconRect`. Read by `oUnitControl/Step_0.gml`'s new click-to-open check.
+- **`FateEngineButtonRects()`** (`FateEngineOverlayScripts.gml`) — GUI-space rects for the 3 temporary buttons, centered as a row along the top of the screen (`FATE_ENGINE_BUTTON_*` macros).
+
+### Changed
+
+- **`oUnitControl/Create_0.gml`** — instantiates `fateEngineOverlay = new FateEngineOverlay()`.
+- **`oUnitControl/Step_0.gml`** — new block at the very top, before everything else: if `fateEngineOverlay.isOpen`, calls `fateEngineOverlay.Update()` and `exit`s — every other Step system (selection, drag, menus, camera pan, all hover controllers) is skipped entirely while the overlay is open, satisfying "hovering over anything not on the UI bar will not display hover data." Just below that, a left-click landing on `XpBarWidgetHitRect()` calls `fateEngineOverlay.Open(...)` and `exit`s, ahead of the targeting/dragging/menu-click logic below (safe because `Open()` already resets all of that itself).
+- **`oUnitControl/Draw_64.gml`** — `fateEngineOverlay.Draw()` is now the FIRST draw call, before `sRulerBar`/`sMainUIBarBottom`/`sUISpellsCloth` — its 0.75-alpha black dim rectangle therefore sits behind the persistent UI bar (drawn immediately after) rather than covering it, satisfying "everything behind the ui bar will be dimmed."
+
+### Flagged
+
+- **Fate Token spend timing (assumption)**: read as "one token spends the session, further spins within it are free" — `Spin()` only checks/decrements `fateTokens` while `!isSessionActive`. If every individual spin should cost a token, `Spin()`'s gate needs to move.
+- **`Cashout()` is a stub.** The real weighted reward table still doesn't exist (`FateEngineDrumScripts.gml`'s own header confirms this), and `FateEngineItem` only carries `{sprite, subimg, label}` — nothing structured enough to convert into a real resource/blueprint grant. `Cashout()` currently just ends the session and drops `pendingRewards` on the floor.
+- **`global.matchSpeed` hack in `Update()`**: `FateDrum.Step()` scales all of its own animation by `global.matchSpeed` by design, but `Open()` forces that to 0 to freeze the match — left alone, the drums would never spin while the overlay that pauses the match is open. `Update()` temporarily sets it to 1 around the drums' `Step()` calls only, then restores 0 immediately after. Safe today (nothing else runs mid-frame since `Step_0.gml`'s early-exit guard IS the freeze), but worth knowing about if match-speed-dependent logic is ever added elsewhere in this same window.
+- **"Leave" gating (assumption)**: read the request's "only able to be pressed if a session is not active with a fate token" as "disabled for the whole time a session is active" (must `Cashout` first). Flag if that's not the intended reading.
+- **Buttons are plain rectangles + text**, per the request's explicit "temporary" framing — no generic button sprite/pattern exists yet elsewhere in the project.
+- **`oFateEngineDrumTest` was left untouched** — not explicitly asked to remove it, but it's now fully superseded by this overlay; candidate for deletion once this is confirmed working in-editor.
+- **Spin deceleration duration (`FATE_ENGINE_SPIN_DURATION_STEPS`, 90) is an arbitrary placeholder** — there's no lever yet to tie real timing to.
+- No `FateEngineOverlayScripts.md`/updated `FateEngineDrumScripts.md` Notion doc exists yet — flagged, still not closed.
+
+### Build
+
+- Windows export version bumped `0.0.4.1` → `0.0.4.2` — 4th-digit bump, routine convention.
+
+## v0.0.4.1 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+First pass at the post-playtesting AI checklist, worked top to bottom: (1) Age I proactively defends production buildings only, (2) the AI gets random blueprints instead of Fate Tokens (which it has no way to spend), (3) a "defending" AI with zero live units now un-garrisons + trains reinforcements, backed by a standing gold reserve, and (4) a capped-out AI now attacks ordinary enemy buildings with its surplus once it can afford to replace losses, instead of just waiting on the (unchanged) siege threshold.
+
+### Added
+
+- **`AI_CanReplaceDeployedUnits(_team)` / `AI_TryAttackSurplusAtCap(_brain, _surplus)`** (`AIControl.gml`) — "using the AI's deployed units when unit cap is reached... after the AI determines it can either replace those units with resources and training, or once it can train other units in their place." `AI_CanReplaceDeployedUnits` is true if EITHER at least one owned training building can currently afford its own `trainCost` ("resources and training" ready) OR the team's owned training buildings collectively train 2+ distinct unit types ("train other units in their place"). Deliberately does NOT check `TrainingTypeLimit`/`global.armyLimit` — those caps are exactly what sending units off to attack is about to relieve, so gating on them being already-clear would be circular. `AI_TryAttackSurplusAtCap` is called from `AI_BuildUp_Step` between `AI_TryProbeAttack` and the existing siege check: once `AI_TeamAtArmyLimit` AND `AI_CanReplaceDeployedUnits`, sends the entire remaining surplus to attack a random ordinary enemy `oBuildingParent` (never the castle) via the existing `"attack"` order. Per explicit clarification, this does NOT change `AI_SiegePowerThreshold` or its existing at-cap behavior — if the enemy has no non-castle buildings left, `_surplus` passes through untouched and the unchanged siege check handles it exactly as before.
+- **`AI_GOLD_RESERVE_UNIT_COUNT` / `AI_CheapestStationCost()` / `AI_GoldReserveAmount(_team)` / `AI_HideGoldReserve(_team)` / `AI_RestoreGoldReserve(_team, _hiddenAmount)`** (`AIControl.gml`) — "make sure the AI is keeping a reserve of gold for this reason." The reserve is sized to cover redeploying `AI_GOLD_RESERVE_UNIT_COUNT` (2) stationed units at the cheapest registered `stationCost`. `AI_BuildUp_Step` now hides that amount from `global.resources[team].gold` before calling `AI_TryPlaceBlueprints`/`AI_TryTrainComposition`, and restores it immediately after — so ordinary economy spending can only ever touch the surplus above the floor. Deliberately NOT applied around `AI_TryReinforceDefense`'s own spending (below) — the whole point of the reserve is to have money on hand for exactly that emergency.
+- **`AI_TryReinforceDefense(_team)` / `AI_FirstStationedType(_team)`** (`AIControl.gml`) — "when the AI is 'defending threatened buildings', check if it has any deployed units. If not, have it either train more or un-garrison units from the castle to defend with." Called from `AI_Defending_Step` the instant the team has zero live units of any kind: un-garrisons every stationed unit it can afford (one `DeployStationedUnit` call at a time, any type each pass, bounded by the new `AI_REINFORCE_MAX_DEPLOYS` safety cap) AND queues training via `AI_TryTrainComposition` in the same tick — neither gates the other, both fire together. This is the one exception to `AI_Defending_Step`'s documented "pauses economy/training while defending" rule, and is NOT reserve-gated (see above).
+
+### Changed
+
+- **`AI_UncoveredBuildingsByTier(_team)`** (`AIControl.gml`) — while `global.age[_team] == 1` (Age I), `oTrainingBuildingParent` buildings are excluded from the proactive defensive-spread list entirely; only production buildings (and the castle, handled separately) get a standing defender posted ahead of time. Per explicit clarification, this is PROACTIVE COVERAGE ONLY — a training building actually under attack still triggers `"defending"` and pulls responders exactly as before (`AI_DetectThreat`/`AI_DetectThreats` untouched).
+- **`GainXP(_team, _amount)`** (`ProgressionScripts.gml`) — for `TEAM.ENEMY` only, each XP milestone crossed now grants `irandom_range(1, 3)` random blueprints (`AddBlueprint`, each independently a random registered building type via `global.__buildingDefRegistry`, same idiom `FateDrumRandomPlaceholderItem` already uses) instead of incrementing `fateTokens`. Reasoning: the AI has no Fate Engine UI to ever spend a token on (that whole payout pipeline still isn't built — `FateEngineDrumScripts.gml`'s drum remains a visual-only test harness), so tokens would just accumulate uselessly. This simulates "the player receiving blueprints from the fate engine" directly. `TEAM.PLAYER` is completely unaffected.
+
+### Flagged
+
+- **`AI_TryAttackSurplusAtCap` sends the ENTIRE surplus at once**, with no cooldown/window the way `AI_TryProbeAttack` has — a judgment call, not an explicit spec answer. Flag if a partial commitment or its own cooldown reads better once playtested.
+- **`AI_CanReplaceDeployedUnits`'s "resource-ready" check ignores `TrainingTypeLimit`/`global.armyLimit` on purpose** (see its own doc comment) — this is deliberate, not an oversight, since checking those caps while still at the army cap would always fail.
+- **`AI_TryReinforceDefense` un-garrisons units mid-combat threat** — it doesn't wait for the un-garrisoned units to actually reach the threatened building before `AI_Defending_Step`'s normal redirect logic runs the same tick; a freshly-deployed unit becomes "available" and gets folded into that same tick's nearest-building assignment immediately, which is the intended fast response, but worth knowing it isn't a separate two-tick sequence.
+- **`AI_GOLD_RESERVE_UNIT_COUNT` (2) and `AI_REINFORCE_MAX_DEPLOYS` (20)** are placeholders, not tuned against a real balance pass, same status as every other AI constant in this file.
+- No `AIControl.md` Notion-compatible doc exists yet — flagged again, still not closed this pass (now flagged across five consecutive AI-touching sessions).
+
+### Build
+
+- Windows export version bumped `0.0.4.0` → `0.0.4.1` — 4th-digit bump, routine convention.
+
+## v0.0.4.0 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+Version bump only — player-facing patch notes requested, covering everything since v0.0.3.0. Per the 3rd-digit-bump-on-requested-patch-notes convention (see v0.0.2.51 → v0.0.3.0's Build note).
+
+### Added
+
+- **`PUBLIC_PATCH_NOTES.md`** — new v0.0.4.0 section added, covering v0.0.3.0 through v0.0.3.20 (garrisoning/stationing and its passive bonuses, gib/blood combat feedback, the Knight/Bomb Goblin combat fixes, four rounds of AI rebalancing, the animated ruler portrait, training-building queue readouts, the Castle Health and Army Limit HUD widgets + Unit Limits menu, the drop-down menu re-skin and new click-anchored positioning, and the selection summary panel), organized by player-facing category (Build & Economy, Combat, The Computer Opponent, Interface & Info, Also) rather than chronologically. Every internal system/function/asset name translated to its player-facing effect, per CLAUDE.md's public-notes convention. Purely additive/no-op for the game itself.
+
+### Fixed
+
+- **"defend" order reassignment silently no-op'd on a unit already in "defend"** (`StateMachine.gml`'s `ChangeState` skips re-entering a state it's already in unless forced) -- diagnosed from a report that AI archers already posted to defend their own archer-training building did nothing when the player attacked a different (resource) building, even after the AI's "Defending threatened building" posture engaged. Root cause was two-part:
+  - **`OrderWiring.gml`'s `"defend"` onIssue** now calls `fsm.ChangeState("defend", true)` (forced) instead of the unforced call. Previously, reassigning an already-defending unit to a NEW building (`AI_Defending_Step`/`AI_TryMaintainDefensiveSpread`/`AI_CastleDefense_Step`, AIControl.gml -- all route through this same order) updated `defendTarget` on the unit but never re-ran `Defend_Enter`, so the unit's patrol waypoints were never rebuilt around the new target -- it just kept patrolling its OLD building forever, never getting close enough to the actual threat to fight back.
+  - **`Defend_Exit` (`UnitStateDefend.gml`)** no longer clears `defendTarget` on exit. It used to unconditionally wipe it, which -- once the above fix forces re-entry into the SAME state -- would have run Exit first and wiped the brand-new target before Enter ever read it, undoing the fix. This also fixes a second, previously-unreported related bug: a defending unit that aggros into combat (a normal, frequent occurrence -- "combat" is only ever entered from guard/defend and always reverts back to whichever one afterward) would have its `defendTarget` wiped on the "defend"→"combat" exit, then silently fall back to "guard" instead of resuming its patrol once the fight ended. Confirmed nothing else reads `defendTarget` outside of "defend" itself (every reader either runs only during that state or explicitly checks `fsm.Is("defend")` first), so there's no stale-value hazard left by no longer clearing it.
+  - **FLAG per CLAUDE.md** ("flag before touching FSM/state wiring for guard, defend, combat, attack, siege"): this touches the "defend" state's Enter/Exit contract and its order-dispatch call site directly. Scoped narrowly to "defend" only -- confirmed `"attack"`'s onIssue (`OrderWiring.gml`) has the exact same unforced-`ChangeState` shape and would likely exhibit the same reassign-while-already-attacking gap, but that's out of scope for this request and was NOT touched; flagging it as a similar-shaped latent issue worth a look later.
+  - No version bump for this fix, per explicit request -- folded into this same still-uncommitted v0.0.4.0 entry.
+
+### Build
+
+- Windows export version bumped `0.0.3.20` → `0.0.4.0` — 3rd-digit bump (patch notes explicitly requested this time, unlike the routine 4th-digit bumps every entry back to v0.0.3.1 used). No further bump for the "defend" reassignment fix above, per explicit request.
+
+## v0.0.3.20 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+Reworks how OrderMenu and CastleGarrisonMenu position themselves when opened: instead of opening flush at the click point (with only a far-edge overflow clamp), they now use the same mouse-dependent, quadrant-anchor-away-from-cursor logic every hover card already uses. ArmyLimitMenu (fixed HUD-icon anchor) and SelectionSummaryMenu (fixed top-left panel) are explicitly unchanged, per request.
+
+### Added
+
+- **`PositionDropDownMenuFromClick(_mx, _my, _rowCount)`** (`DropDownMenuScripts.gml`) — shared positioning helper for click-triggered drop-down menus. Mirrors `PositionHoverCardPair`'s (`HoverCardScripts.gml`) "quadrant-anchor-away-from-cursor + screen-edge clamp" logic: which screen half the click landed in (horizontally and vertically, independently) decides which side of the click the menu grows into, offset by `PLOT_HOVER_CURSOR_GAP` (`PlotHoverScripts.gml`, reused directly — same precedent `HOVER_CARD_PAIR_GAP` already set), then clamped fully on-screen. Returns `{ x, y }`.
+
+### Changed
+
+- **`OrderMenu.Open(_x, _y, _orders)`** — now calls `PositionDropDownMenuFromClick` instead of setting `x`/`y` directly to the click point with only a right/bottom overflow clamp.
+- **`CastleGarrisonMenu.Open(_x, _y, _rows)`** — same change as `OrderMenu.Open`.
+
+### Flagged
+
+- **ArmyLimitMenu and SelectionSummaryMenu are deliberately untouched**, per explicit request — the former opens from a fixed HUD icon (no click position to anchor from), the latter is a fixed top-left panel (never opened from a click at all). Neither calls `PositionDropDownMenuFromClick`.
+- **Visible behavior change**: `OrderMenu`/`CastleGarrisonMenu` no longer open with their top-left corner exactly at the cursor — they now open offset by `PLOT_HOVER_CURSOR_GAP` (8px) away from the cursor, on whichever side keeps them on-screen and growing back toward center. This matches hover card behavior but is a different feel from before; flagging in case the previous "flush at click" placement was relied upon anywhere.
+- `CastleGarrisonMenu.gml`'s file-header comment ("Structurally mirrors OrderMenu.gml... screen-edge containment on Open") is still accurate in spirit (both menus are still contained on-screen) but the underlying mechanism changed — not edited further since it doesn't misstate anything.
+
+### Build
+
+- Windows export version bumped `0.0.3.19` → `0.0.3.20` — 4th-digit bump, routine convention.
+
+## v0.0.3.19 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+Second of the two new HUD widgets: an Army Limit Widget (army usage readout, "[icon] current/max") 10px below the Castle Health Widget, clickable to open a new "Unit Limits" dropdown listing every unit type the player has and its per-type cap usage; clicking a row selects all deployed units of that type.
+
+### Added
+
+- **`ArmyLimitWidgetY()` / `ArmyLimitWidgetIconRect()` / `DrawArmyLimitWidget(_team)`** (`HUDWidgetScripts.gml`, extends the file added for the Castle Health Widget) — `ArmyLimitWidgetY()` computes the shared icon/text Y from the exact edge-to-edge geometry requested ("10px below this one, from the bottom edge of the Health Icon sprite to the top edge of the army limit icon sprite"): `sCastleHealthIcon`'s bottom edge + the 10px gap + `sArmyLimitIcon`'s own yoffset. `ArmyLimitWidgetIconRect()` reuses that same math for the GUI-space hit-rect so the click target can never drift from the drawn position. `DrawArmyLimitWidget` draws `sArmyLimitIcon` then "current/max" using the same font/color/shadow parameters as `DrawCastleHealthWidget`. "Current" is live (`GatherTeamUnits`) + stationed (`CountTeamStationedUnits`) — deliberately excludes queued-in-training units. "Max" is `global.armyLimit[_team]`.
+- **`ARMY_LIMIT_WIDGET_X`/`_GAP_Y`** (new macros, `HUDWidgetScripts.gml`) — X matches `CASTLE_HEALTH_WIDGET_X` (452); gap is the requested 10px.
+- **`ArmyLimitMenu.gml`** (new script, registered in `.yyp`) — `ArmyLimitRow`/`BuildArmyLimitRows(_team)`/`ArmyLimitMenu` constructor, structurally mirroring `CastleGarrisonMenu.gml` (Open/Close/Update/Draw, shared `DropDownMenuScripts.gml` rendering/hit-test, reuses `CASTLE_MENU_ICON_GAP`/`CASTLE_MENU_COUNT_MARGIN` rather than redeclaring). `BuildArmyLimitRows` scans live `oUnitParent` + `oUnitStationed` instances (not the full unit-type registry) so only types the player actually has get a row; each row shows icon, name, and "count/limit" via `TrainingTypeLimit`. Title "Unit Limits", per the request.
+- **`ArmyLimitMenu.Open(_rows)`** — new pattern for this codebase: takes no click position and always opens at a FIXED anchor (`ARMY_LIMIT_MENU_ANCHOR_X` 408, `ARMY_LIMIT_MENU_ANCHOR_BOTTOM_Y` 812), growing upward from the bottom edge instead of downward from a top-left click point like every other menu here. Triggered by clicking the Army Limit Widget's icon (`oUnitControl/Step_0.gml`, checked first in the click-handling chain, ahead of the castle-wall/training-building/blueprint-drag checks).
+- **`SelectionController.SelectAllOfType(_unitType)`** (`UnitSelection.gml`) — new selection helper; selects every live instance of `_unitType` on the controller's team, replacing the current selection. Used when an `ArmyLimitMenu` row is clicked ("select all deployed units of that type"). Deliberately live-only — stationed units of the same type are excluded (different object, no FSM, never selectable).
+- Wired into `oUnitControl`: `armyLimitMenu = new ArmyLimitMenu()` (`Create_0.gml`); `armyLimitMenu.Update()` + row-click → `SelectAllOfType` dispatch, plus the icon hit-test and `consumedClick` guard added to the main click gate (`Step_0.gml`); `DrawArmyLimitWidget(TEAM.PLAYER)` and `armyLimitMenu.Draw()` (`Draw_64.gml`, drawn last, same "on top of everything" ordering as the other dropdowns).
+
+### Flagged
+
+- **`ARMY_LIMIT_MENU_ANCHOR_BOTTOM_Y` (812) matches `SELECTION_DRAG_MIN_GUI_Y`** (`UnitSelection.gml`) exactly — confirmed intentional (both mark "top of the bottom HUD panel"), not treated as coincidence, documented in the macro's own comment.
+- **"Current" unit count excludes queued-in-training units** — a judgment call: the request says "number of units," which I read as units that already exist, not ones still being trained. Queued units still count toward whether MORE can be queued (`TrainingTryQueueUnit`'s own check is unaffected).
+- **`SelectAllOfType` only selects deployed (live) units, never stationed ones** — directly from the request's "select all deployed units of that type" wording, reinforced by stationed units having no FSM/selection presence at all.
+- **`ArmyLimitMenu.Open()`'s fixed-anchor, grows-upward behavior is a new pattern** — every other dropdown in this project opens top-left-from-a-click; flagging in case this diverges from an unstated expectation for how the menu should feel to open.
+- No Notion-compatible doc yet for `HUDWidgetScripts.gml` or `ArmyLimitMenu.gml` — same ongoing gap noted in v0.0.3.18, now applies to two files.
+
+### Build
+
+- Windows export version bumped `0.0.3.18` → `0.0.3.19` — 4th-digit bump, routine convention.
+
+## v0.0.3.18 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+First of two new HUD widgets (Army Limit Widget planned to follow): a Castle Health Widget showing the player's castle HP as "[icon] current/max", top-left anchored at (452, 856).
+
+### Added
+
+- **`HUDWidgetScripts.gml`** (new script, registered in `Blank Pixel Game.yyp`) — new home for fixed-position top-level HUD readouts that sit alongside the resource bar but don't fit `ResourceUIScripts.gml`'s specific scope. Houses the new `DrawCastleHealthWidget(_team)` this pass, with an Army Limit Widget planned to join it next.
+- **`DrawCastleHealthWidget(_team)`** — draws `sCastleHealthIcon` followed by "current/max" castle health text, using `fntResource`/`HOVER_CARD_TEXT_COLOR` (matching `DrawResourceBar`'s established HUD number styling) plus a 1px drop shadow (`HOVER_CARD_SHADOW_COLOR`/`_OFFSET`, hand-rolled via a second `draw_text` call since this widget doesn't use Scribble). Reads `GetTeamCastle(_team)` → `GetCurrentHealth(_castle)` for current HP and `_castle.maxHealth` for max (not the flat `CASTLE_MAX_HEALTH` macro directly, matching how `GetCurrentHealth` itself always reads the instance field, futureproofing against a per-instance max HP bonus later). No-ops if the team has no castle instance.
+- **`CASTLE_HEALTH_WIDGET_X`/`_Y`/`_TEXT_GAP`** (new macros, `HUDWidgetScripts.gml`) — (452, 856) anchor and a 10px icon-to-text gap (matching `RESOURCE_BAR_TEXT_GAP`'s value for visual consistency).
+- Wired into `objects/oUnitControl/Draw_64.gml`, right after `DrawResourceBar(TEAM.PLAYER)`.
+
+### Flagged
+
+- **X/Y anchor math are handled differently, per the request's own wording.** `sCastleHealthIcon` has a Custom sprite origin (11,10 of a 24x22 frame), not a clean Middle-Center origin like `sResourceIcons`. X: the icon is drawn at `CASTLE_HEALTH_WIDGET_X + sprite_get_xoffset(sCastleHealthIcon)`, which lands its rendered LEFT EDGE exactly on the anchor. Y: `CASTLE_HEALTH_WIDGET_Y` is used directly, unmodified, as the shared vertical anchor for both the icon and the text (same "one Y for both" pattern `DrawResourceBar` uses) -- no yoffset correction, per the request's explicit "sprite is center aligned" framing. Since yoffset (10) isn't exactly half of 22, this is a ~1px approximation of true vertical centering, not pixel-exact -- flagging in case a tighter vertical fit is wanted later.
+- **The shadow reuses `HOVER_CARD_SHADOW_COLOR`/`_OFFSET` (`HoverCardScripts.gml`) but not the mechanism they were built for.** Those constants are otherwise only ever applied via Scribble's `.blend()/.draw()` (`DrawCardTextWithShadow`); this widget doesn't use Scribble, so the same shadow-then-text draw order is replicated with two plain `draw_text` calls instead. `DrawResourceBar` itself (the widget's closest visual neighbor) has NO shadow -- this widget deliberately doesn't match that specific example, since the request explicitly asked for one here.
+- `CASTLE_HEALTH_WIDGET_TEXT_GAP` (10) is not an explicit spec number -- borrowed from `RESOURCE_BAR_TEXT_GAP` for visual consistency with the resource bar it sits next to.
+- No Notion-compatible doc exists yet for `HUDWidgetScripts.gml` -- new file, flagging per the established convention (same ongoing gap as `AIControl.md`).
+
+### Build
+
+- Windows export version bumped `0.0.3.17` → `0.0.3.18` -- 4th-digit bump, routine convention.
+
+## v0.0.3.17 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+Closes the flag from v0.0.3.16: the per-type training cap now also counts stationed units of that type, matching the army-wide cap's same correction.
+
+### Changed
+
+- **`TrainingTryQueueUnit`'s type-limit check (`TrainingScripts.gml`)** — `_typeExisting` now sums `CountTeamUnitsOfType` (live) + `CountTeamStationedUnitsOfType` (new, stationed) against `TrainingTypeLimit`, instead of live only. A stationed Peasant now counts against "how many Peasants can this team ever have via Peasant Wards," the same way it already counted against the army-wide cap as of v0.0.3.16. Applies identically to both teams -- same shared function, same reasoning as the army-wide fix.
+- **`AI_WouldTrainSucceed`'s dry-run (`AIControl.gml`)** — matching update, so the debug readout's training preview stays consistent with what `TrainingTryQueueUnit` actually does.
+- **File header comment (`TrainingScripts.gml`)** — updated to describe both caps as counting live + stationed + queued, and to state explicitly that station status never lets a team exceed either cap.
+
+### Added
+
+- **`CountTeamStationedUnitsOfType(_team, _unitType)`** (`StationScripts.gml`) — stationed counterpart to `CountTeamUnitsOfType` (`TrainingScripts.gml`), which can only ever see LIVE instances of a unit's object type and has no way to see a stationed one (a stationed unit is a different object, `oUnitStationed`, with its original type preserved only in `unitData.unitType`).
+
+### Build
+
+- Windows export version bumped `0.0.3.16` → `0.0.3.17` -- 4th-digit bump, routine convention.
+
+## v0.0.3.16 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+Correction to v0.0.3.15: stationed units still count against `global.armyLimit` -- they always should have, for both teams, but `TrainingTryQueueUnit`'s army-wide check only ever summed live units + queued, never stationed ones. This meant a team (player OR AI) could station units and then keep training past the intended cap indefinitely -- stationing was never actually shrinking the army for cap purposes, it just wasn't being counted. v0.0.3.15's "station-at-cap frees a slot for new training" and "inside-plot training bypasses the army cap" claims were both built on this same gap and are corrected below.
+
+### Changed
+
+- **`TrainingTryQueueUnit` (`TrainingScripts.gml`)** — the army-wide cap check now sums live units + `CountTeamStationedUnits` + queued against `global.armyLimit`, instead of just live + queued. Applies identically to both teams since this one function gates every training queue attempt, player and AI alike. The per-type cap (`TrainingTypeLimit`/`CountTeamUnitsOfType`) is unchanged and still doesn't count stationed units of that type -- flagged as a related but separate question, not part of this request.
+- **`AI_TeamAtArmyLimit`/`AI_WouldTrainSucceed` (`AIControl.gml`)** — both updated to the same corrected math, so the AI's own "am I at cap" decisions (siege threshold, station reserve floor) and the debug readout's dry-run training preview stay consistent with what `TrainingTryQueueUnit` will actually do.
+- **`AI_CurrentStationedCount`** — now a thin wrapper around the new shared `CountTeamStationedUnits` (was duplicating the same `with (oUnitStationed)` loop locally).
+- **`AI_DebugQuotasText`'s "Army" line** — now shows live/stationed/queued all three (`{live}L+{stationed}S+{queued}Q/{limit}`) instead of just live+queued, so the readout doesn't imply room exists that's actually already used up by stationed units.
+- **Corrected doc comments/patch-note claims (`AIControl.gml`, this file)** — every place that said stationing "frees a slot under `global.armyLimit`" or that inside-plot training "bypasses the army cap" has been corrected: stationing only moves a unit from the live bucket to the stationed bucket, it does not shrink the army for cap purposes. The at-cap station-reserve relaxation and inside-plot placement preference from v0.0.3.15 are still worthwhile on their own merits (passive bonus value; discounted placement + skipping a manual station order) -- neither actually works around the cap.
+
+### Added
+
+- **`CountTeamStationedUnits(_team)`** (`StationScripts.gml`) — single shared source of truth for "how many units does this team currently have stationed," used by both `TrainingTryQueueUnit` (core, both sides) and `AIControl.gml`'s `AI_TeamAtArmyLimit`/`AI_WouldTrainSucceed`/`AI_CurrentStationedCount`, replacing what used to be a duplicated `with (oUnitStationed)` loop in the AI file alone.
+
+### Flagged
+
+- The per-type training cap (`TrainingTypeLimit`) still does not count stationed units of that type -- e.g. a stationed Peasant doesn't count against "how many Peasants can this team ever have via Peasant Wards." Not addressed here since the request specifically called out the army-wide cap; flagging in case the per-type cap should eventually match.
+- This was a real, pre-existing gap in `TrainingTryQueueUnit` -- not something introduced by v0.0.3.14/v0.0.3.15's AI work, just not noticed until the AI-side `AI_TeamAtArmyLimit` copy of the same (incomplete) logic was added and reviewed.
+
+### Build
+
+- Windows export version bumped `0.0.3.15` → `0.0.3.16` -- 4th-digit bump, routine convention.
+
+## v0.0.3.15 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+Follow-up to v0.0.3.14's siege-power-threshold diagnosis (a 6-unit `global.armyLimit` army of Peasants/Archers can never mathematically reach the flat 300-power siege bar): the AI now reacts once it's actually AT that army cap instead of stalling there forever, prefers placing station-favoring training buildings (Peasant Ward) on inside plots so trained units go straight to the garrison without ever touching the cap, and the top-right debug readout now shows the AI's live quotas and a preview of its next intended action.
+
+### Changed
+
+- **`AI_SiegePowerThreshold` (`AIControl.gml`)** — now takes `_team`. Once `AI_TeamAtArmyLimit(_team)` is true (live + queued units at `global.armyLimit`), the fraction drops from `AI_SIEGE_POWER_FRACTION` (0.6) to the much smaller `AI_SIEGE_POWER_FRACTION_AT_CAP` (0.15) — a capped-out, mostly-weak-unit army still eventually commits to siege instead of idling at the cap indefinitely. Unchanged for a team still below its cap (still gated by the full 300-power bar). Call site in `AI_BuildUp_Step` updated to pass `_brain.team`.
+- **`AI_TryStationUnits`** — the reserve floor it won't station below drops from `AI_STATION_MIN_GUARD_RESERVE` (3) to `AI_STATION_MIN_GUARD_RESERVE_AT_CAP` (1) once `AI_TeamAtArmyLimit` is true. Holding back 3 idle guards exists to protect a future training pipeline — but once the team is at cap, nothing new can be queued regardless of how many of those units are guard vs. stationed (stationed units still count against `global.armyLimit`, see the v0.0.3.16 correction below), so there's nothing left to protect either way. Converting more of them to stationed at that point is purely for their own passive-bonus value, not an army-cap workaround.
+- **`AI_FindEmptyOwnedPlot`** — new optional `_preferInside` parameter (default `false`). When true, does a first pass restricted to `inside == true` plots, falling back to the normal any-plot search if none are free.
+- **`AI_TryPlaceBlueprints`'s second (greedy) pass** — for a training-building blueprint whose trained unit favors stationing (new `AI_UnitFavorsStationing`), now calls `AI_FindEmptyOwnedPlot` with `_preferInside = true`. Placing that building's training slot inside the castle means every unit it ever trains spawns directly as stationed (`TrainingSpawnUnit`'s existing `if (_building.inside)` branch → `StationSpawnDirectly`), skipping the manual "train live, then separately order it to station" step (it does NOT bypass `global.armyLimit` — see v0.0.3.16). Resource-building placement (pass 1) and non-station-favoring training buildings are unaffected.
+- **`oAIControl/Draw_64.gml`** — top-right AI debug text now shows two additional lines: `Next:` (a live preview of the AI's next intended action — placing a blueprint, training a unit, posting a defender, stationing a unit, attacking/sieging, probing, or idle) and a quotas block (army count vs. limit + CAP flag, stationed count vs. max, tank/ranged composition vs. target, and current siege power vs. threshold).
+
+### Added
+
+- **`AI_TeamAtArmyLimit(_team)`** (`AIControl.gml`) — factored out of `TrainingTryQueueUnit`'s own saturation check (`TrainingScripts.gml`): true once live + queued units reach `global.armyLimit[_team]`. Shared by `AI_SiegePowerThreshold` and `AI_TryStationUnits`.
+- **`AI_UnitDefPowerScore(_def)`** — definition-level counterpart to `AI_UnitPowerScore`, evaluated off `maxHealth`/`attackDamage` directly rather than a live instance's current HP (needed to compare unit TYPES before any instance necessarily exists, e.g. deciding where to place a not-yet-built training building).
+- **`AI_UnitFavorsStationing(_def)`** — true when a unit type has a nonzero `AI_UnitStationedBonusValue` AND its `AI_UnitDefPowerScore` sits below the new flat `AI_STATION_FAVOR_POWER_CEILING` (20) cutoff. Only Peasant (14) clears this today; Soldier (33)/Knight (40)/Mud Golem (65)/Bomb Goblin (102, skewed high by its one-shot `attackDamage`) all sit above it.
+- **AI debug introspection block** (`AIControl.gml`, end of file) — `AI_WouldTrainSucceed`, `AI_NextAffordableBlueprintName`, `AI_NextTrainableUnitName`, `AI_TeamHasSpareGuard`, `AI_NextStationCandidateName`, `AI_DebugIntent`, `AI_DebugQuotasText`. All read-only, debug-readout use only — none issue orders, spend resources, or mutate a queue.
+
+### Flagged
+
+- **`AI_STATION_FAVOR_POWER_CEILING` (20)** is a flat cutoff, not a relative "weakest of all registered unit types" comparison — simpler, and doesn't need to iterate `global.__unitDefRegistry`, but it's an arbitrary number like every other placeholder in this file. Revisit if a future weak-but-useful unit type should also qualify, or if Peasant's own stats change enough to fall outside it.
+- **`AI_SIEGE_POWER_FRACTION_AT_CAP` (0.15)** was chosen so a mixed 6-unit army of Peasants/Archers (~75-114 power depending on mix) clears it comfortably; not validated against an actual playtest, same "placeholder, not tuned" status as every other AI constant here.
+- **`AI_WouldTrainSucceed` duplicates `TrainingTryQueueUnit`'s three gates** (type limit, army limit, affordability) as a dry run, since no non-mutating variant exists to call instead. If `TrainingTryQueueUnit`'s gating logic changes later, this needs a matching update or the debug readout will quietly drift out of sync with real behavior (display-only drift, not a functional bug).
+- **`AI_DebugIntent` is an approximation**, not a perfect predictor — it re-checks the same priority cascade `AI_BuildUp_Step` uses but doesn't fully re-derive every internal rule (e.g. `AI_NextAffordableBlueprintName` ignores the resource-priority first pass). Good enough for a debug readout; state can also shift between the preview and the next real think tick.
+- No `AIControl.md` Notion-compatible doc exists yet — flagged again, still not closed this pass (now flagged across three consecutive AI-touching sessions).
+
+### Build
+
+- Windows export version bumped `0.0.3.14` → `0.0.3.15` -- 4th-digit bump, routine convention.
+
 ## v0.0.3.14 — 2026-07-12 (uncommitted — working tree only, not yet committed)
 
 Four related AI rebalance changes aimed at the "I can just steam-roll this AI" problem: siege commitments now always leave a real fraction of the army behind instead of a flat 2-unit reserve, the AI throws small early-game probe attacks at ordinary enemy buildings, it preferentially stations units that are worth more in the garrison than on the field (Peasants, per the request's own example), and its standing defenders now proactively spread across every owned building with rear (castle-adjacent) plots getting covered before front (exposed) ones.
