@@ -1,5 +1,31 @@
 # They're Gonna Get In! — Patch Notes
 
+## v0.0.5.0
+
+The Fate Engine finally pays out for real, a proper pause menu, faster order menus, and a brand new title screen with an animated intro and social links.
+
+### Build & Economy
+
+- Click your XP bar to open the Fate Engine for real: the action pauses while you spin the reels, then cash out for either a blueprint or a bundle of resources.
+- Destroying an enemy building now rewards you with a blueprint for that building type.
+- Your blueprint inventory can now page through multiple screens once you've collected more than fit on one page at a time.
+
+### Combat
+
+- Fixed an issue where units attacking a building could end up standing inside it instead of at its edge, confusing nearby allies trying to navigate around them.
+
+### Interface & Info
+
+- Pressing Escape now brings up a proper pause menu: the screen dims, the action freezes, and you can resume, restart, adjust settings, quit to desktop, or end the match (with a confirmation step before anything drastic happens).
+- The order menu now pops up the instant you select units, instead of requiring a right-click, and every option in it now has a quick keyboard shortcut.
+- A brand new title screen: the logo drops in with a bounce, followed by a "Press Any Key" prompt, before sliding away into the main menu with Play, Settings, Credits, and Exit options.
+- Social media links (Steam, X, Itch.io, Discord, TikTok, and YouTube) now appear on the title screen, cascading in with a playful bouncy entrance and a little squash animation when you hover over them. Keep an eye on the Discord icon — it blinks every so often.
+- The title screen now shows the current version number and copyright info in the corner.
+
+### Also
+
+- Numerous smaller fixes and interface polish.
+
 ## v0.0.4.1
 
 A round of computer opponent tuning based on player feedback.

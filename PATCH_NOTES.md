@@ -1,5 +1,122 @@
 # Patch Notes
 
+## v0.0.5.0 — 2026-07-14 (uncommitted — working tree only, not yet committed)
+
+Version bump only — player-facing patch notes requested, covering everything since v0.0.4.0. Per the 3rd-digit-bump-on-requested-patch-notes convention (see v0.0.3.20 → v0.0.4.0's Build note).
+
+### Added
+
+- **`PUBLIC_PATCH_NOTES.md`** — new v0.0.5.0 section added, covering v0.0.4.2 through v0.0.4.14 (the real Fate Engine payout overlay + reward table, blueprint panel pagination, blueprint-on-building-kill, the pause menu, instant-open order menu with mnemonic hotkeys, the melee-attack-vs-building edge-point bugfix, the new title/main menu screen with its full intro sequence, the social media icon row with hover-squash and cascade-entrance animations, and the version/copyright footer), organized by player-facing category (Build & Economy, Combat, Interface & Info, Also) rather than chronologically. Every internal system/function/asset name translated to its player-facing effect, per CLAUDE.md's public-notes convention. v0.0.4.0 and v0.0.4.1 were left as-is (already published in their own sections from prior requests) rather than re-summarized -- this new section only covers what hasn't been made public yet. Purely additive/no-op for the game itself.
+
+### Flagged
+
+- **v0.0.4.11's company-name text correction (Texas LLC → TX LLC) was folded silently into v0.0.4.10's public bullet** rather than getting its own line -- it's a same-batch, purely cosmetic text correction with no separate player-facing moment worth calling out.
+- **v0.0.4.2 (opening the Fate Engine overlay) and v0.0.4.3 (making its rewards real) were merged into one public bullet** describing the current end state ("click your XP bar... spin... cash out for a real reward") rather than narrating that it was UI-only at first and became functional a patch later -- matches the public notes' player-facing-effect-only convention.
+
+### Build
+
+- Windows export version bumped `0.0.4.14` → `0.0.5.0` — 3rd-digit bump (patch notes explicitly requested this time, unlike the routine 4th-digit bumps every entry back to v0.0.4.1 used), per explicit request to "bring the version up to 0.0.5.0."
+
+## v0.0.4.14 — 2026-07-14 (uncommitted — working tree only, not yet committed)
+
+Social icon entrance reworked: right-to-left cascade with overshoot and a squash landing.
+
+### Changed
+
+- **Social row entrance** (`TitleMenuScripts.gml`, `"transition"` state) — request: "have them cascade in, squashing vertically until they settle (stagger them in, right to left, overshooting their final position, then landing with a horizontal squash)". Previously staggered left-to-right (array order) with a plain `_EaseOutQuad` slide and no overshoot or scale change. Now: stagger delay is `(array_length(socialButtons) - 1 - i) * TITLE_MENU_BUTTON_STAGGER`, i.e. reversed from array order, so YouTube (the row's rightmost icon) starts first and Steam (leftmost) starts last -- right to left. Y position now eases via the new `_EaseOutBack()` helper (standard "back" ease-out, overshoots past 1.0 partway through before settling exactly at 1.0), giving the "overshooting their final position" bounce. While each icon is still sliding, `TITLE_MENU_SOCIAL_ENTRY_SQUASH_AMOUNT` (0.3) drives a vertical squash (yscale down/xscale up) that's strongest at the start and fades to 0 exactly as the icon lands -- "squashing vertically until they settle". The instant an icon lands, a one-shot horizontal squash pulse plays (reusing the same `sin(t*pi)` shape and `TITLE_MENU_SOCIAL_SQUASH_DURATION`/`_AMOUNT` macros as the hover-squash pulse from the previous patch) -- "landing with a horizontal squash". All of this is computed directly from `stateTimer` each frame (no per-icon armed/edge-detected timer needed), matching how `_dockT`/`_promptT` are already computed elsewhere in this state.
+- **`TITLE_MENU_TRANSITION_DURATION`** bumped `0.9` → `1.05` seconds -- the reversed stagger plus the new trailing landing-squash pushed the social row's total entrance time to ~1.03s (last-arriving icon: 5-icon delay 0.4s + 0.45s slide + 0.18s landing squash), past the old 0.9s cutoff that snaps everything to its resting state and switches to `"menu"`. Without this bump the last icon or two would have had their landing squash cut off mid-pulse.
+
+### Added
+
+- **`_EaseOutBack(_t)`** (`TitleMenuScripts.gml`) — standard public-domain "back" ease-out (easings.net), joining the file's existing `_EaseOutBounce`/`_EaseInQuad`/`_EaseOutQuad`/`_EaseInOutQuad` helpers.
+
+### Flagged
+
+- **Entry-squash amount (0.3) is a judgment call** — not specified numerically by the request. Tunable via `TITLE_MENU_SOCIAL_ENTRY_SQUASH_AMOUNT`.
+- **Landing squash reuses the hover-squash pulse's macros** (`TITLE_MENU_SOCIAL_SQUASH_DURATION`/`_AMOUNT`) rather than getting its own -- same visual "squash" language in both requests, so this seemed like the intended reuse rather than two independently-tuned effects, but flagging in case the two should diverge later.
+
+## v0.0.4.13 — 2026-07-14 (uncommitted — working tree only, not yet committed)
+
+Social media icons now squash on hover-enter.
+
+### Added
+
+- **Hover squash pulse for the six social icons** (`TitleMenuScripts.gml`) — request: "squash horizontally (reduce their yscale and increase their xscale) for a few frames when hovered over (just upon entering the bounds)". One-shot, edge-detected: `_UpdateMenu()`'s social row loop now tracks each `TitleMenuSocialButton.hovered` and only arms `squashTimer` (to `TITLE_MENU_SOCIAL_SQUASH_DURATION`, 0.18s) on the frame the cursor enters the icon's hit box (`_SocialButtonRect()`) — not continuously while hovered, matching "just upon entering the bounds". `_UpdateSocialButtons()` ticks `squashTimer` down every frame for all six icons (not gated behind `animated` the way the blink logic is) and derives `xscale`/`yscale` from it via a `sin(t * pi)` pulse — 1 at both ends, peaking at `1 ± TITLE_MENU_SOCIAL_SQUASH_AMOUNT` (0.35) at the midpoint — so the icon squashes out then eases back to its normal 1:1 scale on its own without needing a separate "un-squash" trigger. `DrawSocialButtons()` multiplies `TITLE_MENU_SCALE` by each icon's current `xscale`/`yscale`.
+
+### Flagged
+
+- **Squash duration/amount are judgment calls** — "a few frames" and no numeric squash amount were given. Used 0.18s (~11 frames at 60fps) and a 0.35 peak scale delta (xscale up to 1.35, yscale down to 0.65). Easy to retune via `TITLE_MENU_SOCIAL_SQUASH_DURATION`/`TITLE_MENU_SOCIAL_SQUASH_AMOUNT`.
+- **Discord's blink and the squash pulse are independent** — both can run at once (e.g. hovering Discord mid-blink), and both just multiply frameIndex/scale independently, so no interaction issues expected, but flagging since it wasn't explicitly asked about.
+
+### Build
+
+- Windows export version bumped `0.0.4.12` → `0.0.4.13` — 4th-digit bump, routine convention.
+
+## v0.0.4.12 — 2026-07-14 (uncommitted — working tree only, not yet committed)
+
+Two title-menu bugs fixed: the "Press Any Key" typewriter reveal and the option button hover hit box.
+
+### Fixed
+
+- **"Press Any Key" only ever showing the first character** (`TitleMenuScripts.gml`) — `promptTextBlack` and `promptTextWhite` are two separate scribble text elements (each carries its own `[c_black]`/`[c_white]` tag), but were sharing a single `scribble_typist`. Per `__scribble_class_typist.__associate()` (`__scribble_class_typist.gml`), a typist calls `reset()` on itself whenever the element it just ticked differs from the element before it. Alternating one typist between the 8 black-outline `.draw()` calls and the 1 white `.draw()` call every frame meant the white draw's `__associate()` reset the reveal progress back to 0 right after the black copies had advanced it — so the visible text only ever flashed the first character or so before resetting. Fixed by giving black and white their own typists (`promptTypistBlack` / `promptTypistWhite`), both started together via identical `.in()` calls in `Update()`'s `titleDrop` → `prompt` transition. They stay in lockstep because a typist only ticks once per frame regardless of draw-call count. The old doc comment's claim that a shared typist would "reveal all 9 copies in perfect sync" was wrong — corrected in the updated comment.
+- **Option button hover hit box didn't reach the screen edge** (`_ButtonRect()`, `TitleMenuScripts.gml`) — the rect's right edge was pinned to the sprite's own right edge (`_b.x`, since the button sprites' origin is middle-right), which is already inset from the screen edge by `TITLE_MENU_BUTTON_PADDING` and shrinks further once a button shifts left on hover. That left a dead gap near the screen edge, and could flicker the hover state as a button moved away from a stationary cursor. `x2` now pins to `display_get_gui_width()` instead, so the hit box always reaches the right edge of the screen regardless of where the sprite currently sits.
+
+### Build
+
+- Windows export version bumped `0.0.4.11` → `0.0.4.12` — 4th-digit bump, routine convention.
+
+## v0.0.4.11 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+Corrected the title menu footer's company name to match the project's official field.
+
+### Changed
+
+- **`DrawVersionFooter()`** (`TitleMenuScripts.gml`) — company line now reads `"iCon Studios TX LLC " + chr(169) + "2026-2027"`, matching `option_windows_company_info` (`options_windows.yy`) verbatim instead of the spelled-out "iCon Studios Texas LLC" used in v0.0.4.10.
+
+### Build
+
+- Windows export version bumped `0.0.4.10` → `0.0.4.11` — 4th-digit bump, routine convention.
+
+## v0.0.4.10 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+Version/copyright footer added to the title menu.
+
+### Added
+
+- **`DrawVersionFooter()`** (`TitleMenuScripts.gml`) — bottom-left, two lines, `fntResource` (same `draw_set_font(fntResource)` / `draw_set_font(-1)` reset convention `ResourceUIScripts.gml`/`HUDWidgetScripts.gml` already use), fading in alongside the background. Top line: `"v" + GM_version` — `GM_version` is the built-in constant holding whatever's set in Game Options > Windows > General > Version (`option_windows_version`, currently `0.0.4.10`), i.e. "the Windows Version Number function" from the request. Bottom line: `"iCon Studios Texas LLC " + chr(169) + "2026-2027"` (`chr(169)` for the © symbol — GML string literals don't support `\uXXXX`-style escapes, and this avoids relying on a literal special character surviving the file's own encoding).
+
+### Flagged
+
+- **Company name spelling**: the request typed "iCon Studios Texas LLC" (spelled out), but the project's own `option_windows_company_info` field has it abbreviated as "iCon Studios TX LLC". Displayed the on-screen text exactly as given in the request rather than reconciling with that field — flagging the mismatch in case one of the two should actually change to match the other. **Resolved in v0.0.4.11.**
+- **"v" prefix on the version line** — not explicitly requested, but matches the GameMaker manual's own documented `GM_version` usage example (`"v" + GM_version`). Easy to drop if you just want the bare number.
+- **Footer is visible in every state** (from `fadeIn` onward, fading in with the background) rather than only appearing once the menu is reached — not specified either way by the request.
+
+### Build
+
+- Windows export version bumped `0.0.4.9` → `0.0.4.10` — 4th-digit bump, routine convention.
+
+## v0.0.4.9 — 2026-07-13 (uncommitted — working tree only, not yet committed)
+
+Social media icon row (Steam / X / Itch.io / Discord / TikTok / YouTube) added to the title menu, bottom-right, sliding in with the menu buttons.
+
+### Added
+
+- **`TitleMenuSocialButton`** (`TitleMenuScripts.gml`) — one icon's position + (Discord-only) blink state. Origin is middle-center for all six icons (confirmed via their `.yy`), unlike the option buttons' middle-right, so hit-testing (`_SocialButtonRect`) is centered on x/y instead.
+- **Social row layout** (`TitleMenu()` constructor) — right-aligned row, bottom-right of the screen (`TITLE_MENU_SOCIAL_PADDING_X`/`_Y`, 32px native each way, matched to the option buttons' own padding — not numerically specified by the request, flagging as a judgment call), left-to-right in the order given: Steam, X, Itch.io, Discord, TikTok, YouTube. Total row width computed first so the row's right edge lands exactly at the padded edge regardless of icon count/width.
+- **Slide-in from off-screen-bottom** — same trigger point and cascade shape as the four option buttons (the "transition" state, `TITLE_MENU_BUTTON_STAGGER`/`_SLIDE_DURATION` reused directly rather than duplicated), just animating Y instead of X. No hover-shift on these — the request only described hover-shift-left for the option buttons, not the social row.
+- **Discord blink** (`_UpdateSocialButtons`) — `sDiscordIcon` sits on frame 0 (idle) for a randomized `TITLE_MENU_SOCIAL_BLINK_MIN`–`_MAX` (5–6s) interval, then plays frames 1→2→3 once at `TITLE_MENU_SOCIAL_BLINK_FRAME_DURATION` (0.08s/frame, judgment call) before returning to frame 0 and rolling a new random wait. Every other icon is single-frame and just stays on frame 0. Only runs once `state == "menu"`, so a blink can't trigger mid-slide-in.
+- **`_HandleSocialClick(_platform)`** — click detection/dispatch is fully live (each icon has its own hit rect, checked in `_UpdateMenu()` alongside the option buttons), but per explicit request every actual `url_open()` call is left commented out with a placeholder link, one per platform (Steam/X/Itch.io/Discord/TikTok/YouTube) — uncomment and fill in the real URL when ready, nothing else needs to change.
+
+### Flagged
+
+- **32px padding on the social row is a judgment call** (matched to the option buttons' own right-padding for visual consistency) — the request only said "bottom right side of the screen" without a number.
+- **No hover feedback on the social icons** (only click) — not requested; flag if you'd like a hover cue added later (color tint, small shift, etc.).
+- **Blink-frame duration (0.08s) and stagger/slide timing are first-pass judgment calls**, same as the rest of the title screen's animation constants.
+
+### Build
+
+- Windows export version bumped `0.0.4.8` → `0.0.4.9` — 4th-digit bump, routine convention.
+
 ## v0.0.4.8 — 2026-07-13 (uncommitted — working tree only, not yet committed)
 
 New title/main menu screen (rmTitleMenu, oTitleMenu, TitleMenuScripts.gml), wired in after the disclaimer. Also fixes a pre-existing, unrelated `Blank Pixel Game.yyp` corruption discovered while registering the new assets.
