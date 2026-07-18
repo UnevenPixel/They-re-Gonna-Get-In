@@ -1,5 +1,20 @@
 # They're Gonna Get In! — Patch Notes
 
+## v0.0.5.1
+
+A settings menu, accessible from both the title screen and the in-match pause menu.
+
+### Interface & Info
+
+- Added a Settings menu, reachable from the title screen and from the pause menu mid-match — same settings either way.
+- Adjust and mute your master volume, with the change applying immediately.
+- Toggle fullscreen or windowed mode.
+- A Controls tab shows a quick reference of the game's current control scheme at a glance.
+
+### Also
+
+- Small version bump alongside the settings menu.
+
 ## v0.0.5.0
 
 The Fate Engine finally pays out for real, a proper pause menu, faster order menus, and a brand new title screen with an animated intro and social links.

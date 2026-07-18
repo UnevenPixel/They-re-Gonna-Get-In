@@ -11,4 +11,5 @@ selectionSummaryMenu = new SelectionSummaryMenu(); // top-left multi-unit-select
 castleBonusHoverController = new CastleBonusHoverController(); // castle hover panel listing active stationed passive bonuses -- 2026-07-12 request, see CastleBonusHoverScripts.gml
 armyLimitMenu = new ArmyLimitMenu(); // "Unit Limits" dropdown, opened by clicking the Army Limit Widget icon -- 2026-07-13 request, see ArmyLimitMenu.gml
 fateEngineOverlay = new FateEngineOverlay(); // Fate Engine session overlay, opened by clicking the XP bar -- 2026-07-13 request, see FateEngineOverlayScripts.gml
-pauseMenu = new PauseMenu(); // pause menu, opened via Escape -- 2026-07-13 request, see PauseMenuScripts.gml
+settingsOverlay = new SettingsOverlay(); // shared settings sub-menu -- 2026-07-14 request, see SettingsOverlayScripts.gml. Instantiated BEFORE pauseMenu below, which takes it as a constructor param.
+pauseMenu = new PauseMenu(settingsOverlay); // pause menu, opened via Escape -- 2026-07-13 request, see PauseMenuScripts.gml. Settings is now a real sub-menu of this (OpenSettings()) rather than a stub -- 2026-07-14 addition.

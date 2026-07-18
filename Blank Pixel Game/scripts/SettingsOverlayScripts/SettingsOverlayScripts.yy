@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"SettingsOverlayScripts",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"SettingsOverlayScripts",
+  "parent":{
+    "name":"Settings",
+    "path":"folders/Menus/Settings.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

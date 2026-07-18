@@ -158,9 +158,14 @@ function TitleMenuSocialButton(_sprite, _platform, _animated) constructor {
 /// @description The title screen. See file header for the full state
 ///        sequence. Not a GM instance -- a plain struct owned by oTitleMenu,
 ///        same pattern as PauseMenu/FateEngineOverlay/BlueprintController.
-function TitleMenu() constructor {
-    state      = "fadeIn";
-    stateTimer = 0;
+/// @param {Struct.SettingsOverlay} _settingsOverlay Shared settings
+///        sub-menu instance -- see oTitleMenu/Create_0.gml, and
+///        SettingsOverlayScripts.gml's file header for how Update()/Draw()
+///        delegate to it (2026-07-14 addition).
+function TitleMenu(_settingsOverlay) constructor {
+    state           = "fadeIn";
+    stateTimer      = 0;
+    settingsOverlay = _settingsOverlay;
 
     // ---- title ----
     var _guiW = display_get_gui_width();
@@ -489,12 +494,13 @@ function TitleMenu() constructor {
     }
 
     /// @function _OpenSettings()
-    /// @description STUB -- per explicit request, treated the same as
-    ///        _OpenCredits() below for this pass (no shared settings
-    ///        overlay exists yet). Intentionally empty; clicking "Settings"
-    ///        currently does nothing observable.
+    /// @description Opens the shared SettingsOverlay sub-menu -- 2026-07-14
+    ///        addition, replacing the previous explicit stub. Update()/
+    ///        Draw() both check settingsOverlay.isOpen first and delegate
+    ///        to it instead of running the title screen's own state
+    ///        machine/draw that frame.
     static _OpenSettings = function() {
-        // Intentionally empty -- see file header / PATCH_NOTES.md.
+        settingsOverlay.Open();
     }
 
     /// @function _OpenCredits()
@@ -508,6 +514,15 @@ function TitleMenu() constructor {
     /// @function Update()
     /// @description Call once per Step event.
     static Update = function() {
+        // 2026-07-14 addition -- settings sub-menu takes over completely
+        // while open, including freezing the title screen's own state
+        // machine (stateTimer doesn't advance) so nothing animates unseen
+        // behind it.
+        if (settingsOverlay.isOpen) {
+            settingsOverlay.Update();
+            return;
+        }
+
         var _dt = delta_time / 1000000;
         stateTimer += _dt;
 
@@ -843,5 +858,11 @@ function TitleMenu() constructor {
         if (state == "menu" && exitConfirmActive) {
             DrawExitConfirm();
         }
+
+        // Settings sub-menu -- 2026-07-14 addition. Drawn absolutely LAST,
+        // on top of everything above (including the exit confirm), same
+        // "on top of everything else" ordering PauseMenu.Draw() uses for
+        // this same overlay. No-ops (draws nothing) while closed.
+        settingsOverlay.Draw();
     }
 }

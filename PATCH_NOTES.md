@@ -1,5 +1,34 @@
 # Patch Notes
 
+## v0.0.5.1 — 2026-07-14 (uncommitted — working tree only, not yet committed)
+
+New settings menu, shared as a sub-menu of both the pause menu and the title screen.
+
+### Added
+
+- **`SettingsOverlayScripts.gml`** (new file) — `SettingsOverlay` struct, opened as a sub-menu from `PauseMenu.OpenSettings()` (mid-match, previously a stub) and `TitleMenu._OpenSettings()` (title screen, previously a stub). Both `PauseMenu()` and `TitleMenu()` now take a `SettingsOverlay` instance at construction and store it; their `Update()`/`Draw()` check `settingsOverlay.isOpen` first and delegate to it instead of running their own logic that frame — the same "isOpen early-exit" idiom `FateEngineOverlay`/`PauseMenu` already use against `oUnitControl`'s `Step_0.gml`, one level further down. Uses "a similar black overlay to other overlays" per the request — the same 0.75-alpha black dim `PauseMenu`/`FateEngineOverlay` draw.
+- **Five tabs, buttons along the top of the panel** per the request: Gameplay, Controls, Audio, Graphics, Accessibility.
+  - **Gameplay**: "Restart Tutorial" and "Restart Progress" buttons. Restart Progress opens the same Yes/No confirm shape `PauseMenu`/`TitleMenu`'s own confirms already use. Both underlying actions (`RestartTutorial()`/`ResetPlayerProgress()`) are explicit STUBS — no tutorial system and no meta-progression/save system exist anywhere in the project yet (confirmed via grep). The confirm flow itself is fully real and wired.
+  - **Controls**: visual-only readout (per explicit request) of the game's actual current control scheme (`GetControlsList()`), read straight off every `keyboard_check`/`mouse_check_button` call in the project rather than invented: Left Click / Drag, Shift + Left Click, Right Click, Order Menu's highlighted-letter shortcuts, Escape.
+  - **Audio**: Master/Music/SFX volume sliders, each with its own mute toggle. Master is real and live (`audio_master_gain()`) — moving it/muting it has an actual effect right now. Music/SFX are stored and persisted but not applied to anything yet — no sound assets or `audio_group` split exist anywhere in the project for a per-group gain to apply to.
+  - **Graphics**: Fullscreen toggle (real, `window_set_fullscreen()`), Borderless Windowed toggle (a vanilla `window_set_showborder()` + resize-to-display approximation — per the request's own framing, "true" borderless is intentionally left for the marketplace extension being added separately), and a Gamma slider (stored + persisted, not yet applied — see Flagged).
+  - **Accessibility**: STUB per explicit request ("will be a stub for now, unless you have an idea for it") — drawn as 3 greyed-out, non-interactive placeholder ideas (colorblind-friendly team colors, UI text scale, reduce screen shake/flash) rather than a blank page.
+- **`global.gameSettings` persistence** — `DefaultGameSettings()`/`LoadGameSettings()`/`SaveGameSettings()`/`ApplyGameSettings()`/`LoadAndApplyGameSettings()`, all `SettingsOverlayScripts.gml`. Settings are saved to `settings.ini` (GameMaker's own `ini_open`/`ini_read_real`/`ini_write_real`/`ini_close`) on every change, and loaded + applied once at game boot from `oGameControl`'s Create event (persistent, runs before any room). Two separate `SettingsOverlay` instances exist (one owned by `oUnitControl`, one by `oTitleMenu` — they never coexist), but both read/write the same `global.gameSettings`, so a value changed on one screen is still in effect, and persisted, on the other.
+
+### Flagged
+
+- **Gamma has no real visual effect yet.** True gamma correction needs a full-screen post-process shader — disabling GameMaker's automatic `application_surface` draw and taking over final-frame compositing for the ENTIRE game by hand (title screen AND gameplay), sampling `application_surface`, applying `pow(rgb, 1/gamma)`, and drawing it back. That's a genuine engine-level change with a large blast radius (get it wrong and NOTHING renders, on either screen), and I can't compile/run the project to verify a shader-pipeline change myself — so I built the slider, the stored/persisted value, and a clear comment showing exactly what's needed, rather than guessing blind at something this risky. Deliberately NOT folded into this commit; deserves its own dedicated, tested pass.
+- **Borderless Windowed is a vanilla approximation** (`window_set_showborder()` + resize to display size), not "true" borderless — matches the request's own framing that a marketplace extension is coming separately for that; this toggle is the obvious call site to swap once it's in.
+- **Restart Tutorial and Restart Progress are both stubs** — no tutorial system and no meta-progression/save system exist anywhere in the project (confirmed via grep). Deliberately did NOT alias Restart Progress to `PauseMenu`'s existing "Restart" (`room_restart()`, which resets the current match) — conflating the two would be misleading once a real save system exists and this needs to do something bigger. Both buttons + the Restart Progress confirm flow are fully wired and ready.
+- **Music/SFX volume sliders have no real effect yet** — same reasoning as gamma: no audio content or `audio_group` split exists anywhere in the project yet to apply a per-group gain to. Real hookup is a one-line `audio_group_set_gain()` call per group once those exist.
+- **Settings always resets to the Gameplay tab on Open()** rather than remembering the last-viewed tab across visits — a judgment call for predictability, not specified either way by the request.
+- **Panel/tab/button styling is plain rectangles + text**, reusing `FateEngineOverlay`'s existing "temporary UI" dark-purple/white-border palette for visual consistency — no dedicated settings-panel sprite exists yet.
+- No `SettingsOverlayScripts.md` Notion doc exists yet — same longstanding gap flagged for every library built this session.
+
+### Build
+
+- Windows export version bumped `0.0.5.0` → `0.0.5.1` — 4th-digit bump, routine convention.
+
 ## v0.0.5.0 — 2026-07-14 (uncommitted — working tree only, not yet committed)
 
 Version bump only — player-facing patch notes requested, covering everything since v0.0.4.0. Per the 3rd-digit-bump-on-requested-patch-notes convention (see v0.0.3.20 → v0.0.4.0's Build note).
