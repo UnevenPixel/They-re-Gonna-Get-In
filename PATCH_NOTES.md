@@ -1,6 +1,6 @@
 # Patch Notes
 
-## v0.0.5.1 — 2026-07-14 (uncommitted — working tree only, not yet committed)
+## v0.0.5.1 — 2026-07-14 (committed 2026-07-18 via `c4cf98f` "Review 2026-07-18 Safety Commit" — see NIGHTLY_REVIEW_2026-07-18.md §0)
 
 New settings menu, shared as a sub-menu of both the pause menu and the title screen.
 
