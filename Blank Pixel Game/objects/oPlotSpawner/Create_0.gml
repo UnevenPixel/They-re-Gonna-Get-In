@@ -1,9 +1,5 @@
-//CastlePlots -- inside-castle building plot grid, mirrored for both sides
-//(enemy positions = room_width - player positions, same axis
-//oCastleManager/oOuterPlotSpawner mirror off). Previously this only ever
-//spawned the player's grid, and never set .team on any of it -- now uses
-//SpawnBuildingPlot (scripts/PlotScripts) so both sides get their plots
-//and both are correctly team-tagged.
+// Spawns the 5x5 inside-castle plot grid for both sides, mirrored off room
+// center, then self-destroys. See oPlotSpawner.md.
 
 var castleStartPos = new Vector2(80,128);
 

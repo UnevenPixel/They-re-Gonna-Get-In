@@ -1,74 +1,10 @@
-// -----------------------------------------------------------
-// BuildingDefinition -- static, per-building-TYPE metadata (name,
-// description, cost, sprite, resource production) used by the Blueprint UI
-// to display a building's icon/cost and run the affordability check on
-// placement, and by BuildingApplyDefinition below to set up per-instance
-// production state at Create time.
-//
-// Unlike UnitDefinition (UnitDefinitions.gml), most of this is NOT applied
-// onto a shared generic instance -- every building type gets its own
-// dedicated object (e.g. oWheatField), so there's no "generic
-// oBuildingParent instance that needs its stats filled in at runtime" the
-// way oPeasantUnit needs UnitApplyDefinition. Production fields are the
-// exception -- see BuildingApplyDefinition/BuildingUpdateProduction below.
-// -----------------------------------------------------------
+// Static per-building-TYPE metadata (cost/sprite/production/training) plus
+// per-instance production/training setup and the production tick. See
+// BuildingDefinitions.md.
 
 /// @function BuildingDefinition(_data)
-/// @description Static definition for one building type.
-/// @param {Struct} _data Fields:
-///        name               {String}         Display name, e.g. "Wheat Field".
-///        description        {String}         Flavor/tooltip text.
-///        cost               {Struct.Cost}    Production cost (see Economy.gml).
-///        sprite             {Asset.GMSprite} Icon drawn in the Blueprint UI slot.
-///        productionResource {String}         [optional] Key into the
-///               global.resources team struct, e.g. "wheat". Omit for
-///               buildings that don't produce anything (e.g. training
-///               buildings) -- defaults to undefined/no production.
-///        productionRate     {Real}           [optional] Units per second
-///               at 1x match speed. Defaults to 0 (no production).
-///        trainsUnit         {Asset.GMObject} [optional] Unit type this
-///               building trains, e.g. oPeasantUnit. Omit for buildings
-///               that don't train anything (e.g. resource buildings) --
-///               defaults to undefined/no training.
-///        unitsPerBuilding   {Real}           [optional] How many
-///               trainsUnit-type units ONE live instance of this building
-///               contributes to the team's per-type unit cap (see
-///               TrainingTypeLimit in TrainingScripts.gml). Defaults to 0.
-///        trainCost          {Struct.Cost}    [optional] Cost paid per
-///               unit queued (separate from this building's own placement
-///               cost). Required if trainsUnit is set.
-///        trainTime          {Real}           [optional] Seconds to train
-///               one unit at 1x match speed. Defaults to 0.
-///        maxHealth          {Real}           [optional] Building HP -- see
-///               ApplyDamage/GetCurrentHealth (UnitCombatHelpers.gml /
-///               UnitDefinitions.gml), which now work against buildings the
-///               same way they work against units. Defaults to 200 (an
-///               unbalanced placeholder, same status every cost/rate number
-///               in this file already had -- there's no sheet-sourced
-///               building HP yet).
-///        resourceLimit      {Real}           [optional] TOTAL lifetime
-///               units of productionResource this building may ever
-///               produce -- once reached, the building depletes and
-///               self-destroys (see BuildingUpdateProduction). Omit (the
-///               default, undefined) for buildings that produce forever
-///               (or don't produce at all) -- per the 2026-07-06
-///               "Resource_Infrastructure Buildings" doc, which only
-///               specifies limits for actual resource buildings.
-///        hitParticleColorDark   {Constant.Color} [optional] Per-building
-///               override for SpawnBuildingHitParticles' (GibScripts.gml)
-///               dark end of its color-interpolation range. Defaults to
-///               undefined -- every building falls back to the shared
-///               BUILDING_HIT_PARTICLE_COLOR_DARK gray until a future pass
-///               gives specific building types their own colors (2026-07-12
-///               request: "we will make specific color coded particles for
-///               each building later, but we will default everything to
-///               shades of gray for now").
-///        hitParticleColorBright {Constant.Color} [optional] Same as above,
-///               bright end of the range. Must be set together with
-///               hitParticleColorDark to take effect (SpawnBuildingHitParticles
-///               checks both independently, so setting only one still falls
-///               back to the default for the other -- fine for now, but
-///               worth knowing if a future override looks half-applied).
+/// @description Static definition for one building type. See .md for the full field reference.
+/// @param {Struct} _data name/description/cost/sprite required; productionResource/productionRate/trainsUnit/unitsPerBuilding/trainCost/trainTime/maxHealth/resourceLimit/hitParticleColorDark/hitParticleColorBright optional.
 function BuildingDefinition(_data) constructor {
     name        = _data.name;
     description = _data.description;
@@ -90,11 +26,6 @@ function BuildingDefinition(_data) constructor {
     hitParticleColorBright = variable_struct_exists(_data, "hitParticleColorBright") ? _data.hitParticleColorBright : undefined;
 }
 
-// -----------------------------------------------------------
-// Registry -- keyed by object_index (e.g. oWheatField), mirroring
-// UnitDefinitions' registry (see UnitDefinitions.gml for the reasoning).
-// -----------------------------------------------------------
-
 global.__buildingDefRegistry = ds_map_create();
 
 /// @function RegisterBuildingDefinition(_objectIndex, _definition)
@@ -113,30 +44,18 @@ function GetBuildingDefinition(_objectIndex) {
         : undefined;
 }
 
-// -----------------------------------------------------------
-// Definition registration (call once, e.g. a game-start script) --
-// mirrors RegisterAllUnitDefinitions() in UnitDefinitions.gml.
-// -----------------------------------------------------------
-
 /// @function RegisterAllBuildingDefinitions()
-/// @description Registers every building type's BuildingDefinition. Call
-///        once at game start, alongside RegisterAllUnitDefinitions() --
-///        wired from oGameControl's Create event.
+/// @description Registers every building type's BuildingDefinition. Call once at game start, alongside RegisterAllUnitDefinitions() -- wired from oGameControl's Create event. See .md for cost/rate data-provenance notes.
 function RegisterAllBuildingDefinitions() {
-    // NOTE: cost/rate/maxHealth are placeholders, not balanced values -- tune freely.
     RegisterBuildingDefinition(oWheatField, new BuildingDefinition({
         name:               "Wheat Field",
         description:        "A basic resource plot that produces wheat over time.",
-        // Was 15 wood + 10 coins (pre-dated the sheet's "Wheat Farm" row
-        // being consulted for this exact building) -- corrected 2026-07-05
-        // to the real sheet-sourced cost, same as the other 4 resource
-        // buildings below.
         cost:               new Cost([new ResourceCost("water", 20), new ResourceCost("wood", 10)]),
         sprite:              sWheatField,
         productionResource: "wheat",
         productionRate:      1, // 1 wheat/sec at 1x match speed
-        resourceLimit:       300, // per 2026-07-06 "Resource_Infrastructure Buildings" doc
-        maxHealth:           100, // per 2026-07-06 doc -- was 150
+        resourceLimit:       300,
+        maxHealth:           100,
     }));
 
     RegisterBuildingDefinition(oPeasantWard, new BuildingDefinition({
@@ -151,12 +70,6 @@ function RegisterAllBuildingDefinitions() {
         maxHealth:        200,
     }));
 
-    // NOTE: build cost + trainsUnit/unitsPerBuilding/trainCost/trainTime
-    // below are sourced from the data sheet's Item Costs sheet (build cost)
-    // and Unit Stats sheet (everything else) -- these are real values, not
-    // placeholders, same status as Peasant Ward above. maxHealth is NOT
-    // sheet-sourced (the sheet has no building-HP column) -- still a
-    // placeholder like Peasant Ward's.
     RegisterBuildingDefinition(oBoomHut, new BuildingDefinition({
         name:             "Boom Hut",
         description:      "Trains Bomb Goblins. Each Hut supports up to 3 at once.",
@@ -217,15 +130,6 @@ function RegisterAllBuildingDefinitions() {
         maxHealth:        220,
     }));
 
-    // Remaining 4 tier-1 resource buildings -- cost + production rate are
-    // real, sheet-sourced values (Item Costs sheet, "Production Buildings"
-    // section), same status as Wheat Field's numbers above. maxHealth is
-    // 100 and resourceLimit is 300 for all 5 tier-1 resource buildings
-    // (this one plus Wheat Field above) -- both per the 2026-07-06
-    // "Resource_Infrastructure Buildings" doc, which lists every Tier 1
-    // resource building at "Resource Limit: 300" (maxHealth isn't in that
-    // doc either, but per explicit 2026-07-06 direction: "each resource
-    // building should keep their 100 max health").
     RegisterBuildingDefinition(oWaterPump, new BuildingDefinition({
         name:               "Water Pump",
         description:        "A basic resource plot that produces water over time.",
@@ -271,27 +175,8 @@ function RegisterAllBuildingDefinitions() {
     }));
 }
 
-// -----------------------------------------------------------
-// Per-instance application + production tick -- mirrors
-// UnitApplyDefinition's role in UnitDefinitions.gml, but scoped to just
-// the fields that actually vary at runtime (production state). Everything
-// else (sprite, collision, team/radius) already comes from the building's
-// own dedicated object, so there's nothing else to copy here.
-// -----------------------------------------------------------
-
 /// @function BuildingApplyDefinition(_building)
-/// @description Looks up _building's BuildingDefinition by object_index and
-///        sets up its per-instance runtime state -- production fields
-///        (resource buildings) AND training fields (training buildings)
-///        are both set unconditionally, regardless of which kind of
-///        building this is; a resource building simply gets trainsUnit ==
-///        undefined / trainQueue == 0, which TrainingUpdateQueue treats as
-///        a no-op, and a training building gets productionRate == 0,
-///        which BuildingUpdateProduction already treats as a no-op. Call
-///        once from a building's Create event, after event_inherited()
-///        (team/radius) and after RegisterAllBuildingDefinitions() has run
-///        at game start. Logs and no-ops if no definition is registered
-///        for this object type.
+/// @description Looks up _building's BuildingDefinition and sets up per-instance production + training runtime state (both set unconditionally regardless of building kind -- see .md). Call once from a building's Create event, after event_inherited() and after RegisterAllBuildingDefinitions() has run.
 /// @param {Id.Instance} _building
 function BuildingApplyDefinition(_building) {
     var _def = GetBuildingDefinition(_building.object_index);
@@ -303,7 +188,7 @@ function BuildingApplyDefinition(_building) {
     _building.productionResource    = _def.productionResource;
     _building.productionRate        = _def.productionRate;
     _building.productionAccumulator = 0; // fractional progress toward the next whole unit -- see BuildingUpdateProduction
-    _building.resourceLimit         = _def.resourceLimit; // TOTAL lifetime units this instance may produce -- undefined = unlimited, see BuildingUpdateProduction
+    _building.resourceLimit         = _def.resourceLimit; // TOTAL lifetime units this instance may produce -- undefined = unlimited
     _building.producedTotal         = 0; // lifetime units produced so far -- compared against resourceLimit
 
     _building.trainsUnit       = _def.trainsUnit;
@@ -313,43 +198,14 @@ function BuildingApplyDefinition(_building) {
     _building.trainQueue       = 0; // units waiting to be trained -- see TrainingTryQueueUnit
     _building.trainProgress    = 0; // seconds accumulated toward the next completion -- see TrainingUpdateQueue
 
-    // Same maxHealth/damageTaken pair units carry (UnitApplyDefinition,
-    // UnitDefinitions.gml) -- damageTaken lives directly on the instance
-    // here rather than nested in a unitData-style wrapper, since buildings
-    // have no station/redeploy concept to preserve it across. ApplyDamage/
-    // GetCurrentHealth (UnitCombatHelpers.gml / UnitDefinitions.gml) read
-    // damageTaken via GetDamageTaken, which already knows to check for
-    // unitData first and fall back to this flat field -- see that function.
     _building.maxHealth   = _def.maxHealth;
     _building.damageTaken = 0;
 }
 
-#macro PLOT_BONUS_DISTANT_MULTIPLIER 1.5 // +50% maxHealth (and, for production buildings, +50% resourceLimit) on Distant/"far" plots -- 2026-07-07 "plot bonuses" request, see ApplyPlotBonuses below
+#macro PLOT_BONUS_DISTANT_MULTIPLIER 1.5 // +50% maxHealth (and, for production buildings, +50% resourceLimit) on Distant/"far" plots
 
 /// @function ApplyPlotBonuses(_building, _plot)
-/// @description Applies the Distant-plot ("far", see PlotScripts.gml/
-///        oOuterPlotSpawner) stat bonuses from the 2026-07-07 "plot bonuses"
-///        request:
-///          - EVERY building placed on a Distant plot gets +50% maxHealth
-///            (PLOT_BONUS_DISTANT_MULTIPLIER), regardless of building type.
-///          - Production (resource) buildings ALSO get +50% resourceLimit.
-///            No explicit building-type check is needed for this half --
-///            training buildings never have a resourceLimit
-///            (BuildingApplyDefinition leaves it undefined for them), so the
-///            production-limit bonus naturally no-ops there, which is
-///            exactly the "only the health bonus is applied to training
-///            buildings" behavior the request asked for.
-///        No-ops entirely for Castle/Exterior/Blocked plots (anything with
-///        far == false). Placement-cost discounts (the OTHER half of the
-///        2026-07-07 request) are handled separately -- see
-///        GetPlacementCost, BlueprintScripts.gml.
-///
-///        Call AFTER the building's own Create event has already run
-///        BuildingApplyDefinition (i.e. right after instance_create_layer
-///        returns, since GameMaker runs a new instance's Create event
-///        synchronously before instance_create_layer returns) -- this
-///        function only multiplies whatever baseline BuildingApplyDefinition
-///        already set, it doesn't set up production/training state itself.
+/// @description Applies Distant-plot stat bonuses: every building gets +50% maxHealth, production buildings also get +50% resourceLimit. No-ops for Castle/Exterior/Blocked plots. Call AFTER the building's Create event (BuildingApplyDefinition) has already run. See .md.
 /// @param {Id.Instance} _building A just-created building instance.
 /// @param {Id.Instance} _plot The oBuildingPlot it was placed on.
 function ApplyPlotBonuses(_building, _plot) {
@@ -362,44 +218,10 @@ function ApplyPlotBonuses(_building, _plot) {
     }
 }
 
-#macro ECONOMIC_XP_DEPLETION 8 // "resource building depletes naturally" -- 2026-07-06 XP Age Progression doc, previously blocked (no depletion mechanic existed); see BuildingUpdateProduction
+#macro ECONOMIC_XP_DEPLETION 8 // XP awarded when a resource building depletes naturally -- see BuildingUpdateProduction
 
 /// @function BuildingUpdateProduction(_building)
-/// @description Delta-time-based resource production, scaled by
-///        global.matchSpeed. Accumulates fractional progress on the
-///        instance (productionAccumulator) instead of adding a flat amount
-///        per frame, so production is frame-rate independent and never
-///        caps at "at most one whole unit per frame" -- a rate high enough
-///        to cross several whole units within a single frame (e.g. from
-///        stacked bonuses, or a slow frame) still awards all of them, each
-///        triggering its own PlayResourceProducedEffect call, since
-///        resources are whole-integer-only in this game (see Economy.gml).
-///        No-op if the building has no production (productionRate <= 0).
-///        Call once per Step from a producing building (currently wired
-///        from oResourceBuildingParent/Step_0.gml, so every resource
-///        building gets this automatically).
-///
-///        Resource depletion (2026-07-06, "Resource_Infrastructure
-///        Buildings" doc): if this building has a resourceLimit, its
-///        production is capped at that TOTAL lifetime amount -- a tick
-///        that would push producedTotal past resourceLimit is clamped to
-///        exactly fill the remaining room instead of overshooting. The
-///        instant that cap is reached, the building awards its team
-///        ECONOMIC_XP_DEPLETION XP (unblocking the XP doc's Economic XP
-///        category, which had nothing to hook into before this) and
-///        self-destroys via instance_destroy -- same bare removal combat-
-///        death already used here (ApplyDamage, UnitCombatHelpers.gml),
-///        which also has no dedicated building-destroy cleanup step to
-///        mirror. No depletion VFX/SFX exists yet -- flag if one's wanted.
-///
-///        2026-07-12 addition: rate is scaled by _building.team's current
-///        stationed passive bonuses (GetStationedPassiveBonuses,
-///        StationScripts.gml) -- allResourceProductionBonus (Peasant)
-///        applies to every resource, goldProductionBonus (Bomb Goblin)
-///        applies only when productionResource == "gold" and stacks
-///        additively on top of the all-resource bonus. This is exactly
-///        the "stacked bonuses" case this function's own header already
-///        anticipated above.
+/// @description Delta-time-based resource production, scaled by global.matchSpeed, accumulated fractionally so high rates can award multiple whole units per frame. No-op if productionRate <= 0. On hitting resourceLimit: awards ECONOMIC_XP_DEPLETION, frees the plot, and self-destroys. Rate is scaled by the team's stationed passive bonuses. See .md.
 /// @param {Id.Instance} _building
 function BuildingUpdateProduction(_building) {
     if (_building.productionRate <= 0 || _building.productionResource == undefined) return;
@@ -442,19 +264,13 @@ function BuildingUpdateProduction(_building) {
 
     if (_willDeplete) {
         GainXP(_building.team, ECONOMIC_XP_DEPLETION);
-        BuildingFreePlot(_building); // frees the plot (PlotScripts.gml) so it's buildable + clickable again -- 2026-07-06
+        BuildingFreePlot(_building); // frees the plot (PlotScripts.gml) so it's buildable + clickable again
         instance_destroy(_building);
     }
 }
 
 /// @function PlayResourceProducedEffect(_building, _resource)
-/// @description Called exactly once per whole unit of resource produced
-///        (BuildingUpdateProduction may call this more than once in a
-///        single frame at high production rates -- each call gets its own
-///        particle burst). Spawns the resource-produced particle burst
-///        (SpawnResourceProducedParticles, ResourceParticleScripts.gml) at
-///        _building's position -- no sound/popup text yet, just the
-///        particles requested 2026-07-05.
+/// @description Called once per whole unit of resource produced -- spawns the resource-produced particle burst at _building's position. No sound/popup text yet.
 /// @param {Id.Instance} _building
 /// @param {String} _resource
 function PlayResourceProducedEffect(_building, _resource) {

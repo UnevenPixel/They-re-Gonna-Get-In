@@ -1,24 +1,17 @@
+// FSM state "guard" -- wander between waypoints in guardRect, watching for
+// enemies. FLAGGED/load-bearing state file. See UnitStateGuard.md.
+
 #macro GUARD_ARRIVE_RADIUS    40  // deceleration zone around each waypoint
 #macro GUARD_ARRIVE_THRESHOLD 24  // distance at which the unit is considered "arrived"
 #macro GUARD_WAIT_MIN         90  // minimum idle frames at a waypoint (~1.5s at 60fps)
 #macro GUARD_WAIT_MAX         240 // maximum idle frames at a waypoint (~4s at 60fps)
 #macro GUARD_EDGE_PADDING     24  // keeps waypoints away from the rect edges
 #macro GUARD_MIN_SEPARATION   40  // minimum distance between any two claimed waypoints
-#macro GUARD_PICK_RETRIES     8   // how many times to retry before giving up and
-                                  // accepting a slightly-occupied point rather than
-                                  // leaving the unit unable to find anywhere to go
+#macro GUARD_PICK_RETRIES     8   // retries before accepting a slightly-occupied point rather than leaving the unit stuck
 
-/// Picks a random point inside _rect that isn't already claimed by
-/// another waiting ally. Retries up to GUARD_PICK_RETRIES times;
-/// returns the best candidate found even if all retries hit conflicts.
-///
-/// Claimed positions are read from nearby units' `guardWaypointClaimed`
-/// variable, which every guard unit writes to itself when it picks a
-/// waypoint and clears on Guard_Exit.
-///
 /// @function GuardPickWaypoint(_unit, _rect)
-/// @param {Id.Instance} _unit   The unit picking the waypoint (excluded
-///                              from its own conflict check).
+/// @description Picks a random point inside _rect not already claimed by another waiting ally. Retries up to GUARD_PICK_RETRIES times; returns the best candidate found even if all retries hit conflicts. See .md.
+/// @param {Id.Instance} _unit   The unit picking the waypoint (excluded from its own conflict check).
 /// @param {Struct} _rect        { x1, y1, x2, y2 }
 /// @returns {Struct.Vector2}
 function GuardPickWaypoint(_unit, _rect) {
@@ -26,8 +19,8 @@ function GuardPickWaypoint(_unit, _rect) {
     var _best     = undefined;
     var _bestDist = 0; // furthest minimum-distance-to-any-claim found so far
 
-    // Gather claimed waypoints from nearby allies once, outside the
-    // retry loop, so we're not re-querying the collision list every attempt.
+    // Gather claimed waypoints from nearby allies once, outside the retry
+    // loop, so we're not re-querying the collision list every attempt.
     var _claimed = [];
     var _list    = ds_list_create();
     var _count   = collision_rectangle_list(
@@ -37,17 +30,12 @@ function GuardPickWaypoint(_unit, _rect) {
     for (var i = 0; i < _count; i++) {
         var _other = _list[| i];
         if (_other == _unit) continue;
-        // Room-start instance-creation-order hazard: all room-placed instances
-        // exist before any of their Create events run, so a sibling found here
-        // may not have reached `team = TEAM.PLAYER/ENEMY;` in its own Create yet.
-        // Treat it as "not a valid ally to check" rather than crash.
+        // Room-start creation-order hazard -- see .md.
         if (!variable_instance_exists(_other, "team")) continue;
         if (_other.team != _unit.team) continue;
         if (!variable_instance_exists(_other, "guardWaypointClaimed")) continue;
-        // Defensive: guardWaypointClaimed can legitimately be `undefined`
-        // between a unit's own Create running and Guard_Enter assigning it
-        // a real Vector2. Skip anything that isn't an actual struct rather
-        // than trusting the value blindly.
+        // guardWaypointClaimed can legitimately be undefined between Create
+        // and Guard_Enter -- see .md.
         if (!is_struct(_other.guardWaypointClaimed)) continue;
         array_push(_claimed, _other.guardWaypointClaimed);
     }
@@ -60,7 +48,6 @@ function GuardPickWaypoint(_unit, _rect) {
             random_range(_rect.y1 + _pad, _rect.y2 - _pad)
         );
 
-        // Find the minimum distance from this candidate to any claimed point.
         var _minDist = infinity;
         for (var i = 0; i < array_length(_claimed); i++) {
             var _d = _candidate.Distance(_claimed[i]);
@@ -73,8 +60,7 @@ function GuardPickWaypoint(_unit, _rect) {
             break;
         }
 
-        // Keep whichever candidate is furthest from its nearest claim
-        // (maximises separation across all retries).
+        // Keep whichever candidate is furthest from its nearest claim.
         if (_minDist > _bestDist) {
             _bestDist = _minDist;
             _best     = _candidate;
@@ -87,18 +73,13 @@ function GuardPickWaypoint(_unit, _rect) {
     return _best;
 }
 
-// -----------------------------------------------------------
-// guard
-// -----------------------------------------------------------
-
 /// @function Guard_Enter(_unit, _machine)
-/// @description StateMachine onEnter for "guard". Initializes the waypoint claim
-///        so other units can safely read it, then picks the unit's first waypoint.
+/// @description StateMachine onEnter for "guard". Initializes the waypoint claim so other units can safely read it, then picks the unit's first waypoint.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Guard_Enter(_unit, _machine) {
-    // Initialise the claim variable so other units can always safely
-    // read it, even before this unit has picked its first waypoint.
+    // Initialise the claim variable so other units can always safely read
+    // it, even before this unit has picked its first waypoint.
     _unit.guardWaypointClaimed = new Vector2(_unit.x, _unit.y);
 
     _machine.data.waypoint  = GuardPickWaypoint(_unit, _unit.guardRect);
@@ -108,31 +89,18 @@ function Guard_Enter(_unit, _machine) {
 }
 
 /// @function Guard_Step(_unit, _machine)
-/// @description StateMachine onStep for "guard". Alternates between waiting at
-///        the current waypoint (random dwell time) and steering toward it once a
-///        new one is picked; releases the old waypoint claim when arriving.
-///        Proximity-aggro check runs first, every step: "combat" was
-///        designed as an interim state guard pops into when it needs to
-///        fight (see UnitEnterCombat, UnitCombatHelpers.gml) -- the other
-///        trigger, reactive-on-hit, lives in ApplyDamage instead, since it
-///        needs to fire the instant damage lands, not once per step.
+/// @description StateMachine onStep for "guard". Alternates between waiting at the current waypoint (random dwell time) and steering toward it once a new one is picked; releases the old waypoint claim on arrival. Proximity-aggro check runs first, every step -- see .md.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Guard_Step(_unit, _machine) {
-    // -----------------------------------------------------------
     // Proximity aggro -- highest priority, checked before anything else.
-    // -----------------------------------------------------------
-
     var _enemy = ChooseCombatTarget(_unit, _unit.attackAggroRadius);
     if (_enemy != noone) {
         UnitEnterCombat(_unit, _enemy);
         return;
     }
 
-    // -----------------------------------------------------------
-    // Waiting at a waypoint
-    // -----------------------------------------------------------
-
+    // Waiting at a waypoint.
     if (_machine.data.waiting) {
         _machine.data.waitTimer -= global.matchSpeed; // 0 at matchSpeed 0 -- wait freezes instead of ticking down during a pause
 
@@ -150,15 +118,12 @@ function Guard_Step(_unit, _machine) {
         return;
     }
 
-    // -----------------------------------------------------------
-    // Moving toward the current waypoint
-    // -----------------------------------------------------------
-
+    // Moving toward the current waypoint.
     var _dist = _unit.agent.pos.Distance(_machine.data.waypoint);
 
     if (_dist < GUARD_ARRIVE_THRESHOLD) {
-        // Arrived -- kill any residual velocity so the unit doesn't
-        // keep nudging back and forth around the waypoint during the wait.
+        // Arrived -- kill any residual velocity so the unit doesn't keep
+        // nudging back and forth around the waypoint during the wait.
         _unit.agent.velocity.Set(0, 0);
         _machine.data.waiting   = true;
         _machine.data.waitTimer = irandom_range(GUARD_WAIT_MIN, GUARD_WAIT_MAX);
@@ -178,7 +143,7 @@ function Guard_Step(_unit, _machine) {
         Steering_AvoidObstacles(_unit.agent, _obstacles, 80),
         1.8
     );
-    
+
     _unit.controller.Add(
         Steering_Separation(_unit.agent, _allies, 8),
         0.4
@@ -192,13 +157,8 @@ function Guard_Step(_unit, _machine) {
         PLAY_AREA_CONTAIN_WEIGHT
     );
 
-    // oBuildingParent dropped from this collision list, 2026-07-06 --
-    // units no longer physically collide with buildings, only with real
-    // static geometry (oEnvironmentSolid). Steering_AvoidObstacles above
-    // still sees buildings (GatherNearbyObstacles, GatherScripts.gml, is
-    // unchanged) and steers around them cosmetically; a unit can now clip
-    // through one if avoidance doesn't fully route around it, which is
-    // accepted as harmless per that request.
+    // oBuildingParent deliberately excluded -- units only hard-collide with
+    // oEnvironmentSolid. See .md.
     var _delta = _unit.controller.Apply();
     with(_unit){
         move_and_collide(_delta.x, _delta.y, [oEnvironmentSolid]);
@@ -209,21 +169,17 @@ function Guard_Step(_unit, _machine) {
 }
 
 /// @function Guard_Draw(_unit, _machine)
-/// @description StateMachine onDraw for "guard". Debug visualization -- shows the
-///        waiting flag and a line to the current waypoint.
+/// @description StateMachine onDraw for "guard". Currently empty -- no debug visualization implemented yet.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Guard_Draw(_unit,_machine){
-    
+
 }
 
 /// @function Guard_Exit(_unit, _machine)
-/// @description StateMachine onExit for "guard". Releases the claimed waypoint so
-///        it's no longer counted as occupied for other units picking a position.
+/// @description StateMachine onExit for "guard". Releases the claimed waypoint so it's no longer counted as occupied for other units picking a position.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Guard_Exit(_unit, _machine) {
-    // Release the claimed waypoint so it's no longer counted as
-    // occupied for other units picking their next position.
     _unit.guardWaypointClaimed = undefined;
 }

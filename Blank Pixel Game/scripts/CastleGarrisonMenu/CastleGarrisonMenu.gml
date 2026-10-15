@@ -1,19 +1,15 @@
-#macro CASTLE_MENU_ICON_GAP     6  // gap between a row's unit icon and its name text
-#macro CASTLE_MENU_COUNT_MARGIN 8  // right-edge margin for the "x#" count text
+// Dropdown listing units stationed in the player's castle. See CastleGarrisonMenu.md.
+
+#macro CASTLE_MENU_ICON_GAP     6
+#macro CASTLE_MENU_COUNT_MARGIN 8
 
 /// @function CastleGarrisonRow(_unitType, _icon, _name, _count)
-/// @description One display row for CastleGarrisonMenu. Pass _unitType,
-///        _icon, and _count all undefined for the "nothing garrisoned"
-///        placeholder row (name "--") -- see BuildCastleGarrisonRows.
-///        _unitType is what CastleGarrisonMenu.Update() reports back when
-///        this row is clicked (see DeployStationedUnit, StationScripts.gml)
-///        -- undefined on the placeholder row makes clicking it a safe
-///        no-op there.
-/// @param {Asset.GMObject|Undefined} _unitType e.g. oPeasantUnit.
-/// @param {Asset.GMSprite|Undefined} _icon UnitDefinition.icon (small
-///        inline sprite, middle-center origin).
-/// @param {String} _name UnitDefinition.name, or "--" for the placeholder.
-/// @param {Real|Undefined} _count How many of this type are stationed.
+/// @description One display row. Pass _unitType/_icon/_count all undefined
+///        for the "nothing garrisoned" placeholder row (name "--").
+/// @param {Asset.GMObject|Undefined} _unitType
+/// @param {Asset.GMSprite|Undefined} _icon
+/// @param {String} _name
+/// @param {Real|Undefined} _count
 function CastleGarrisonRow(_unitType, _icon, _name, _count) constructor {
     unitType = _unitType;
     icon     = _icon;
@@ -22,14 +18,7 @@ function CastleGarrisonRow(_unitType, _icon, _name, _count) constructor {
 }
 
 /// @function BuildCastleGarrisonRows(_team)
-/// @description Aggregates every live oUnitStationed belonging to _team into
-///        one CastleGarrisonRow per distinct unit type (icon/name from that
-///        type's UnitDefinition, count = how many of that type are
-///        currently stationed), ordered by first-seen stationing order.
-///        Returns a single CastleGarrisonRow(undefined, undefined, "--", undefined)
-///        placeholder if _team has nothing stationed -- per the 2026-07-11
-///        request: "If there are no units in the castle, display the only
-///        option as '--'."
+/// @description Aggregates every live oUnitStationed on _team into one row per distinct unit type.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @returns {Array<Struct.CastleGarrisonRow>}
 function BuildCastleGarrisonRows(_team) {
@@ -63,45 +52,18 @@ function BuildCastleGarrisonRows(_team) {
     return _rows;
 }
 
-// -----------------------------------------------------------
-// CastleGarrisonMenu -- a GUI-space dropdown shown when the player left-
-// clicks their own castle's wall (not an interior plot -- see
-// oUnitControl/Step_0.gml). Lists what's currently stationed there, per
-// row: icon, name, "x#" count. Clicking a row deploys ONE unit of that
-// type (see DeployStationedUnit, StationScripts.gml, called from
-// oUnitControl/Step_0.gml off this menu's Update() return value) --
-// 2026-07-12 addition; the "--" placeholder row has no unitType so
-// clicking it is a safe no-op. Clicking anywhere else (or right-clicking)
-// just dismisses, same as before. Title "Castle", per the 2026-07-12
-// request. Structurally mirrors OrderMenu.gml (Open/Close/Update/Draw,
-// screen-edge containment on Open) and, as of 2026-07-12, shares its
-// sprite/title/hit-test rendering with every other drop-down menu
-// (DropDownMenuScripts.gml) -- this file only owns its OWN row content
-// (icon + name + right-aligned count), since that's genuinely different
-// from OrderMenu's plain-label rows.
-// -----------------------------------------------------------
-
 /// @function CastleGarrisonMenu()
-/// @description Call Open() to show it with a set of CastleGarrisonRow
-///        structs, Update() once per Step to handle hover/click/dismiss,
-///        and Draw() once per Draw GUI to render it.
+/// @description Call Open() with a set of rows, Update() once per Step, Draw() once per Draw GUI.
 function CastleGarrisonMenu() constructor {
     isOpen        = false;
     x             = 0;
     y             = 0;
     rows          = []; // Array<Struct.CastleGarrisonRow>
     hoveredIndex  = -1;
-    consumedClick = false; // true for exactly the Step a left click was handled while open (row or dismiss) -- see oUnitControl/Step_0.gml, which skips its own room-space left-click handling when this is true so the same click can't ALSO start a drag-select/etc. this same frame. 2026-07-12 fix -- SelectionSummaryMenu.gml needed the identical guard, and this menu had the same unpatched gap.
+    consumedClick = false; // true for exactly the Step a left click was handled while open -- see .md
 
     /// @function Open(_x, _y, _rows)
-    /// Opens the menu, anchored away from the triggering click at (_x, _y)
-    /// -- 2026-07-13 request: matches the same mouse-dependent, quadrant-
-    /// anchor-away-from-cursor logic every hover card already uses, via
-    /// PositionDropDownMenuFromClick (DropDownMenuScripts.gml) -- see that
-    /// function's own doc comment for the full reasoning, and OrderMenu.Open
-    /// for the identical change made there in the same pass. Previously this
-    /// opened flush at (_x, _y) with only a far-edge overflow clamp; that
-    /// behavior is superseded by this pass.
+    /// @description Opens the menu, anchored away from the triggering click.
     /// @param {Real} _x GUI-space X of the triggering click.
     /// @param {Real} _y GUI-space Y of the triggering click.
     /// @param {Array<Struct.CastleGarrisonRow>} _rows
@@ -127,12 +89,9 @@ function CastleGarrisonMenu() constructor {
     }
 
     /// @function Update()
-    /// Call once per Step event while the menu might be open. Same hover-
-    /// track-then-click pattern as OrderMenu.Update().
-    /// @returns {Asset.GMObject|Undefined} The unitType of the row clicked
-    ///         this frame (undefined for the "--" placeholder row), or
-    ///         undefined if nothing was clicked. Right-click always
-    ///         dismisses without returning anything, same as OrderMenu.
+    /// @description Call once per Step while the menu might be open.
+    /// @returns {Asset.GMObject|Undefined} unitType of the row clicked this
+    ///        frame, or undefined if nothing was clicked.
     static Update = function() {
         consumedClick = false;
         if (!isOpen) return undefined;
@@ -143,21 +102,21 @@ function CastleGarrisonMenu() constructor {
         hoveredIndex = DropDownMenuHitTest(x, y, array_length(rows), _mx, _my);
 
         if (mouse_check_button_pressed(mb_left)) {
-            consumedClick = true; // ANY left click while open counts -- this menu is modal-ish (explicitly opened by the player), so even a dismiss-elsewhere click shouldn't ALSO act on the world this same frame
+            consumedClick = true;
             var _clickedType = (hoveredIndex >= 0) ? rows[hoveredIndex].unitType : undefined;
             Close();
-            return _clickedType; // undefined for a click outside every row, or on the "--" placeholder row
+            return _clickedType;
         }
 
         if (mouse_check_button_pressed(mb_right)) {
-            Close(); // right-click anywhere dismisses without deploying anything
+            Close();
         }
 
         return undefined;
     }
 
     /// @function Draw()
-    /// Call once per Draw GUI event while the menu might be open.
+    /// @description Call once per Draw GUI event while the menu might be open.
     static Draw = function() {
         if (!isOpen) return;
 

@@ -1,28 +1,9 @@
-// -----------------------------------------------------------
-// Projectiles -- spawned by ranged units (see UnitTryFireProjectile,
-// UnitCombatHelpers.gml) instead of dealing damage instantly. A
-// projectile's REAL position (x/y, what everything else in the game would
-// see if it looked) travels in a flat straight line from launch point to
-// target point; the parabolic "arcs upward then lands" look is purely
-// cosmetic, applied only in the Draw event (ProjectileDraw) as a vertical
-// offset + a separately-computed rotation. image_angle itself is set once
-// at spawn to the flat straight-line direction and never touched again --
-// see ProjectileInit / ProjectileDraw for the split.
-//
-// Only one projectile type exists so far (oArcherProjectile), but this is
-// written generically (oProjectileParent + UnitDefinition.projectileObject)
-// so future ranged units can register their own without touching any of
-// this file.
-// -----------------------------------------------------------
+// Ranged-unit projectiles -- real position travels a flat straight line
+// (collision/logic-relevant); the visual arc is Draw-event-only cosmetic.
+// See ProjectileScripts.md.
 
 /// @function SpawnProjectile(_unit, _target)
-/// @description Spawns _unit's registered projectile object
-///        (UnitDefinition.projectileObject) at _unit's position, aimed at
-///        _target's position at THIS moment (not homing -- see
-///        ProjectileInit). Snapshots _unit's current attackDamage as the
-///        projectile's damage, so a later buff/debuff to _unit doesn't
-///        retroactively change a shot already in flight. Logs and no-ops
-///        if _unit's UnitDefinition has no projectileObject registered.
+/// @description Spawns _unit's registered projectile (UnitDefinition.projectileObject) at _unit's position, aimed at _target's CURRENT position (not homing). Snapshots _unit's attackDamage. Logs and no-ops if no projectileObject is registered.
 /// @param {Id.Instance} _unit
 /// @param {Id.Instance} _target
 /// @returns {Id.Instance|Constant.NoOne}
@@ -39,25 +20,13 @@ function SpawnProjectile(_unit, _target) {
 }
 
 /// @function ProjectileInit(_proj, _owner, _target, _damage, _speed, _arcHeight)
-/// @description Sets up a freshly-created projectile's per-instance state.
-///        Call once, immediately after instance_create_layer -- same
-///        pattern as BuildingApplyDefinition/UnitApplyDefinition/
-///        TrainingSpawnUnit (Create sets safe defaults, a script function
-///        fills in the real values right after).
-///
-///        targetPos is captured ONCE here (the target's position at the
-///        moment of firing) -- the projectile is not homing. If _target is
-///        destroyed mid-flight, it keeps flying to that fixed point and
-///        simply finds no one home when it lands (see ProjectileResolveHit).
+/// @description Sets up a freshly-created projectile's per-instance state. Call once, immediately after instance_create_layer. targetPos is captured ONCE at spawn -- not homing. See .md.
 /// @param {Id.Instance} _proj
-/// @param {Id.Instance} _owner The firing unit -- stored for kill-credit
-///        (ApplyDamage's _source) and so a stray shot can be attributed to
-///        someone even after _owner itself is gone by the time it lands.
+/// @param {Id.Instance} _owner The firing unit -- stored for kill-credit (ApplyDamage's _source).
 /// @param {Id.Instance} _target
 /// @param {Real} _damage
 /// @param {Real} [_speed] Pixels/sec at 1x match speed. Defaults to 240.
-/// @param {Real} [_arcHeight] Peak visual arc height in pixels (Draw-event
-///        only -- see ProjectileArcOffset). Defaults to 24.
+/// @param {Real} [_arcHeight] Peak visual arc height in pixels (Draw-event only). Defaults to 24.
 function ProjectileInit(_proj, _owner, _target, _damage, _speed = 240, _arcHeight = 24) {
     _proj.owner  = _owner;
     _proj.team   = variable_instance_exists(_owner, "team") ? _owner.team : TEAM.PLAYER;
@@ -75,20 +44,12 @@ function ProjectileInit(_proj, _owner, _target, _damage, _speed = 240, _arcHeigh
 
     // The REAL, stored image_angle -- flat straight-line direction, set
     // once and never touched again. ProjectileDraw computes its own
-    // separate arc-following angle for rendering without ever writing back
-    // to this.
+    // separate arc-following angle for rendering without writing back here.
     _proj.image_angle = _proj.startPos.AngleTo(_proj.targetPos);
 }
 
 /// @function ProjectileUpdateMovement(_proj)
-/// @description Advances _proj's REAL position (x/y) a fraction of the way
-///        from startPos to targetPos, straight-line, match-speed-scaled --
-///        same delta_time/global.matchSpeed idiom as
-///        BuildingUpdateProduction/TrainingUpdateQueue. Resolves the hit
-///        (ProjectileResolveHit) the instant progress reaches 1, including
-///        immediately on the same step if travelTime is 0 (target was
-///        already standing on the launch point).
-///        Call once per Step (oProjectileParent/Step_0.gml).
+/// @description Advances _proj's REAL x/y a fraction of the way from startPos to targetPos, straight-line, match-speed-scaled. Resolves the hit the instant progress reaches 1. Call once per Step (oProjectileParent/Step_0.gml).
 /// @param {Id.Instance} _proj
 function ProjectileUpdateMovement(_proj) {
     if (_proj.travelTime <= 0) {
@@ -111,11 +72,7 @@ function ProjectileUpdateMovement(_proj) {
 }
 
 /// @function ProjectileResolveHit(_proj)
-/// @description Called the moment _proj reaches the end of its flight.
-///        Applies damage via ApplyDamage (UnitCombatHelpers.gml) if the
-///        target is still around to hit, then destroys the projectile
-///        either way -- a target that died mid-flight just means the shot
-///        whiffs, it doesn't crash or linger.
+/// @description Called the moment _proj reaches the end of its flight. Applies damage if the target still exists, then destroys the projectile either way.
 /// @param {Id.Instance} _proj
 function ProjectileResolveHit(_proj) {
     if (instance_exists(_proj.target)) {
@@ -125,13 +82,7 @@ function ProjectileResolveHit(_proj) {
 }
 
 /// @function ProjectileArcOffset(_proj, _progress)
-/// @description Visual-only vertical offset for the parabolic arc -- 0 at
-///        launch and landing, peaking at -_proj.arcHeight (negative = up on
-///        screen, since GameMaker's y grows downward) at the midpoint of
-///        flight. Purely cosmetic: _proj.x/_proj.y (the real,
-///        collision/logic-relevant position, and what ProjectileResolveHit
-///        acts on) stay on the flat line the whole flight -- only the DRAWN
-///        position (ProjectileDraw) is affected.
+/// @description Visual-only vertical offset for the parabolic arc -- 0 at launch/landing, peaking at -arcHeight at the midpoint. Purely cosmetic -- the real x/y stay on the flat line. See .md.
 /// @param {Id.Instance} _proj
 /// @param {Real} _progress 0..1
 /// @returns {Real}
@@ -140,19 +91,7 @@ function ProjectileArcOffset(_proj, _progress) {
 }
 
 /// @function ProjectileDraw(_proj)
-/// @description Draws _proj's sprite offset by its current arc height, with
-///        a rotation that follows the arc's tangent -- steep nose-up at
-///        launch, level at the apex, steep nose-down at landing -- instead
-///        of the flat _proj.image_angle (which stays the straight-line
-///        launch direction for the whole flight, see ProjectileInit).
-///        Samples the arc's slope numerically (drawn position a hair
-///        further along the flight, vs. right now) rather than
-///        differentiating ProjectileArcOffset by hand, so the visible angle
-///        can never drift out of sync with the visible offset -- they're
-///        computed from the exact same function.
-///        Call once per Draw (oProjectileParent/Draw_0.gml). Replaces the
-///        default sprite draw entirely -- this object should NOT also get
-///        a default (event-less) draw.
+/// @description Draws _proj's sprite offset by its current arc height, with a rotation that follows the arc's tangent instead of the flat stored image_angle. Call once per Draw (oProjectileParent/Draw_0.gml); replaces the default sprite draw entirely. See .md.
 /// @param {Id.Instance} _proj
 function ProjectileDraw(_proj) {
     var _p1 = _proj.progress;
@@ -166,10 +105,9 @@ function ProjectileDraw(_proj) {
     var _drawX2 = _pos2.x;
     var _drawY2 = _pos2.y + ProjectileArcOffset(_proj, _p2);
 
-    // _p1 == _p2 only at the very last frame (both already clamped to 1) --
-    // fall back to the flat stored angle rather than feeding
-    // point_direction two identical points (it returns 0, which would snap
-    // the sprite level right before impact).
+    // _p1 == _p2 only at the very last frame -- fall back to the flat
+    // stored angle rather than feeding point_direction two identical points
+    // (it returns 0, which would snap the sprite level right before impact).
     var _drawAngle = (_p1 >= 1) ? _proj.image_angle : point_direction(_drawX, _drawY, _drawX2, _drawY2);
 
     draw_sprite_ext(

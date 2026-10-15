@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"PreRunMenuScripts",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"PreRunMenuScripts",
+  "parent":{
+    "name":"PreRun",
+    "path":"folders/Menus/PreRun.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

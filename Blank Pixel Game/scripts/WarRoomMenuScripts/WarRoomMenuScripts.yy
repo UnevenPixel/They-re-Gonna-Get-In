@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"WarRoomMenuScripts",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"WarRoomMenuScripts",
+  "parent":{
+    "name":"WarRoom",
+    "path":"folders/Menus/WarRoom.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

@@ -1,3 +1,6 @@
+// Vector2 (mutable, mutate-by-default with Get-prefixed immutable twins)
+// plus simple shape structs. See Math.md.
+
 /// @function Vector2(_x, _y)
 /// @description A mutable 2D vector. Arithmetic methods (Add, Subtract, Scale, ...)
 ///        mutate and return self for chaining; each has a Get-prefixed immutable
@@ -7,10 +10,6 @@
 function Vector2(_x = 0, _y = 0) constructor {
     x = _x;
     y = _y;
-
-    // -------------------------------------------------------
-    // Construction / Utility
-    // -------------------------------------------------------
 
     /// @function Copy()
     /// @returns {Struct.Vector2} A new Vector2 with the same x/y.
@@ -24,8 +23,8 @@ function Vector2(_x = 0, _y = 0) constructor {
     /// @param {Real} [_y] Ignored when _x is a Vector2.
     /// @returns {Struct.Vector2} self
     static Set = function(_x, _y) {
-        x = is_struct(_x) ? _x.x : _x;   // is_struct(_x) is true → reads _x.x, never touches _y
-        y = is_struct(_x) ? _x.y : _y;   // same check (still true) → reads _x.y, never touches _y
+        x = is_struct(_x) ? _x.x : _x;
+        y = is_struct(_x) ? _x.y : _y;
         return self;
     }
 
@@ -40,10 +39,6 @@ function Vector2(_x = 0, _y = 0) constructor {
     static toString = function() {
         return "(" + string(x) + ", " + string(y) + ")";
     }
-
-    // -------------------------------------------------------
-    // Arithmetic (mutating)
-    // -------------------------------------------------------
 
     /// @function Add(_other)
     /// @param {Struct.Vector2} _other
@@ -98,11 +93,6 @@ function Vector2(_x = 0, _y = 0) constructor {
         return self;
     }
 
-    // -------------------------------------------------------
-    // Arithmetic ("Get" immutable twins -- built from Copy(),
-    // so the math logic above is the single source of truth)
-    // -------------------------------------------------------
-
     /// @function GetAdd(_other)
     /// @description Immutable twin of Add() -- returns a new Vector2 instead of mutating.
     /// @param {Struct.Vector2} _other
@@ -149,10 +139,6 @@ function Vector2(_x = 0, _y = 0) constructor {
     static GetNegate = function() {
         return Copy().Negate();
     }
-
-    // -------------------------------------------------------
-    // Length / Normalize / Clamp
-    // -------------------------------------------------------
 
     /// @function Length()
     /// @returns {Real}
@@ -207,10 +193,6 @@ function Vector2(_x = 0, _y = 0) constructor {
     static GetClampLength = function(_max) {
         return Copy().ClampLength(_max);
     }
-
-    // -------------------------------------------------------
-    // Geometry
-    // -------------------------------------------------------
 
     /// @function Rotate(_deg)
     /// @param {Real} _deg
@@ -269,10 +251,6 @@ function Vector2(_x = 0, _y = 0) constructor {
     static GetReflect = function(_normal) {
         return Copy().Reflect(_normal);
     }
-
-    // -------------------------------------------------------
-    // Queries (no mutation -- nothing to make a "Get" twin of)
-    // -------------------------------------------------------
 
     /// @function Dot(_other)
     /// @param {Struct.Vector2} _other
@@ -333,11 +311,6 @@ function Vector2(_x = 0, _y = 0) constructor {
     }
 }
 
-// ===========================================================
-// Factory functions
-// (Plain global functions -- useful for quick definitions)
-// ===========================================================
-
 /// @function Vector2Zero()
 /// @returns {Struct.Vector2}
 function Vector2Zero() {
@@ -388,8 +361,6 @@ function Vector2FromAngle(_deg, _length = 1) {
 function Vector2FromArray(_arr) {
     return new Vector2(_arr[0], _arr[1]);
 }
-
-/// Shape Structs
 
 /// @function ShapeRect(_x1, _y1, _x2, _y2)
 /// @description An axis-aligned rectangle defined by two corners.

@@ -1,8 +1,10 @@
-// Title/main menu screen -- 2026-07-13 request. See TitleMenuScripts.gml
-// for the full state sequence and every layout/animation constant.
-//
-// settingsOverlay -- 2026-07-14 request. Instantiated BEFORE titleMenu
-// below, which takes it as a constructor param; Settings is now a real
-// sub-menu (_OpenSettings()) rather than a stub. See SettingsOverlayScripts.gml.
+// Title/main menu setup + looped title music. See oTitleMenu.md.
 settingsOverlay = new SettingsOverlay();
-titleMenu = new TitleMenu(settingsOverlay);
+creditsOverlay = new CreditsOverlay();
+
+titleMenu = new TitleMenu(settingsOverlay, creditsOverlay);
+
+global.titleMusicInstance = audio_play_sound(sndTitleMusic, 10, true);
+
+// Re-applies volume now that titleMusicInstance actually exists -- see .md.
+ApplyGameSettings();

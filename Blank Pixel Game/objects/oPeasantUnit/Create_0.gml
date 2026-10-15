@@ -1,6 +1,2 @@
-// Inherit the parent event -- this runs UnitApplyDefinition(self), which
-// pulls availableOrders and sprites (sprIdle/sprWalk/sprAttack) from this
-// unit's registered UnitDefinition (see RegisterAllUnitDefinitions in
-// scripts/UnitDefinitions). Nothing left to set here -- if a peasant ever
-// needs something no other unit has, add it below event_inherited().
+// Inherit oUnitParent -- UnitApplyDefinition(self) pulls stats/sprites/orders from UnitDefinitions.gml.
 event_inherited();

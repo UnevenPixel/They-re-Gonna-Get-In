@@ -1,14 +1,10 @@
-// Global (not instance-scoped) since other systems need to scale by this
-// too -- currently resource production (BuildingUpdateProduction in
-// BuildingDefinitions.gml). Direct multiplier, e.g. 2 = 2x speed -- not an
-// index into a preset table.
-global.matchSpeed = 1; //[0,1,2,3]
+// Initializes every per-match global (resources/blueprints/age/army limit/
+// starting loadout/analytics). See oMatchControl.md.
+
+global.matchSpeed = 1; // direct multiplier (2 = 2x speed), not a preset-table index. [0,1,2,3]
 layer_set_visible("GamePlayUI",true);
 
-// NOT array_create(2, {...}) -- that evaluates the struct literal once and
-// stores the SAME reference in both slots, so TEAM.PLAYER and TEAM.ENEMY
-// would silently share one resource pool. The loop evaluates a fresh
-// struct literal per iteration instead, so each team gets its own.
+// NOT array_create(2, {...}) -- see .md re: the shared-reference hazard.
 global.resources = array_create(2, undefined);
 for (var i = 0; i < 2; i++) {
     global.resources[i] = {
@@ -22,11 +18,6 @@ for (var i = 0; i < 2; i++) {
         coal       : 0,
         weapons    : 0,
         coins      : 0,
-        // xp/fateTokens (added 2026-07-04, see ProgressionScripts.gml): kept
-        // in the same per-team struct as the spendable resources above so
-        // Cost/CanAfford/Purchase (Economy.gml) keep working generically --
-        // but xp isn't spent the way the others are; GainXP consumes it
-        // automatically as it fills each age's bar.
         xp         : 0,
         fateTokens : 0
     };
@@ -34,45 +25,19 @@ for (var i = 0; i < 2; i++) {
 
 // global.blueprints[team] is an array of BlueprintStack (BlueprintScripts.gml).
 // [[], []] -- NOT array_create(2, []) -- same shared-reference hazard as
-// global.resources above; each [] here is its own literal, evaluated
-// fresh, so it's safe.
+// global.resources above.
 global.blueprints = [[], []];
 
-// Current age per team (1-4, see AGE_MAX in ProgressionScripts.gml). Ages
-// and blueprint-tier-acquisition odds aren't designed yet (2026-07-04) --
-// this only tracks the number; nothing reads it to affect blueprint odds
-// yet. Plain 2-slot array, not array_create(2, ...) -- both start at the
-// same flat number, no shared-reference hazard (see global.armyLimit below).
-global.age = [1, 1];
+global.age = [1, 1]; // current age per team, 1-4 (AGE_MAX, ProgressionScripts.gml)
 
-// Per-team "age bar is full, waiting on a manual Age Up" flag -- see
-// TryAgeUp (ProgressionScripts.gml). 2026-07-06 doc change: age no longer
-// advances the instant XP fills: GainXP raises this, TryAgeUp (not yet
-// wired to any UI) is what actually spends the resources and advances.
-global.ageUpReady = [false, false];
+global.ageUpReady = [false, false]; // per-team "age bar full, waiting on TryAgeUp" flag
 
-// Per-team set of unit types (object_index) ever deployed (TrainingSpawnUnit,
-// TrainingScripts.gml) -- "First deployment of unit type" Strategic XP,
-// 2026-07-06 doc. [[], []] -- NOT array_create(2, []), same shared-reference
-// hazard as global.blueprints above.
+// Per-team set of unit types ever deployed -- Strategic XP, see .md.
 global.unitsDeployed = [[], []];
 
-// Per-team cap on total live + queued units, regardless of type or
-// station status -- see TrainingTryQueueUnit (TrainingScripts.gml). A
-// plain 2-slot array (not array_create(2, ...)) since both start at the
-// same flat number, not a shared reference -- no aliasing hazard here.
-global.armyLimit = [6, 6];
+global.armyLimit = [6, 6]; // per-team cap on total live + queued units, any type/station status
 
-// STARTING RESOURCES -- confirmed loadout (per econ clarification,
-// 2026-07-03): every SIDE starts each match with 50 wood, 50 water, 50
-// iron, 50 gold, 50 wheat -- applied symmetrically to both teams, since
-// the AI opponent now needs the same economy as the player to actually
-// build/train (see AI_TryPlaceBlueprints/AI_TryTrainComposition,
-// AIControl.gml). Everything else (meat/bones/coal/weapons/coins) stays
-// at 0 -- coins isn't part of the starting loadout. Wheat Field's cost was
-// corrected 2026-07-05 to 20 water + 10 wood (see BuildingDefinitions.gml),
-// so it's now fully affordable from this starting loadout same as every
-// other tier-1 building here.
+// STARTING RESOURCES -- symmetric loadout for both teams. See .md.
 for (var i = 0; i < 2; i++) {
     global.resources[i].wood  = 100;
     global.resources[i].water = 100;
@@ -81,15 +46,10 @@ for (var i = 0; i < 2; i++) {
     global.resources[i].wheat = 100;
 }
 
-// TEST DATA: one of every registered building blueprint per side, for
-// playtesting -- 2026-07-05 request. The final build only starts the
-// player with one of each of the 4 tier-1 RESOURCE blueprints specifically
-// (Water Pump/Sawmill/Gold Mine/Iron Mine, alongside Wheat Field); everything
-// else here is playtest-only until a real blueprint-acquisition system
-// exists (still not designed) -- remove/replace once that system is built.
+// STARTING BLUEPRINTS -- fixed, deliberate loadout (2026-08-13), same for
+// both sides. Every other blueprint is earned through the Fate Engine. See .md.
 var _startingBlueprints = [
-    oWheatField, oPeasantWard, oBoomHut, oBogFoundry, oBarracks,
-    oArcheryRange, oRoundTable, oWaterPump, oSawmill, oGoldMine, oIronMine
+    oWheatField, oPeasantWard, oWaterPump, oSawmill
 ];
 for (var i = 0; i < 2; i++) {
     for (var j = 0; j < array_length(_startingBlueprints); j++) {
@@ -97,6 +57,21 @@ for (var i = 0; i < 2; i++) {
     }
 }
 
-// Resets this match's local playtest-analytics counters -- see
-// AnalyticsScripts.gml.
+// Booger's guided-tutorial HUD presence (2026-08-13) -- only auto-starts
+// the intro script for a genuinely first-time run (global.tutorialActive,
+// set by the War Room flow). Always created regardless, same as every other
+// global here, so BlueprintScripts.gml's TryPlaceBlueprint can always safely
+// read global.tutorialGuide.restrictionActive. See TutorialGuideScripts.md.
+global.tutorialGuide = new TutorialGuide();
+if (global.tutorialActive) {
+    global.tutorialGuide.StartIntroScript();
+}
+
+// The Dealer's tutorial-continuation ambush scene (2026-08-14 follow-up) --
+// always created, same "always exists, only ever armed conditionally"
+// pattern as global.tutorialGuide above. Armed via BeginWait() from
+// TutorialGuideScripts.gml's own _TryAdvancePhase() once the guided
+// tutorial's LAST phase completes -- see DealerIntroScripts.md.
+global.dealerIntro = new DealerIntroScene();
+
 AnalyticsInit();

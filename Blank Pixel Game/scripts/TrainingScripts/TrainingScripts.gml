@@ -1,40 +1,10 @@
-// -----------------------------------------------------------
-// Training buildings -- unit queueing, per-type and army-wide unit
-// limits, and spawning. Every oTrainingBuildingParent instance gets its
-// training fields (trainsUnit/unitsPerBuilding/trainCost/trainTime/
-// trainQueue/trainProgress) from BuildingApplyDefinition (see
-// BuildingDefinitions.gml), the same way resource buildings get their
-// production fields.
-//
-// Two independent caps gate every new unit, per the design spec:
-//   1. Per-type cap: unitsPerBuilding summed across every LIVE training
-//      building of that team that trains this unit type (see
-//      TrainingTypeLimit). Destroying a training building lowers this
-//      cap immediately but never removes existing units -- that's the
-//      intentional "limit break": units already trained stay alive, but
-//      nothing new can be queued for that type until either more
-//      training buildings go up, or losses bring the count back under
-//      the (now lower) cap.
-//   2. Army-wide cap: global.armyLimit[team], regardless of unit type.
-//
-// Both caps count existing units (LIVE + STATIONED, 2026-07-13 -- see
-// CountTeamStationedUnits/CountTeamStationedUnitsOfType, StationScripts.gml)
-// + everything currently queued ACROSS EVERY training building the team
-// owns (not just the one being clicked) -- "the queue + existing friendly
-// units + other friendly queues cannot exceed either limit," per the
-// design spec. Station status never lets a team exceed either cap --
-// converting a live unit to stationed moves it between buckets, it
-// doesn't shrink the army for cap purposes.
-// -----------------------------------------------------------
+// Training buildings -- unit queueing, per-type/army-wide limits, spawning,
+// and the ambient queue progress bar. See TrainingScripts.md.
 
-#macro STRATEGIC_XP_FIRST_DEPLOYMENT 5 // "First deployment of unit type" -- "XP Age Progression System" doc, 2026-07-06. Awarded once per team per unit type, the first time TrainingSpawnUnit ever spawns it -- see global.unitsDeployed (oMatchControl/Create_0.gml).
+#macro STRATEGIC_XP_FIRST_DEPLOYMENT 5 // "First deployment of unit type" -- awarded once per team per unit type, see global.unitsDeployed (oMatchControl/Create_0.gml)
 
 /// @function CountTeamUnitsOfType(_team, _unitType)
-/// @description Counts live instances of one specific unit object type
-///        belonging to _team. Deliberately narrower than GatherTeamUnits
-///        (GatherScripts.gml) -- that allocates a full array of every unit
-///        on the team; this only needs a count of one type, so it filters
-///        directly in the `with` loop instead.
+/// @description Counts live instances of one specific unit object type belonging to _team. Deliberately narrower than GatherTeamUnits -- see .md.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @param {Asset.GMObject} _unitType e.g. oPeasantUnit.
 /// @returns {Real}
@@ -47,13 +17,7 @@ function CountTeamUnitsOfType(_team, _unitType) {
 }
 
 /// @function TrainingTypeLimit(_team, _unitType)
-/// @description The current cap on how many _unitType units _team may
-///        have alive + queued at once: sum of unitsPerBuilding across
-///        every LIVE oTrainingBuildingParent belonging to _team whose
-///        trainsUnit matches _unitType. Recomputed fresh every call
-///        (not cached anywhere) so destroying or building a training
-///        building changes the cap immediately -- see file header for
-///        why that's the intended "limit break" behavior.
+/// @description The current cap on how many _unitType units _team may have alive + queued at once: sum of unitsPerBuilding across every LIVE training building of _team that trains _unitType. Recomputed fresh every call -- see .md re: the "limit break" behavior this enables.
 /// @param {Real} _team
 /// @param {Asset.GMObject} _unitType
 /// @returns {Real}
@@ -68,9 +32,7 @@ function TrainingTypeLimit(_team, _unitType) {
 }
 
 /// @function TrainingQueuedCountForType(_team, _unitType)
-/// @description Total units of _unitType currently queued across EVERY
-///        training building _team owns -- "other friendly queues" count
-///        against the same per-type cap as the queue being added to.
+/// @description Total units of _unitType currently queued across every training building _team owns.
 /// @param {Real} _team
 /// @param {Asset.GMObject} _unitType
 /// @returns {Real}
@@ -85,9 +47,7 @@ function TrainingQueuedCountForType(_team, _unitType) {
 }
 
 /// @function TrainingQueuedCountAll(_team)
-/// @description Total units of ANY type currently queued across every
-///        training building _team owns -- used for the army-wide limit
-///        check (global.armyLimit), which doesn't care about unit type.
+/// @description Total units of ANY type currently queued across every training building _team owns -- used for the army-wide limit check.
 /// @param {Real} _team
 /// @returns {Real}
 function TrainingQueuedCountAll(_team) {
@@ -99,34 +59,7 @@ function TrainingQueuedCountAll(_team) {
 }
 
 /// @function TrainingTryQueueUnit(_building)
-/// @description Attempts to add one unit to _building's training queue.
-///        Checks, in order: (1) this unit type's cap (LIVE + STATIONED
-///        units of that type + everything queued for that type across
-///        every training building the team owns -- TrainingTypeLimit),
-///        (2) the team's army-wide cap (existing units of ANY type +
-///        everything queued for ANY type -- global.armyLimit),
-///        (3) affordability of trainCost. Deducts trainCost and
-///        increments the queue only if every check passes. Every
-///        rejection is logged via show_debug_message and simply leaves
-///        the queue unchanged -- same convention as
-///        BlueprintController.EndDrag's rejection paths
-///        (BlueprintScripts.gml), no popup yet.
-///
-///        2026-07-13 correction: the army-wide check now also counts
-///        CountTeamStationedUnits (StationScripts.gml) -- previously it
-///        only summed live oUnitParent + queued, so a team could station
-///        units and then keep training past global.armyLimit entirely
-///        (stationing was never actually shrinking the army for cap
-///        purposes, it just wasn't being counted). Applies identically to
-///        both teams since this one function gates every training queue
-///        attempt, player and AI alike.
-///
-///        2026-07-13 follow-up ("update Training type limit to include
-///        the stationed units as well"): the per-TYPE cap now also adds
-///        CountTeamStationedUnitsOfType (StationScripts.gml) -- a
-///        stationed Peasant now counts against "how many Peasants can
-///        this team ever have via Peasant Wards," the same way it already
-///        counted against the army-wide cap above.
+/// @description Attempts to add one unit to _building's training queue. Checks per-type cap, army-wide cap, then affordability -- see .md for the two-cap system. Deducts trainCost and increments the queue only if every check passes.
 /// @param {Id.Instance} _building An oTrainingBuildingParent instance.
 /// @returns {Bool} True if a unit was successfully queued.
 function TrainingTryQueueUnit(_building) {
@@ -165,10 +98,7 @@ function TrainingTryQueueUnit(_building) {
 }
 
 /// @function TrainingGetSpawnPoint(_building)
-/// @description Point just outside _building's south edge to spawn a
-///        freshly-trained unit at, with a small random horizontal jitter
-///        so back-to-back spawns (e.g. several units completing in the
-///        same frame at high match speed) don't land perfectly stacked.
+/// @description Point just outside _building's south edge to spawn a freshly-trained unit at, with random horizontal jitter so back-to-back spawns don't land stacked.
 /// @param {Id.Instance} _building
 /// @returns {Struct.Vector2}
 function TrainingGetSpawnPoint(_building) {
@@ -179,61 +109,13 @@ function TrainingGetSpawnPoint(_building) {
 }
 
 /// @function TrainingSpawnUnit(_building)
-/// @description Creates one _building.trainsUnit instance just outside the
-///        building, assigns it to _building's team (overriding
-///        oUnitParent's Create-time hardcoded TEAM.PLAYER default -- same
-///        override pattern BlueprintController.EndDrag uses for
-///        buildings, see BlueprintScripts.gml), then immediately sends it
-///        into "defend", patrolling _building -- per the design: units
-///        built from training buildings default to defend, pointed at
-///        the building that trained them.
-///
-///        Also re-derives guardRect for the correct team right after the
-///        override: oUnitParent's Create already ran (inside
-///        instance_create_layer, synchronously) using the stale default
-///        team, so guardRect/fsm both briefly reflect TEAM.PLAYER even
-///        when spawning for TEAM.ENEMY. In practice this is harmless --
-///        Guard_Enter's wasted waypoint pick is immediately discarded and
-///        Guard_Exit cleans up guardWaypointClaimed the moment we
-///        ChangeState("defend") below -- but the stale guardRect would
-///        otherwise linger on the instance for whenever it later returns
-///        to "guard" (e.g. its defend target is destroyed). Recomputing
-///        it here is a minimal, self-contained fix; flagging it rather
-///        than changing oUnitParent's Create to accept a team parameter,
-///        which would be a bigger change touching every unit spawn path.
-///
-///        2026-07-12 addition: re-runs UnitApplyDefinition right after the
-///        team override too, same reasoning as guardRect above but for a
-///        NEW hazard -- UnitApplyDefinition now bakes in _unit.team's
-///        current unitHealthBonus/unitDamageBonus (stationed passives,
-///        UnitDefinitions.gml), and the stale Create-time call would have
-///        read TEAM.PLAYER's bonuses for a TEAM.ENEMY spawn (or vice
-///        versa). DeployStationedUnit (StationScripts.gml) already did
-///        this; TrainingSpawnUnit didn't need to before this bonus system
-///        existed, since every OTHER stat UnitApplyDefinition sets is
-///        team-independent.
-///
-///        Also awards STRATEGIC_XP_FIRST_DEPLOYMENT the first time
-///        _building.team ever spawns this unit type, tracked via
-///        global.unitsDeployed[team] (oMatchControl/Create_0.gml) --
-///        "First deployment of unit type" from the 2026-07-06 "XP Age
-///        Progression System" doc. Every SUBSEQUENT spawn of that same
-///        type is a no-op here (checked via array_contains).
-///
-///        2026-07-11: if _building.inside is true (set from the plot it was
-///        placed on -- see TryPlaceBlueprint, BlueprintScripts.gml), skips
-///        all of the above entirely and instead calls StationSpawnDirectly
-///        (StationScripts.gml), per "Any training buildings that builds a
-///        unit when on an inside plot will immediately build a stationed
-///        unit instead." Deliberately does NOT award
-///        STRATEGIC_XP_FIRST_DEPLOYMENT for that path -- see
-///        StationSpawnDirectly's doc comment for why (flagged as a judgment
-///        call, not an explicit spec answer).
+/// @description Creates one _building.trainsUnit instance just outside the building, assigns it to _building's team, then sends it into "defend" patrolling the building. Re-derives guardRect and re-runs UnitApplyDefinition after the team override -- see .md for why both are needed. Awards STRATEGIC_XP_FIRST_DEPLOYMENT on a team's first spawn of a unit type. If _building.inside, routes to StationSpawnDirectly instead (no live unit ever exists) -- see .md. Notifies the guided tutorial (global.tutorialGuide.NotifyUnitTrained) on both branches -- 2026-08-13, see TutorialGuideScripts.md.
 /// @param {Id.Instance} _building
 function TrainingSpawnUnit(_building) {
     if (_building.inside) {
         StationSpawnDirectly(_building.team, _building.trainsUnit);
         AnalyticsRecordUnitTrained(_building.team, _building.trainsUnit);
+        global.tutorialGuide.NotifyUnitTrained(_building.team, _building.trainsUnit);
         return;
     }
 
@@ -242,12 +124,13 @@ function TrainingSpawnUnit(_building) {
 
     _unit.team      = _building.team;
     _unit.guardRect = GetTeamGuardRect(_unit.team);
-    UnitApplyDefinition(_unit); // re-stamp with the correct team's stationed bonuses now baked in -- see this function's doc comment above
+    UnitApplyDefinition(_unit); // re-stamp with the correct team's stationed bonuses now baked in -- see .md
 
     _unit.defendTarget = _building;
     _unit.fsm.ChangeState("defend");
 
     AnalyticsRecordUnitTrained(_building.team, _building.trainsUnit);
+    global.tutorialGuide.NotifyUnitTrained(_building.team, _building.trainsUnit);
 
     if (!array_contains(global.unitsDeployed[_building.team], _building.trainsUnit)) {
         array_push(global.unitsDeployed[_building.team], _building.trainsUnit);
@@ -256,41 +139,7 @@ function TrainingSpawnUnit(_building) {
 }
 
 /// @function TrainingUpdateQueue(_building)
-/// @description Time-based, match-speed-scaled training progress. Unlike
-///        BuildingUpdateProduction's rate-based accumulator (units/sec,
-///        BuildingDefinitions.gml), this is duration-based (trainTime
-///        seconds per unit), so it uses a while loop instead of a single
-///        floor() -- at high match speeds a single frame's delta can
-///        cross more than one trainTime, and every whole completion in
-///        that frame should still spawn its unit, not just one per frame.
-///
-///        trainProgress resets to 0 once the queue empties -- leftover
-///        partial progress is NOT banked for a future queued unit added
-///        later. Deliberate simplification; flag if you'd rather partial
-///        progress persist across an empty gap.
-///
-///        Also sets image_index -- 2026-07-11 request: frame 1 while
-///        actively training (trainQueue > 0), frame 0 otherwise. A
-///        placeholder ambient "something's happening here" signal ahead of
-///        a real animation; every training sprite gets pointed at frame 1
-///        regardless of whether it's actually been authored with one yet
-///        -- GameMaker's default instance drawing wraps image_index via
-///        mod(image_index, image_number), so this is a no-op glitch-wise
-///        on any sprite that doesn't have a second frame yet, per the
-///        request ("won't harm anything"). Set BEFORE the no-op early
-///        return below so idle buildings still correctly revert to frame 0.
-///
-///        No-op (for progress purposes) if nothing is queued, or if
-///        trainTime isn't configured (<= 0 would otherwise loop forever).
-///        Call once per Step from a training building (wired from
-///        oTrainingBuildingParent/Step_0.gml, so every training building
-///        gets this automatically).
-///
-///        2026-07-12 addition: progress accrues faster by
-///        _building.team's current trainingSpeedBonus (Knight's stationed
-///        passive -- GetStationedPassiveBonuses, StationScripts.gml), same
-///        "team's current stationed bonuses" pattern BuildingUpdateProduction
-///        uses for resource rate.
+/// @description Time-based, match-speed-scaled training progress -- duration-based (trainTime seconds/unit), so a while loop handles multiple completions in one high-match-speed frame. Sets image_index as a placeholder training-active signal. No-ops if nothing queued or trainTime unconfigured. See .md.
 /// @param {Id.Instance} _building
 function TrainingUpdateQueue(_building) {
     _building.image_index = (_building.trainQueue > 0) ? 1 : 0;
@@ -313,42 +162,13 @@ function TrainingUpdateQueue(_building) {
     }
 }
 
-// -----------------------------------------------------------
-// Ambient queue progress bar -- 2026-07-11 request. A 1px-tall bar just
-// below every training building's bbox, always drawn (not hover-gated) so
-// there's a signal even when no hover card is showing. Drawn from a Draw
-// GUI event (see DrawTrainingQueueBars) rather than each building's own
-// room-space Draw so it renders above every room-space Draw call --
-// units, particles, other buildings -- regardless of instance depth,
-// per the request ("make sure it draws to the UI layer... stays over
-// units, particles, and other buildings").
-// -----------------------------------------------------------
-
-#macro TRAINING_QUEUE_BAR_GAP_Y 2 // room-space px between the building's bbox_bottom and the bar's top edge -- not specified by the request, kept small so the bar doesn't visually merge with the building sprite's own bottom edge
+#macro TRAINING_QUEUE_BAR_GAP_Y 2 // room-space px between the building's bbox_bottom and the bar's top edge
 
 /// @function DrawTrainingQueueBars()
-/// @description Draws every LIVE training building's queue progress as a
-///        1px-tall (exactly 1 on-screen GUI pixel, regardless of camera
-///        zoom -- see the Y math below) bar spanning its bbox width,
-///        TRAINING_QUEUE_BAR_GAP_Y below its bbox_bottom. Black background,
-///        filled left-to-right in HOVER_CARD_TEXT_COLOR (HoverCardScripts.gml)
-///        by trainProgress / trainTime -- same fill/background convention
-///        as the hover card's queue row (BuildingHoverScripts.gml), just
-///        always-on instead of hover-gated.
-///
-///        TEAM.PLAYER only -- 2026-07-12 request ("enemy buildings do not
-///        show training queues or progress"). Previously flagged as NOT
-///        team-restricted (matching BuildingHoverController's general
-///        "informational, not ownership-gated" precedent); that's now an
-///        explicit exception to that precedent for training queues
-///        specifically, not a change to BuildingHoverController itself.
-///
-///        Call once per Draw GUI event (wired from oUnitControl/Draw_64.gml).
+/// @description Draws every LIVE training building's queue progress as an always-on 1px-tall bar below its bbox, TEAM.PLAYER only. Call once per Draw GUI event (wired from oUnitControl/Draw_64.gml). See .md.
 function DrawTrainingQueueBars() {
     // Full opacity regardless of whatever global alpha a previous Draw GUI
-    // call left lingering (e.g. a hover card mid-fade) -- draw_rectangle
-    // respects draw_set_alpha, unlike the draw_sprite_ext calls elsewhere
-    // in this event which each pass their own alpha explicitly.
+    // call left lingering (e.g. a hover card mid-fade).
     draw_set_alpha(1);
 
     with (oTrainingBuildingParent) {
@@ -357,14 +177,8 @@ function DrawTrainingQueueBars() {
 
         var _fraction = (trainTime > 0) ? clamp(trainProgress / trainTime, 0, 1) : 0;
 
-        // Only X actually needs the room->GUI conversion to track camera
-        // pan/zoom correctly; Y is converted once (left/right share the
-        // same world Y, so they share the same GUI Y) and then the bar is
-        // drawn exactly 1 GUI px tall directly in screen space -- converting
-        // TWO world Y's and taking their difference could end up rendering
-        // thicker or thinner than 1px if the camera's ever zoomed relative
-        // to the GUI (not currently true per UpdateCameraPan's "no vertical
-        // panning" comment, but this is correct either way).
+        // Only X needs the room->GUI conversion; Y is converted once and the
+        // bar drawn exactly 1 GUI px tall in screen space -- see .md.
         var _barTopY = bbox_bottom + TRAINING_QUEUE_BAR_GAP_Y;
         var _left    = WorldToGui(bbox_left,  _barTopY);
         var _right   = WorldToGui(bbox_right, _barTopY);

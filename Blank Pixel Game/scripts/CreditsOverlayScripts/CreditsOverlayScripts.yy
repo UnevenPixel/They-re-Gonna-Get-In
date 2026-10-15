@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"CreditsOverlayScripts",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"CreditsOverlayScripts",
+  "parent":{
+    "name":"Credits",
+    "path":"folders/Menus/Credits.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

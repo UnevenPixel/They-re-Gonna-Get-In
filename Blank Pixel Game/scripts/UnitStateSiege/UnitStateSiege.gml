@@ -1,17 +1,15 @@
+// FSM state "siege" -- march on the enemy castle, with an ENGAGE_GUARD
+// sub-phase for swept-up defenders. FLAGGED/load-bearing state file.
+// See UnitStateSiege.md.
+
 #macro SIEGE_PHASE_ADVANCE       "advance"       // marching toward castle, clearing guards
 #macro SIEGE_PHASE_ENGAGE_GUARD  "engage_guard"  // actively fighting a guard unit
 #macro SIEGE_PHASE_ASSAULT       "assault"       // close to the castle, hitting it
 #macro SIEGE_PHASE_SWING         "swing"         // mid-animation swing on the castle
 #macro SIEGE_PHASE_RECOVER       "recover"       // cooldown between castle hits
 
-// -----------------------------------------------------------
-// siege
-// -----------------------------------------------------------
-
 /// @function Siege_Enter(_unit, _machine)
-/// @description StateMachine onEnter for "siege". Falls back to "guard" if no
-///        enemy castle is found; otherwise stores the castle and resets
-///        phase/cooldown/guard-target tracking.
+/// @description StateMachine onEnter for "siege". Falls back to "guard" if no enemy castle is found; otherwise stores the castle and resets phase/cooldown/guard-target tracking.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Siege_Enter(_unit, _machine) {
@@ -34,18 +32,12 @@ function Siege_Enter(_unit, _machine) {
 }
 
 /// @function Siege_Step(_unit, _machine)
-/// @description StateMachine onStep for "siege". Drives advance/assault/swing/recover
-///        against the enemy castle, with an ENGAGE_GUARD sub-phase that breaks off
-///        to fight any enemy unit swept up within siegeSweepRadius (or the tighter
-///        attackAggroRadius once assaulting) before resuming the castle.
+/// @description StateMachine onStep for "siege". Drives advance/assault/swing/recover against the enemy castle, with an ENGAGE_GUARD sub-phase that breaks off to fight any enemy unit swept up within siegeSweepRadius (or the tighter attackAggroRadius once assaulting) before resuming the castle. See .md.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Siege_Step(_unit, _machine) {
 
-    // -----------------------------------------------------------
-    // Castle validation
-    // -----------------------------------------------------------
-
+    // Castle validation.
     if (!instance_exists(_machine.data.castle)) {
         // Castle destroyed -- siege objective complete.
         _machine.ChangeState("guard");
@@ -53,26 +45,13 @@ function Siege_Step(_unit, _machine) {
     }
 
     var _castlePos  = new Vector2(_machine.data.castle.x, _machine.data.castle.y);
-    // CastleFrontEdgePoint (CastleScripts.gml), not the generic
-    // NearestBuildingEdgePoint (UnitStateAttackMelee.gml) -- that function
-    // assumes every building is 48x48 (ATTACK_BUILDING_HALF), which a
-    // castle is nowhere close to, and clamps against all 4 sides rather
-    // than just the one facing the room's center. Per 2026-07-06 request:
-    // siege now targets anywhere along the castle's actual front edge
-    // (its real bbox, whichever side faces the room's middle) instead of
-    // a single fixed point clamped into a wrong-sized box.
+    // CastleFrontEdgePoint, not the generic NearestBuildingEdgePoint -- see .md.
     var _edgePos    = CastleFrontEdgePoint(_machine.data.castle, _unit.agent.pos);
     var _distToEdge = _unit.agent.pos.Distance(_edgePos);
 
-    // -----------------------------------------------------------
-    // Phase: ENGAGE_GUARD
-    // Fight a guard unit to completion before resuming advance.
-    // Unlike attack's DEFENDER phase, this was entered proactively
-    // (the unit went looking for this fight), so it commits until
-    // the guard is dead or retreats, rather than returning to the
-    // castle the moment the guard leaves aggro range.
-    // -----------------------------------------------------------
-
+    // Phase: ENGAGE_GUARD. Fight a guard unit to completion before resuming
+    // advance -- entered proactively (unlike attack's DEFENDER phase), so it
+    // commits until the guard is dead or retreats, see .md.
     if (_machine.data.phase == SIEGE_PHASE_ENGAGE_GUARD) {
         var _guard = _machine.data.guardTarget;
 
@@ -87,9 +66,8 @@ function Siege_Step(_unit, _machine) {
         var _guardPos  = new Vector2(_guard.x, _guard.y);
         var _guardDist = _unit.agent.pos.Distance(_guardPos);
 
-        // If the guard has fully fled the siege sweep zone AND is
-        // retreating away from the castle (i.e. no longer a threat
-        // to the assault), let them go and resume.
+        // If the guard has fully fled the siege sweep zone AND is retreating
+        // away from the castle (no longer a threat), let them go and resume.
         var _guardDistToCastle = point_distance(_guard.x, _guard.y, _machine.data.castle.x, _machine.data.castle.y);
         if (_guardDist > _unit.siegeSweepRadius && _guardDistToCastle > _unit.siegeSweepRadius) {
             _machine.data.guardTarget = noone;
@@ -121,13 +99,8 @@ function Siege_Step(_unit, _machine) {
         return; // don't fall through this frame
     }
 
-    // -----------------------------------------------------------
-    // Phase: ADVANCE
-    // March toward the castle. On each frame, sweep for the
-    // nearest enemy unit within siegeSweepRadius -- if one is
-    // found, break off and engage it before continuing.
-    // -----------------------------------------------------------
-
+    // Phase: ADVANCE. March toward the castle, sweeping for the nearest
+    // enemy unit within siegeSweepRadius each frame.
     if (_machine.data.phase == SIEGE_PHASE_ADVANCE) {
         _unit.sprite_index = _unit.sprIdle;
 
@@ -141,13 +114,8 @@ function Siege_Step(_unit, _machine) {
 
         if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer -= global.matchSpeed;
 
-        // Longer obstacle-avoidance feeler than the default 80 (see
-        // UnitPursueTarget, UnitCombatHelpers.gml) -- this is a long march
-        // across open ground toward the castle, so spotting a building
-        // earlier gives the avoidance steering more room to curve smoothly
-        // around it instead of reacting at the last moment right against a
-        // corner, which is what tends to snag a unit in place. 2026-07-06:
-        // "units have a chance to get caught on buildings" during siege.
+        // Longer obstacle-avoidance feeler than the default 80 -- see .md
+        // (long march across open ground, avoids snagging on buildings).
         UnitPursueTarget(_unit, _edgePos, new Vector2(0, 0), 120);
 
         if (_distToEdge <= _unit.attackRange && _machine.data.cooldownTimer <= 0) {
@@ -155,14 +123,9 @@ function Siege_Step(_unit, _machine) {
         }
     }
 
-    // -----------------------------------------------------------
-    // Phase: ASSAULT
-    // The unit is at the castle walls. Guard sweeping still runs
-    // here but with a tighter radius (the unit shouldn't chase a
-    // guard halfway across the map when it's already at the walls).
-    // Swing takes priority once in range and off cooldown.
-    // -----------------------------------------------------------
-
+    // Phase: ASSAULT. At the castle walls -- guard sweeping still runs but
+    // at a tighter radius (see .md). Swing takes priority once in range and
+    // off cooldown.
     else if (_machine.data.phase == SIEGE_PHASE_ASSAULT) {
         _unit.sprite_index = _unit.sprIdle;
 
@@ -188,11 +151,8 @@ function Siege_Step(_unit, _machine) {
         }
     }
 
-    // -----------------------------------------------------------
-    // Phase: SWING (attacking the castle)
-    // Never interrupted -- swings always complete once started.
-    // -----------------------------------------------------------
-
+    // Phase: SWING (attacking the castle). Never interrupted -- swings
+    // always complete once started.
     else if (_machine.data.phase == SIEGE_PHASE_SWING) {
         UnitIdleInPlace(_unit);
         UnitTryDealDamage(_unit, _machine.data.castle, _machine);
@@ -204,16 +164,12 @@ function Siege_Step(_unit, _machine) {
         }
     }
 
-    // -----------------------------------------------------------
-    // Phase: RECOVER (between castle swings)
-    // -----------------------------------------------------------
-
+    // Phase: RECOVER (between castle swings).
     else if (_machine.data.phase == SIEGE_PHASE_RECOVER) {
         _machine.data.cooldownTimer -= global.matchSpeed;
 
         // Keep checking for guards during cooldown -- a fresh wave of
-        // defenders arriving during recovery should be engaged before
-        // the next swing rather than letting them pile up.
+        // defenders should be engaged before the next swing.
         var _nearestGuard = ChooseCombatTarget(_unit, _unit.attackAggroRadius ?? 96, _castlePos);
         if (_nearestGuard != noone) {
             _machine.data.guardTarget       = _nearestGuard;
@@ -235,8 +191,7 @@ function Siege_Step(_unit, _machine) {
 }
 
 /// @function Siege_Exit(_unit, _machine)
-/// @description StateMachine onExit for "siege". Ends any in-progress swing and
-///        clears the guard-target tracking.
+/// @description StateMachine onExit for "siege". Ends any in-progress swing and clears the guard-target tracking.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Siege_Exit(_unit, _machine) {

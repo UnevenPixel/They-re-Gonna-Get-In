@@ -1,54 +1,15 @@
-// -----------------------------------------------------------
-// ProgressionScripts -- XP / Age / Fate Token tracking.
-//
-// Reworked 2026-07-06 against the "XP Age Progression System" design doc
-// (uploaded that day). Two behavior changes from the original version:
-//
-// 1. XP-to-fill-the-bar is no longer a flat 1000 for every age -- the doc
-//    specifies escalating requirements per transition (Age I->II 100 XP,
-//    II->III 150, III->IV 200). See global.ageXpRequired/AgeXpRequired.
-//
-// 2. Age no longer advances automatically the instant the bar fills. Per
-//    the doc's "6. Age Advances" section: filling the bar just makes
-//    Age Up available (global.ageUpReady) -- the player still has to pay a
-//    resource cost (global.ageUpCost/AgeUpCost, gold-only per the doc's own
-//    "work in progress, use gold as a starting point" note) via TryAgeUp
-//    before the age actually advances and XP resets. There's no "Age Up"
-//    HUD button wired to TryAgeUp yet -- that's a separate UI task.
-//
-// XP still fills a per-team "age bar"; every time the bar crosses one of
-// its 5 equal 20%-marks (20/40/60/80/100%, 2026-07-06 rewarding-frequency
-// change -- was 4 quarter-marks), the team gets one Fate Token. This part
-// is untouched by the doc (which doesn't mention Fate Tokens at all) --
-// confirmed 2026-07-06 that it's meant to keep layering on top of
-// whatever XP system exists underneath.
-//
-// 2026-07-13 playtesting-checklist change: TEAM.ENEMY (the AI) no longer
-// gets Fate Tokens at all -- it has no Fate Engine UI to ever spend one on,
-// so they'd just pile up doing nothing. Each milestone crossed grants it
-// 1-3 random blueprints instead, standing in for what the payout would
-// eventually be once the real Fate Engine reward table exists. See
-// GainXP's own doc comment below. TEAM.PLAYER is unaffected.
-//
-// Ages/blueprint-tier-acquisition odds are still NOT designed yet (per
-// 2026-07-04 discussion) -- this file only tracks the numbers. Nothing
-// reads global.age to affect blueprint odds yet; that's future work.
-// -----------------------------------------------------------
+// XP / Age / Fate Token tracking, built against the "XP Age Progression
+// System" design doc. See ProgressionScripts.md.
 
 #macro AGE_MAX                  4     // total ages -- placeholder, effects of higher ages not designed yet
-#macro AGE_FATE_TOKEN_INTERVALS  5     // equal slices of the bar, each worth one Fate Token -- 20% each, per 2026-07-06 change (was 4 / 25% each)
+#macro AGE_FATE_TOKEN_INTERVALS  5     // equal slices of the bar, each worth one Fate Token (20% each)
 
 // XP required to fill each age's bar -- index 0 = Age I->II, 1 = Age
-// II->III, 2 = Age III->IV (AGE_MAX - 1 entries; there's no bar to fill
-// once already at AGE_MAX). Straight from the 2026-07-06 doc -- was a flat
-// 1000 for every age before this.
+// II->III, 2 = Age III->IV (AGE_MAX - 1 entries; no bar to fill at AGE_MAX).
 global.ageXpRequired = [100, 150, 200];
 
-// Resource cost to actually execute an Age Up once its bar is full -- same
-// indexing as global.ageXpRequired. The doc flags these as WIP ("both are
-// a work in progress but use gold as a starting point") -- gold-only for
-// now, no other resource, so treat these numbers as placeholders same as
-// everything else marked WIP in this project.
+// Resource cost to execute an Age Up once its bar is full -- same indexing
+// as global.ageXpRequired. WIP per the design doc -- gold-only for now.
 global.ageUpCost = [
     new Cost([new ResourceCost("gold", 150)]),
     new Cost([new ResourceCost("gold", 250)]),
@@ -56,9 +17,7 @@ global.ageUpCost = [
 ];
 
 /// @function AgeXpRequired(_age)
-/// @description XP needed to fill _age's bar (i.e. to advance from _age to
-///        _age + 1). Returns undefined once _age >= AGE_MAX -- there's no
-///        next age to fill toward.
+/// @description XP needed to fill _age's bar (to advance from _age to _age + 1). Returns undefined once _age >= AGE_MAX.
 /// @param {Real} _age
 /// @returns {Real|Undefined}
 function AgeXpRequired(_age) {
@@ -67,8 +26,7 @@ function AgeXpRequired(_age) {
 }
 
 /// @function AgeUpCost(_age)
-/// @description The resource Cost to advance from _age to _age + 1. See
-///        AgeXpRequired -- same indexing, same undefined-at-AGE_MAX rule.
+/// @description The resource Cost to advance from _age to _age + 1. Same indexing/undefined rule as AgeXpRequired.
 /// @param {Real} _age
 /// @returns {Struct.Cost|Undefined}
 function AgeUpCost(_age) {
@@ -77,23 +35,7 @@ function AgeUpCost(_age) {
 }
 
 /// @function GainXP(_team, _amount)
-/// @description Adds _amount XP to _team's current age bar (capped at
-///        AgeXpRequired(global.age[_team]) -- XP beyond that is discarded
-///        this call, not banked; see TryAgeUp for what happens once the
-///        bar is full). Awards one Fate Token
-///        (global.resources[_team].fateTokens) for every one of the bar's
-///        5 equal 20%-marks (20/40/60/80/100%) crossed by this gain --
-///        computed from before/after position so a single large gain that
-///        crosses more than one mark still awards every token earned, not
-///        just one. 2026-07-13: TEAM.ENEMY gets 1-3 random blueprints per
-///        mark instead of a token -- see the milestone-award block below.
-///
-///        Does NOT advance global.age[_team] itself anymore (2026-07-06
-///        doc change) -- once the bar fills, this just raises
-///        global.ageUpReady[_team] so the (not-yet-built) Age Up UI can
-///        offer it; call TryAgeUp to actually spend the resources and
-///        advance. No-ops entirely if _team is already at AGE_MAX (nothing
-///        left to fill).
+/// @description Adds _amount XP to _team's current age bar (capped at AgeXpRequired, excess discarded). Awards one Fate Token per 20%-mark crossed (TEAM.ENEMY gets 1-3 random blueprints per mark instead -- see .md). Does NOT advance global.age itself -- raises global.ageUpReady once the bar fills; call TryAgeUp to actually advance. No-ops if _team is already at AGE_MAX.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @param {Real} _amount XP to add. No-ops if <= 0.
 function GainXP(_team, _amount) {
@@ -105,27 +47,16 @@ function GainXP(_team, _amount) {
 
     var _xpBefore = global.resources[_team].xp;
     var _roomLeft = _required - _xpBefore;
-    if (_roomLeft <= 0) return; // bar already full, waiting on a manual TryAgeUp -- see global.ageUpReady
+    if (_roomLeft <= 0) return; // bar already full, waiting on a manual TryAgeUp
 
-    var _toAdd   = min(_amount, _roomLeft); // excess beyond _required is discarded -- age no longer auto-advances, so there's nowhere to carry it into yet
+    var _toAdd   = min(_amount, _roomLeft); // excess beyond _required is discarded
     var _xpAfter = _xpBefore + _toAdd;
 
     global.resources[_team].xp = _xpAfter;
     AnalyticsRecordResourceProduced(_team, "xp", _toAdd);
 
     // Award a Fate Token for every 20%-mark crossed in (before, after] --
-    // 2026-07-13 playtesting-checklist change: TEAM.ENEMY gets 1-3 random
-    // blueprints per milestone instead. The AI has no Fate Engine UI to
-    // ever spend a token on -- that whole payout pipeline isn't built yet
-    // either (FateEngineDrumScripts.gml's drum is still a visual-only test
-    // harness, see its own file header) -- so tokens would just accumulate
-    // uselessly forever for the AI. This "simulates the player receiving
-    // blueprints from the fate engine" directly instead: for EACH milestone
-    // crossed this call, rolls a fresh irandom_range(1, 3) count and grants
-    // that many blueprints, each independently a random registered building
-    // type (ds_map_keys_to_array(global.__buildingDefRegistry), same idiom
-    // FateDrumRandomPlaceholderItem already uses for its own "blueprint"
-    // look). TEAM.PLAYER's behavior is completely unchanged.
+    // TEAM.ENEMY gets 1-3 random blueprints per milestone instead. See .md.
     var _tokensEarned = floor(_xpAfter / _interval) - floor(_xpBefore / _interval);
     if (_tokensEarned > 0) {
         if (_team == TEAM.ENEMY) {
@@ -151,17 +82,7 @@ function GainXP(_team, _amount) {
 }
 
 /// @function TryAgeUp(_team)
-/// @description Attempts to advance _team to the next age. Per the
-///        2026-07-06 doc, this requires BOTH the age bar to already be
-///        full (global.ageUpReady[_team]) AND enough resources to cover
-///        AgeUpCost(global.age[_team]) -- filling the bar only unlocks the
-///        option, it doesn't pay for itself. On success: spends the cost
-///        (via Purchase, Economy.gml), advances global.age[_team], resets
-///        that team's xp to 0, and clears ageUpReady. No-ops (returns
-///        false) if the bar isn't full yet, already at AGE_MAX, or the
-///        team can't currently afford it -- safe to call speculatively
-///        (e.g. from a future "Age Up" button) without checking state
-///        yourself first.
+/// @description Attempts to advance _team to the next age -- requires both a full age bar (global.ageUpReady) AND enough resources to cover AgeUpCost. On success: spends the cost, advances global.age, resets xp to 0, clears ageUpReady. Safe to call speculatively -- no-ops if not ready, already maxed, or unaffordable. See .md.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @returns {Bool} True if the age actually advanced.
 function TryAgeUp(_team) {

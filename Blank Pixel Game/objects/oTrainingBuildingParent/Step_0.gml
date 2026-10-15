@@ -1,6 +1,3 @@
-// Time-based, match-speed-scaled training progress -- see
-// TrainingUpdateQueue in TrainingScripts.gml. Every oTrainingBuildingParent
-// child (oPeasantWard, etc.) gets this for free; buildings with an empty
-// queue simply no-op here every frame.
+// Time-based training progress tick. See oTrainingBuildingParent.md.
 event_inherited();
 TrainingUpdateQueue(self);

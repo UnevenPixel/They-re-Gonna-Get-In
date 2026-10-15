@@ -1,3 +1,5 @@
+// Studio logo splash screen setup (shader handles, fade state machine,
+// timing, logo position). See oOpeningCredits.md.
 u_progress  = shader_get_uniform(shDitherDissolve, "u_progress");
 u_invert    = shader_get_uniform(shDitherDissolve, "u_invert");
 

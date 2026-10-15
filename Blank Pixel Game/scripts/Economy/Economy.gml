@@ -1,8 +1,9 @@
+// Core resource-cost primitives used by every purchasable thing in the game.
+// See Economy.md.
+
 /// @function ResourceCost(_resource, _amt)
-/// @description A single resource/amount pair -- the building block used to
-///        assemble a Cost struct.
-/// @param {String} _resource Resource name matching a key in global.resources,
-///        e.g. "wood", "gold".
+/// @description A single resource/amount pair -- the building block used to assemble a Cost struct.
+/// @param {String} _resource Resource name matching a key in global.resources, e.g. "wood", "gold".
 /// @param {Real} _amt Amount of that resource.
 function ResourceCost(_resource,_amt) constructor{
     resource    = _resource;
@@ -10,13 +11,7 @@ function ResourceCost(_resource,_amt) constructor{
 }
 
 /// @function Cost(_costs)
-/// @description Aggregated cost struct for anything purchasable -- sums an array
-///        of ResourceCost entries into one field per resource type (wood, wheat,
-///        water, iron, gold, meat, bones, coal, weapons, coins, xp, fateTokens).
-///        xp/fateTokens are included here for consistency (CanAfford/Purchase
-///        walk global.resources generically) even though nothing is expected
-///        to cost XP directly yet -- Fate Tokens are the more likely spend
-///        once that system exists (see ProgressionScripts.gml).
+/// @description Aggregated cost struct for anything purchasable -- sums an array of ResourceCost entries into one field per resource type. See .md.
 /// @param {Array<Struct.ResourceCost>} _costs Array of ResourceCost structs to total up.
 function Cost(_costs) constructor{
     wood       = 0;
@@ -75,10 +70,9 @@ function Cost(_costs) constructor{
                 break;
         }
     }
-    
+
     /// @function CanAfford(_team)
-    /// @description Checks whether the given team currently has enough of every
-    ///        resource in global.resources to cover this Cost.
+    /// @description Checks whether the given team currently has enough of every resource in global.resources to cover this Cost.
     /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY -- indexes global.resources.
     /// @returns {Bool} True if the team can afford every resource in this cost.
     static CanAfford = function(_team){
@@ -92,20 +86,13 @@ function Cost(_costs) constructor{
                 _findFalse = true;
             }
         }
-        
+
         return !_findFalse;
     }
 }
 
 /// @function GetDiscountedCost(_cost, _fraction)
-/// @description Returns a NEW Cost struct with every resource field reduced
-///        by _fraction (e.g. 0.5 = 50% off), rounded to the nearest whole
-///        unit -- this project's resources are whole-integer-only (see
-///        Purchase/CanAfford above; also BuildingUpdateProduction,
-///        BuildingDefinitions.gml). Does not mutate _cost. Built for the
-///        2026-07-06/07 "plot bonuses" request -- see GetPlacementCost
-///        (BlueprintScripts.gml), which applies this when a building is
-///        placed on a plot that discounts its type.
+/// @description Returns a NEW Cost struct with every resource field reduced by _fraction, rounded to the nearest whole unit. Does not mutate _cost. See .md.
 /// @param {Struct.Cost} _cost
 /// @param {Real} _fraction 0-1 fraction to discount off (0.5 = half price).
 /// @returns {Struct.Cost}
@@ -122,12 +109,10 @@ function GetDiscountedCost(_cost, _fraction) {
 }
 
 /// @function Purchase(_costStruct, _team)
-/// @description Attempts to purchase an item using a supplied Cost struct. If the
-///        team can afford it, deducts the cost from global.resources.
+/// @description Attempts to purchase an item using a supplied Cost struct. If the team can afford it, deducts the cost from global.resources and records analytics for every resource actually spent.
 /// @param {Struct.Cost} _costStruct Cost struct describing what's being bought.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
-/// @returns {Bool} True if the purchase succeeded, false if it was rejected (not
-///        a Cost struct, or the team couldn't afford it).
+/// @returns {Bool} True if the purchase succeeded, false if it was rejected (not a Cost struct, or the team couldn't afford it).
 function Purchase(_costStruct,_team){
     if (!is_instanceof(_costStruct,Cost)){
         return false;
@@ -140,6 +125,7 @@ function Purchase(_costStruct,_team){
             var _costAmt = struct_get(_costStruct,_res);
             struct_set(global.resources[_team],_res,_resAmt - _costAmt);
             if (_costAmt > 0) AnalyticsRecordResourceSpent(_team, _res, _costAmt);
+            if (_costAmt > 0 && _team == TEAM.PLAYER) ResourceSpendPopupAdd(_res, _costAmt); // HUD "-##" float -- no-ops for resources without a bar icon
         }
         return true;
     }

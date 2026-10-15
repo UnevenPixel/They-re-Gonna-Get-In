@@ -1,0 +1,20 @@
+{
+  "$GMPath":"",
+  "%Name":"pth_CastleRoam",
+  "closed":true,
+  "kind":0,
+  "name":"pth_CastleRoam",
+  "parent":{
+    "name":"Castles",
+    "path":"folders/In Game/Structures/Castles.yy",
+  },
+  "points":[
+    {"speed":100.0,"x":27.0,"y":55.0,},
+    {"speed":100.0,"x":314.0,"y":55.0,},
+    {"speed":100.0,"x":314.0,"y":367.0,},
+    {"speed":100.0,"x":27.0,"y":367.0,},
+  ],
+  "precision":4,
+  "resourceType":"GMPath",
+  "resourceVersion":"2.0",
+}

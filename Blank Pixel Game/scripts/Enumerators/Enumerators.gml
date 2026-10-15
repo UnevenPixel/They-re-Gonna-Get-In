@@ -1,8 +1,10 @@
+// Shared project-wide enums. See Enumerators.md.
+
 enum ECreditsState{
-    FADE_IN, //0
-    HOLD,   //1
-    FADE_OUT, //2
-    DONE //3
+    FADE_IN,
+    HOLD,
+    FADE_OUT,
+    DONE
 }
 
 enum UnitAnimState {
@@ -15,10 +17,7 @@ enum TEAM {
     ENEMY
 }
 
-
 enum FACING {
     LEFT,
     RIGHT
 }
-
-

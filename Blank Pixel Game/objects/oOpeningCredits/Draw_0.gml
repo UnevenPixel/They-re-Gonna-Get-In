@@ -1,7 +1,9 @@
+// Draws the studio logo through shDitherDissolve, mapped from the current
+// fade state. See oOpeningCredits.md.
 draw_clear(c_black);
 
 if (state == ECreditsState.DONE) exit;
-    
+
 var _shader_progress = 0;
 var _shader_invert = 0;
 
@@ -10,7 +12,7 @@ switch(state) {
         _shader_progress = progress;
         _shader_invert = 0.0;
         break;
-    
+
     case ECreditsState.HOLD:
         _shader_progress = 1.0;
         _shader_invert = 0.0;

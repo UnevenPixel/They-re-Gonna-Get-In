@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"HubTownMenuScripts",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"HubTownMenuScripts",
+  "parent":{
+    "name":"HubTown",
+    "path":"folders/Menus/HubTown.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

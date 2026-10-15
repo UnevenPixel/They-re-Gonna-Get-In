@@ -1,5 +1,82 @@
 # They're Gonna Get In! — Patch Notes
 
+## v0.0.7.0
+
+A big one: a full guided tutorial with your new companion Booger, a brand new War Room story scene, the Fate Engine brought fully to life with a working lever, an ambush introduction from a mysterious Dealer, and a machine that visibly reacts the more you spin it.
+
+### Meet Booger, Your Guide
+
+- A new companion, Booger, now walks you through your first game step by step — building your first Water Pump, rounding out your economy with wheat and wood, training your first peasants, and understanding how stationed and deployed units work. She shows up right on your HUD bar, hands gripping the edge, and sticks around until you've got the basics down.
+- Her dialogue now advances on a click instead of a timer, so you can read at your own pace.
+- Finishing her lessons wraps up the tutorial and hands you full control of the game.
+
+### The War Room
+
+- Before your first march to battle, you'll now pass through a brand new War Room. Meet Connelius, then Booger — going by "Boog" once she's officially your advisor — through a full scripted conversation, including a moment where you get to sign your advisor's name into the record yourself.
+- Everyone speaks now, too: dialogue plays out with a typewriter effect and a little voice blip per character, with pitch variation so it doesn't sound robotic, and it respects your SFX volume and mute settings.
+
+### The Fate Engine
+
+- The Fate Engine finally gets the spotlight — watch a moody, animated intro play out before the machine itself pops up from below.
+- Pull the lever for real: it's now a grab-and-drag handle instead of a button. Drag Fate Tokens from your HUD straight onto the machine to activate it, with the drums lighting up and a burst of particles to match.
+- A mysterious figure, The Dealer, ambushes you shortly after your tutorial ends to properly introduce the machine, ending with a free token and the reels unlocked for real play.
+- The machine itself now visibly reacts to how much you spin it — charge lights build up around its body and its face shifts through a sequence of colors as things escalate. Purely cosmetic for now, but keep an eye on it.
+- Your collected (but unspent) Fate Tokens now show up as a small visual stash below your XP bar.
+- Fixed a bug where re-spinning within the same session could grant far more rewards than what was actually shown on the reels.
+
+### The Computer Opponent
+
+- The computer opponent commits to its opening moves a little faster now, and no longer bursts out several buildings all at once in its first few seconds.
+- It's also more willing to jump to its own defense using whatever units it already has on hand, even without a full production base behind it.
+
+### Interface & Info
+
+- Dialogue boxes throughout the game are bigger, centered on screen, and now support character portraits that slide in as they appear.
+- You can now pause with Escape from the hub town and War Room, not just mid-match, with options to adjust settings, return to the title menu, or quit to desktop (with a confirmation first).
+- Ending a match now correctly drops you back in the hub town instead of closing the game outright.
+
+### Also
+
+- Fixed a crash when opening or responding to certain tutorial and Beggar dialogue.
+- Fixed a bug where closing the Fate Engine right after the Dealer's introduction could permanently freeze the game.
+- Fixed hover info cards getting stuck on screen instead of fading away during tutorial dialogue.
+- Numerous smaller fixes and interface polish.
+
+## v0.0.6.0
+
+A new hub town between the title screen and your castle, a livelier title screen with music and a working Credits screen, audio and display settings polish, and a more patient computer opponent.
+
+### New: The Hub Town
+
+- Hitting Play on the title screen now drops you into a hub town instead of straight into a match. Head over to the castle to march off to battle — there's also a beggar hanging around town who you can look at for now, with more to come there later.
+- Whichever one you're looking at brightens up while everything else in town — including the background — dims down slightly, so it's easy to tell what you're about to interact with.
+
+### The Title Screen Has Come Alive
+
+- The title screen now has music playing in the background.
+- The menu options get a subtle rippling shimmer the moment you hover over them.
+- The Credits button now actually opens a Credits screen, listing out the team behind the game.
+
+### Settings, Audio & Display
+
+- The Music volume slider now actually changes the music's volume in real time, and the whole range feels more natural to adjust — quiet settings sound quiet instead of everything being crammed into the first few notches of the slider.
+- Master volume dropped its separate mute checkbox — just pull the slider down to silence everything.
+- Borderless Fullscreen now uses a proper, more reliable borderless mode under the hood instead of an approximation.
+- The hover-delay sliders (how long you have to linger over the blueprint tray or world objects before their info pops up) now go up to 5 seconds instead of 2, and snap to clean half-second steps as you drag them.
+
+### The Computer Opponent
+
+- During the earliest age, the computer opponent now focuses its defenses on protecting its resource production first, rather than spreading itself thin across every building it owns.
+- If the computer opponent ever finds itself with no units out on the field while under attack, it will recall units from its garrison and start training reinforcements to respond — and it now keeps a small reserve of gold on hand specifically for this.
+- Once the computer opponent's army is full, it will start sending its extra units to attack your other buildings once it's confident it can afford to rebuild what it commits, instead of just sitting idle.
+- The computer opponent now earns blueprints as it gains experience, the same way a player would from the Fate Engine.
+- The computer opponent now takes noticeably longer to commit to new construction and unit training, giving you a bit more breathing room to get established. Its reflexes when it comes to actually defending itself are untouched — it's just as quick to react to an attack as before.
+
+### Also
+
+- Early groundwork is going in behind the scenes for in-game conversation scenes — nothing to see yet, but keep an eye out.
+- Numerous smaller fixes and interface polish.
+
 ## v0.0.5.1
 
 A settings menu, accessible from both the title screen and the in-match pause menu.

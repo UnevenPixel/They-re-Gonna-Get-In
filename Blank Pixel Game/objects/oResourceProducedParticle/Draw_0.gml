@@ -1,6 +1,5 @@
-// Icon particles show the actual resource's sResourceIcons frame; square
-// particles are a small flat-color square. Both fade out over their
-// lifetime (life/lifeMax) rather than popping out abruptly.
+// Icon particles show the resource's sResourceIcons frame; square particles
+// are a flat-color square. Both fade over their lifetime.
 var _alpha = clamp(life / lifeMax, 0, 1);
 
 if (kind == "icon") {

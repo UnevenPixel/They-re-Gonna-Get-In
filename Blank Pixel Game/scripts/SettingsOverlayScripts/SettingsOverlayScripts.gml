@@ -1,94 +1,5 @@
-// -----------------------------------------------------------
-// SettingsOverlayScripts -- the shared settings menu. 2026-07-14 request.
-//
-// Opened as a SUB-MENU from two different places -- PauseMenu.OpenSettings()
-// (mid-match, PauseMenuScripts.gml) and TitleMenu._OpenSettings() (title
-// screen, TitleMenuScripts.gml). Both of those files' constructors now take
-// a SettingsOverlay instance and store it, and both files' Update()/Draw()
-// check settingsOverlay.isOpen FIRST and delegate to it instead of running
-// their own logic that frame -- the same "isOpen early-exit" idiom
-// FateEngineOverlay/PauseMenu already use against oUnitControl's Step_0.gml,
-// just one level further down (a sub-menu deferring to ITS OWN sub-menu).
-//
-// Two separate SettingsOverlay INSTANCES exist -- one made in
-// oUnitControl/Create_0.gml, one in oTitleMenu/Create_0.gml (they never
-// coexist, since oUnitControl and oTitleMenu never coexist in the same
-// room) -- but both read/write the SAME global.gameSettings struct (see
-// LoadGameSettings/SaveGameSettings/ApplyGameSettings below), so a value
-// changed on one screen is still in effect, and persisted to disk, the next
-// time either screen is visited.
-//
-// Doesn't take/need any cross-controller dependencies the way
-// FateEngineOverlay.Open()/PauseMenu.Open() do (selectionController,
-// blueprintController, etc.) -- it never touches selection/targeting/drag
-// state itself; it's always opened on top of an already-safe context
-// (PauseMenu already reset all of that when IT opened; the title screen has
-// none of it to begin with).
-//
-// Uses "a similar black overlay to other overlays" per the request -- same
-// 0.75-alpha black dim rect PauseMenu/FateEngineOverlay both draw. Stacks
-// harmlessly on top of PauseMenu's own dim when opened mid-match (just reads
-// as slightly darker, which fits "you're now a menu deeper").
-//
-// Five tabs, buttons along the top of the panel per the request ("for now
-// will be buttons along the top of the screen"): Gameplay, Controls, Audio,
-// Graphics, Accessibility.
-//   - Gameplay: "Restart Tutorial" and "Restart Progress" buttons. Restart
-//     Progress opens the same Yes/No confirm shape PauseMenu/TitleMenu's own
-//     confirms already use (DropDownMenuScripts.gml's shared row/hit-test
-//     helpers), per explicit request. BOTH buttons are STUBS today --
-//     RestartTutorial()/ResetPlayerProgress() are intentionally empty, since
-//     no tutorial system and no meta-progression/save system exist anywhere
-//     in the project yet (confirmed via grep). The confirm FLOW around
-//     Restart Progress is fully wired and real; only the actual reset logic
-//     is missing. See those two functions' own doc comments.
-//   - Controls: visual-only readout (per explicit request -- "for now will
-//     just be a visual only") of the game's REAL current control scheme,
-//     read straight off every keyboard_check/mouse_check_button call in the
-//     project -- see GetControlsList()'s own doc comment.
-//   - Audio: Master/Music/SFX volume sliders + a mute toggle each. Master
-//     is REAL and live (audio_master_gain(), a genuine project-wide
-//     built-in) -- moving it/muting it has an actual effect right now.
-//     Music/SFX are stored + persisted but NOT applied to anything yet --
-//     there are no sound assets or audio_group split anywhere in this
-//     project (confirmed via grep) for a per-group gain to apply TO. Real
-//     hookup is a one-line audio_group_set_gain() call per group once those
-//     exist.
-//   - Graphics: Fullscreen toggle (real, window_set_fullscreen()) and
-//     Borderless Windowed toggle (a vanilla window_set_showborder() +
-//     resize-to-display approximation -- per the request's own framing,
-//     "true" fullscreen borderless is intentionally left for the
-//     marketplace extension being added separately; this just gets the
-//     window into the right ballpark today, and is the obvious call site to
-//     swap once that extension is in), plus a Gamma slider. Gamma is
-//     STORED + PERSISTED but NOT applied to anything yet -- real gamma
-//     correction needs a full-screen post-process shader (disable
-//     GameMaker's automatic application_surface draw, take over final-frame
-//     compositing for the ENTIRE game by hand, sample application_surface,
-//     apply pow(rgb, 1/gamma), draw it back). That's a genuine engine-level
-//     change with a large blast radius (get it wrong and NOTHING renders,
-//     on both the title screen AND in gameplay) that deserves its own
-//     dedicated, tested pass rather than being folded silently into this
-//     settings-menu commit -- flagging rather than guessing at it blind.
-//   - Accessibility: STUB per explicit request ("will be a stub for now,
-//     unless you have an idea for it") -- drawn as 3 greyed-out, non-
-//     interactive placeholder ideas (colorblind-friendly team colors, UI
-//     text scale, reduce screen shake/flash) rather than a single blank
-//     page, so there's something concrete to react to/veto. None of these
-//     are wired to anything real.
-//
-// Persistence: global.gameSettings is loaded once at game boot
-// (LoadAndApplyGameSettings(), called from oGameControl's Create event --
-// that object is persistent:true and runs before any room, confirmed via
-// its own .yy) from SETTINGS_SAVE_FILE (an .ini file, GameMaker's own
-// ini_open/ini_read_real/ini_write_real/ini_close), falling back to
-// DefaultGameSettings() for any missing key (first-ever boot, or a setting
-// added in a later update). Every value change from the menu calls
-// SaveGameSettings() immediately (a handful of writes per settings visit at
-// most -- no need to batch/debounce) and, where a value has a real runtime
-// effect today (master volume, fullscreen, borderless), ApplyGameSettings()
-// too.
-// -----------------------------------------------------------
+// The shared settings menu (sub-menu of PauseMenu/TitleMenu). See
+// SettingsOverlayScripts.md.
 
 #macro SETTINGS_SAVE_FILE "settings.ini"
 
@@ -110,10 +21,11 @@
 #macro SETTINGS_BACK_BUTTON_WIDTH    160
 #macro SETTINGS_BACK_BUTTON_HEIGHT   44
 
-// Same dark-purple "temporary UI" palette FateEngineOverlay's buttons
-// already established (FateEngineOverlayScripts.gml's DrawOneButton) --
-// reused for visual consistency rather than inventing a second palette,
-// since no dedicated settings-panel sprite exists yet either.
+#macro SETTINGS_HOVER_DELAY_MAX_SECONDS 5
+#macro SETTINGS_HOVER_DELAY_SNAP_SECONDS 0.5
+#macro SETTINGS_CURSOR_SCALE_MIN 1
+#macro SETTINGS_CURSOR_SCALE_MAX 3
+
 #macro SETTINGS_PANEL_FILL_COLOR   make_color_rgb(0x3A, 0x2E, 0x4A)
 #macro SETTINGS_TAB_ACTIVE_COLOR   make_color_rgb(0x5A, 0x46, 0x6E)
 #macro SETTINGS_TAB_INACTIVE_COLOR make_color_rgb(0x2A, 0x20, 0x36)
@@ -122,33 +34,27 @@
 #macro SETTINGS_TRACK_EMPTY_COLOR  make_color_rgb(0x1A, 0x14, 0x22)
 
 /// @function DefaultGameSettings()
-/// @description Every persisted setting at its default value. Used both to
-///        seed global.gameSettings on first-ever boot (no settings.ini yet)
-///        and as the fallback for any individual key missing from an
-///        existing ini (e.g. a setting added in a later update).
+/// @description Every persisted setting at its default value.
 /// @returns {Struct}
 function DefaultGameSettings() {
     return {
         masterVolume: 1,
         musicVolume:  1,
         sfxVolume:    1,
-        masterMuted:  false,
         musicMuted:   false,
         sfxMuted:     false,
         fullscreen:   false,
         borderless:   false,
-        gamma:        0.5, // 0.5 == neutral/no correction -- see file header, not applied to anything yet
+        gamma:        0.5, // 0.5 = neutral, not applied to anything yet
+        hoverDelayBottomBar:  1.0, // seconds
+        hoverDelayWorldItems: 1.0, // seconds
+        cursorScale:  2, // whole numbers, SETTINGS_CURSOR_SCALE_MIN..MAX
     };
 }
 
 /// @function LoadGameSettings()
 /// @description Loads global.gameSettings from SETTINGS_SAVE_FILE, falling
-///        back to DefaultGameSettings() for any key the ini doesn't have.
-///        Idempotent -- safe to call more than once (re-reads from disk
-///        each time), though today only oGameControl's Create event does,
-///        once, at game boot. Does NOT push the loaded values onto the
-///        actual runtime/window state -- see ApplyGameSettings(), or just
-///        call LoadAndApplyGameSettings() to do both.
+///        back to DefaultGameSettings() per missing key.
 function LoadGameSettings() {
     var _d = DefaultGameSettings();
 
@@ -157,19 +63,20 @@ function LoadGameSettings() {
         masterVolume: ini_read_real("Audio", "masterVolume", _d.masterVolume),
         musicVolume:  ini_read_real("Audio", "musicVolume",  _d.musicVolume),
         sfxVolume:    ini_read_real("Audio", "sfxVolume",    _d.sfxVolume),
-        masterMuted:  ini_read_real("Audio", "masterMuted",  _d.masterMuted ? 1 : 0) != 0,
         musicMuted:   ini_read_real("Audio", "musicMuted",   _d.musicMuted  ? 1 : 0) != 0,
         sfxMuted:     ini_read_real("Audio", "sfxMuted",     _d.sfxMuted    ? 1 : 0) != 0,
         fullscreen:   ini_read_real("Graphics", "fullscreen", _d.fullscreen ? 1 : 0) != 0,
         borderless:   ini_read_real("Graphics", "borderless", _d.borderless ? 1 : 0) != 0,
         gamma:        ini_read_real("Graphics", "gamma", _d.gamma),
+        hoverDelayBottomBar:  ini_read_real("Gameplay", "hoverDelayBottomBar",  _d.hoverDelayBottomBar),
+        hoverDelayWorldItems: ini_read_real("Gameplay", "hoverDelayWorldItems", _d.hoverDelayWorldItems),
+        cursorScale:  clamp(round(ini_read_real("Graphics", "cursorScale", _d.cursorScale)), SETTINGS_CURSOR_SCALE_MIN, SETTINGS_CURSOR_SCALE_MAX),
     };
     ini_close();
 }
 
 /// @function SaveGameSettings()
 /// @description Writes global.gameSettings out to SETTINGS_SAVE_FILE.
-///        Called once per change from SettingsOverlay.
 function SaveGameSettings() {
     var _s = global.gameSettings;
 
@@ -177,63 +84,51 @@ function SaveGameSettings() {
     ini_write_real("Audio", "masterVolume", _s.masterVolume);
     ini_write_real("Audio", "musicVolume",  _s.musicVolume);
     ini_write_real("Audio", "sfxVolume",    _s.sfxVolume);
-    ini_write_real("Audio", "masterMuted",  _s.masterMuted ? 1 : 0);
     ini_write_real("Audio", "musicMuted",   _s.musicMuted  ? 1 : 0);
     ini_write_real("Audio", "sfxMuted",     _s.sfxMuted    ? 1 : 0);
     ini_write_real("Graphics", "fullscreen", _s.fullscreen ? 1 : 0);
     ini_write_real("Graphics", "borderless", _s.borderless ? 1 : 0);
     ini_write_real("Graphics", "gamma", _s.gamma);
+    ini_write_real("Gameplay", "hoverDelayBottomBar",  _s.hoverDelayBottomBar);
+    ini_write_real("Gameplay", "hoverDelayWorldItems", _s.hoverDelayWorldItems);
+    ini_write_real("Graphics", "cursorScale", _s.cursorScale);
     ini_close();
 }
 
+/// @function PerceptualGain(_linear)
+/// @description Squares a linear 0..1 value for perceptually-even volume.
+///        Applies to Music/SFX; Master stays linear. See .md.
+/// @param {Real} _linear 0..1
+/// @returns {Real}
+function PerceptualGain(_linear) {
+    return _linear * _linear;
+}
+
 /// @function ApplyGameSettings()
-/// @description Pushes global.gameSettings onto the actual runtime state --
-///        audio_master_gain() for master volume/mute, window_set_fullscreen()
-///        for fullscreen, and the vanilla window_set_showborder() +
-///        resize-to-display approximation for borderless (see file header --
-///        "true" borderless is intentionally left to the marketplace
-///        extension being added separately). Music/SFX volume and gamma are
-///        deliberately NOT applied here -- see file header for why (no audio
-///        groups / no post-process shader exist yet to apply them to).
+/// @description Pushes global.gameSettings onto the actual runtime state
+///        (master/music gain, fullscreen/borderless). See .md.
 function ApplyGameSettings() {
     var _s = global.gameSettings;
 
-    audio_master_gain(_s.masterMuted ? 0 : _s.masterVolume);
+    audio_master_gain(_s.masterVolume);
 
-    window_set_fullscreen(_s.fullscreen);
-
-    // Vanilla borderless-windowed approximation -- only meaningful while
-    // NOT fullscreen (fullscreen already covers the whole screen with no
-    // border by definition).
-    if (!_s.fullscreen) {
-        window_set_showborder(!_s.borderless);
-        if (_s.borderless) {
-            window_set_position(0, 0);
-            window_set_size(display_get_width(), display_get_height());
-        }
+    if (variable_global_exists("titleMusicInstance") && audio_is_playing(global.titleMusicInstance)) {
+        audio_sound_gain(global.titleMusicInstance, _s.musicMuted ? 0 : PerceptualGain(_s.musicVolume), 0);
     }
+
+    window_enable_borderless_fullscreen(_s.borderless); // set before fullscreen -- only affects future toggles
+    window_set_fullscreen(_s.fullscreen);
 }
 
 /// @function LoadAndApplyGameSettings()
-/// @description Convenience wrapper -- LoadGameSettings() then
-///        ApplyGameSettings() in one call. What oGameControl's Create event
-///        actually calls at boot.
+/// @description LoadGameSettings() then ApplyGameSettings() in one call.
 function LoadAndApplyGameSettings() {
     LoadGameSettings();
     ApplyGameSettings();
 }
 
 /// @function GetControlsList()
-/// @description The real, currently-bound control scheme, read straight off
-///        every keyboard_check/mouse_check_button call in the project
-///        (confirmed via grep -- oUnitControl/Step_0.gml, UnitSelection.gml,
-///        every drop-down menu's shared click handling, TitleMenuScripts.gml).
-///        Visual-only per explicit request ("Controls for now will just be
-///        a visual only") -- no rebinding, just a readout. OrderMenu's
-///        per-row mnemonic hotkeys (AssignMnemonics(), OrderMenu.gml) are
-///        deliberately NOT listed as their own fixed binding -- which
-///        letter maps to which order changes depending on what's selected,
-///        so they're called out as their own contextual line instead.
+/// @description The real, currently-bound control scheme. Visual-only readout, no rebinding.
 /// @returns {Array<Struct>} Array of { action, key }.
 function GetControlsList() {
     return [
@@ -246,51 +141,27 @@ function GetControlsList() {
 }
 
 /// @function SettingsOverlay()
-/// @description The shared settings menu -- see file header for full
-///        behavior. Not a GM instance -- a plain struct, same pattern as
-///        every other overlay/menu (PauseMenu, FateEngineOverlay). Owner
-///        (oUnitControl or oTitleMenu, via PauseMenu/TitleMenu -- see file
-///        header) calls Update() once per Step while relevant and Draw()
-///        once per Draw GUI.
+/// @description The shared settings menu. Plain struct, owner calls
+///        Update() once per Step and Draw() once per Draw GUI.
 function SettingsOverlay() constructor {
-    // Defensive -- guarantees global.gameSettings exists by the time
-    // anything reads it, regardless of boot order, even though oGameControl
-    // (persistent, runs first) is the only thing expected to call this
-    // today. Idempotent (LoadGameSettings() just re-reads the same file).
     if (!variable_global_exists("gameSettings")) LoadAndApplyGameSettings();
 
     isOpen     = false;
-    activeTab  = 0; // index into tabs -- reset to 0 (Gameplay) every Open(), see Open()'s own comment
+    activeTab  = 0;
     hoveredTab = -1;
 
     tabs         = ["Gameplay", "Controls", "Audio", "Graphics", "Accessibility"];
     controlsList = GetControlsList();
 
-    // Audio tab -- which slider (if any) the mouse is currently dragging.
-    // undefined | "master" | "music" | "sfx"
-    draggingSlider = undefined;
+    draggingSlider = undefined; // undefined | "master" | "music" | "sfx" | "hoverDelayBottomBar" | "hoverDelayWorldItems" | "cursorScale"
+    draggingGamma  = false;
 
-    // Graphics tab -- gamma uses the same drag mechanism as the audio
-    // sliders, tracked separately since it lives on a different tab and
-    // isn't a volume.
-    draggingGamma = false;
-
-    // Gameplay tab -- Restart Progress' own Yes/No confirm, same local
-    // "pendingConfirmAction"-style sub-state PauseMenu/TitleMenu each
-    // already use for their own confirms, rather than a shared confirm
-    // struct (no such shared thing exists in this project -- each menu
-    // owns its own).
     confirmRestartProgress = false;
     confirmHoveredIndex    = -1;
     confirmOptions         = ["Yes", "No"];
 
     /// @function Open()
-    /// @description Opens the settings overlay on top of whatever's already
-    ///        showing (a paused game or the title screen's main menu) --
-    ///        always resets to the Gameplay tab, a judgment call for
-    ///        predictability over remembering the last-viewed tab across
-    ///        visits; flag if remembering reads better once tried. No-ops
-    ///        if already open.
+    /// @description Opens the settings overlay, always resetting to the Gameplay tab. No-ops if already open.
     /// @returns {Struct.SettingsOverlay} self
     static Open = function() {
         if (isOpen) return self;
@@ -305,10 +176,6 @@ function SettingsOverlay() constructor {
     }
 
     /// @function Close()
-    /// @description Closes the settings overlay, revealing whichever parent
-    ///        menu/screen was already open underneath (neither PauseMenu's
-    ///        nor TitleMenu's own state is touched by this struct, so
-    ///        there's nothing to "restore" -- it was never disturbed).
     /// @returns {Struct.SettingsOverlay} self
     static Close = function() {
         isOpen                 = false;
@@ -319,39 +186,28 @@ function SettingsOverlay() constructor {
     }
 
     /// @function RestartTutorial()
-    /// @description STUB -- no tutorial system exists anywhere in the
-    ///        project yet (confirmed via grep, zero matches for
-    ///        "tutorial"). Intentionally empty; clicking "Restart Tutorial"
-    ///        currently does nothing observable. Ready to wire up the
-    ///        moment a tutorial exists to restart.
+    /// @description Resets every tutorial-progress field to default and saves.
     static RestartTutorial = function() {
-        // Intentionally empty -- see file header / PATCH_NOTES.md.
+        ResetTutorialProgress();
+    }
+
+    /// @function _ShouldShowRestartTutorial()
+    /// @description Whether the Restart Tutorial button is visible/clickable
+    ///        this frame -- hidden anywhere but the main title, and hidden
+    ///        while the tutorial is currently in progress. See .md.
+    /// @returns {Bool}
+    static _ShouldShowRestartTutorial = function() {
+        return (room == rmTitleMenu) && !global.tutorialActive;
     }
 
     /// @function ResetPlayerProgress()
-    /// @description STUB -- no meta-progression/save system exists anywhere
-    ///        in the project yet (confirmed via grep -- no ini_write/
-    ///        game_save/equivalent calls anywhere before this file).
-    ///        Deliberately does NOT alias to PauseMenu's "Restart"
-    ///        (room_restart(), which resets the CURRENT MATCH) -- that's
-    ///        a separate, already-existing button/concept, and conflating
-    ///        the two would be misleading once a real save system exists
-    ///        and this needs to do something bigger. The Yes/No confirm
-    ///        flow around this (see Update()) is fully wired and real; only
-    ///        the actual reset logic is missing.
+    /// @description STUB -- see .md for the planned implementation.
     static ResetPlayerProgress = function() {
-        // Intentionally empty -- see file header / PATCH_NOTES.md.
+        // Intentionally empty -- see .md.
     }
 
-    // ---------------------------------------------------------------
-    // Layout -- internal rect/position helpers. Computed fresh each call
-    // (cheap, no state) so Draw() and Update() always agree on hit boxes,
-    // same "derive, don't duplicate" idiom as FateEngineButtonRects/
-    // ArmyLimitWidgetIconRect.
-    // ---------------------------------------------------------------
-
     /// @function _PanelRect()
-    /// @returns {Struct} { x1, y1, x2, y2 } -- the settings panel, centered on screen.
+    /// @returns {Struct} { x1, y1, x2, y2 }
     static _PanelRect = function() {
         var _w  = SETTINGS_PANEL_WIDTH;
         var _h  = SETTINGS_PANEL_HEIGHT;
@@ -379,7 +235,7 @@ function SettingsOverlay() constructor {
     }
 
     /// @function _ContentTopY()
-    /// @returns {Real} GUI-space Y where per-tab content starts, just below the tab bar.
+    /// @returns {Real} GUI-space Y where per-tab content starts.
     static _ContentTopY = function() {
         var _panel = _PanelRect();
         return _panel.y1 + SETTINGS_TAB_TOP_PAD + SETTINGS_TAB_HEIGHT + SETTINGS_CONTENT_TOP_PAD;
@@ -418,22 +274,34 @@ function SettingsOverlay() constructor {
         };
     }
 
+    /// @function _GameplayHoverRowRects()
+    /// @returns {Struct} { bottomBar, worldItems }, each { sliderX, y }
+    static _GameplayHoverRowRects = function() {
+        var _panel = _PanelRect();
+        var _x     = _panel.x1 + SETTINGS_CONTENT_PAD_X;
+
+        return {
+            bottomBar:  { sliderX: _x, y: _ContentRowY(2) + (SETTINGS_ROW_HEIGHT / 2) + 20 },
+            worldItems: { sliderX: _x, y: _ContentRowY(3) + (SETTINGS_ROW_HEIGHT / 2) + 20 },
+        };
+    }
+
     /// @function _AudioRowRects()
-    /// @returns {Struct} { master, music, sfx }, each { sliderX, toggleX, y }
+    /// @returns {Struct} { master: {sliderX, y}, music: {sliderX, toggleX, y}, sfx: {sliderX, toggleX, y} }
     static _AudioRowRects = function() {
         var _panel   = _PanelRect();
         var _sliderX = _panel.x1 + SETTINGS_CONTENT_PAD_X;
         var _toggleX = _sliderX + SETTINGS_SLIDER_WIDTH + 80;
 
         return {
-            master: { sliderX: _sliderX, toggleX: _toggleX, y: _ContentRowY(0) + (SETTINGS_ROW_HEIGHT / 2) },
+            master: { sliderX: _sliderX, y: _ContentRowY(0) + (SETTINGS_ROW_HEIGHT / 2) },
             music:  { sliderX: _sliderX, toggleX: _toggleX, y: _ContentRowY(1) + (SETTINGS_ROW_HEIGHT / 2) },
             sfx:    { sliderX: _sliderX, toggleX: _toggleX, y: _ContentRowY(2) + (SETTINGS_ROW_HEIGHT / 2) },
         };
     }
 
     /// @function _GraphicsRowRects()
-    /// @returns {Struct} { fullscreenToggleX, fullscreenY, borderlessToggleX, borderlessY, gammaSliderX, gammaY }
+    /// @returns {Struct} { fullscreenToggleX, fullscreenY, borderlessToggleX, borderlessY, gammaSliderX, gammaY, cursorSliderX, cursorY }
     static _GraphicsRowRects = function() {
         var _panel = _PanelRect();
         var _x     = _panel.x1 + SETTINGS_CONTENT_PAD_X;
@@ -441,18 +309,14 @@ function SettingsOverlay() constructor {
         return {
             fullscreenToggleX: _x, fullscreenY: _ContentRowY(0) + (SETTINGS_ROW_HEIGHT / 2),
             borderlessToggleX: _x, borderlessY: _ContentRowY(1) + (SETTINGS_ROW_HEIGHT / 2),
-            // Extra 20px gap -- gamma is a slider (taller visually, with its
-            // own label above it) sitting just below the two toggles, not
-            // another toggle row.
             gammaSliderX: _x, gammaY: _ContentRowY(2) + (SETTINGS_ROW_HEIGHT / 2) + 20,
+            cursorSliderX: _x, cursorY: _ContentRowY(3) + (SETTINGS_ROW_HEIGHT / 2) + 20,
         };
     }
 
     /// @function _SliderTrackRect(_x, _y)
-    /// @description Track rect for a slider whose LEFT edge starts at
-    ///        (_x, _y) (_y is the track's vertical center).
     /// @param {Real} _x
-    /// @param {Real} _y
+    /// @param {Real} _y Track's vertical center.
     /// @returns {Struct} { x1, y1, x2, y2 }
     static _SliderTrackRect = function(_x, _y) {
         return {
@@ -473,13 +337,32 @@ function SettingsOverlay() constructor {
     }
 
     /// @function _SliderValueFromMouseX(_trackRect, _mx)
-    /// @description Converts a GUI-space mouse X into a 0..1 slider value,
-    ///        clamped to the track's own bounds.
+    /// @description Converts a GUI-space mouse X into a 0..1 slider value.
     /// @param {Struct} _trackRect
     /// @param {Real} _mx
     /// @returns {Real}
     static _SliderValueFromMouseX = function(_trackRect, _mx) {
         return clamp((_mx - _trackRect.x1) / (_trackRect.x2 - _trackRect.x1), 0, 1);
+    }
+
+    /// @function _HoverDelaySecondsFromMouseX(_trackRect, _mx)
+    /// @description Converts mouse X into a hover-delay value in seconds, snapped to SETTINGS_HOVER_DELAY_SNAP_SECONDS.
+    /// @param {Struct} _trackRect
+    /// @param {Real} _mx
+    /// @returns {Real}
+    static _HoverDelaySecondsFromMouseX = function(_trackRect, _mx) {
+        var _raw = _SliderValueFromMouseX(_trackRect, _mx) * SETTINGS_HOVER_DELAY_MAX_SECONDS;
+        return round(_raw / SETTINGS_HOVER_DELAY_SNAP_SECONDS) * SETTINGS_HOVER_DELAY_SNAP_SECONDS;
+    }
+
+    /// @function _CursorScaleFromMouseX(_trackRect, _mx)
+    /// @description Converts mouse X into a whole-number cursor scale, SETTINGS_CURSOR_SCALE_MIN..MAX.
+    /// @param {Struct} _trackRect
+    /// @param {Real} _mx
+    /// @returns {Real}
+    static _CursorScaleFromMouseX = function(_trackRect, _mx) {
+        var _steps = SETTINGS_CURSOR_SCALE_MAX - SETTINGS_CURSOR_SCALE_MIN;
+        return SETTINGS_CURSOR_SCALE_MIN + round(_SliderValueFromMouseX(_trackRect, _mx) * _steps);
     }
 
     /// @function _PointInRect(_px, _py, _rect)
@@ -491,15 +374,8 @@ function SettingsOverlay() constructor {
         return (_px >= _rect.x1 && _px <= _rect.x2 && _py >= _rect.y1 && _py <= _rect.y2);
     }
 
-    // ---------------------------------------------------------------
-    // Update
-    // ---------------------------------------------------------------
-
     /// @function Update()
-    /// @description Call once per Step while this overlay might be open --
-    ///        both PauseMenu.Update() and TitleMenu.Update() delegate here
-    ///        FIRST (before their own logic) whenever isOpen is true.
-    ///        No-ops entirely if not open.
+    /// @description Call once per Step while this overlay might be open.
     /// @returns {Struct.SettingsOverlay} self
     static Update = function() {
         if (!isOpen) return self;
@@ -507,8 +383,6 @@ function SettingsOverlay() constructor {
         var _mx = device_mouse_x_to_gui(0);
         var _my = device_mouse_y_to_gui(0);
 
-        // Restart Progress confirm sub-panel -- same shared row/hit-test
-        // helpers PauseMenu/TitleMenu's own confirms use.
         if (confirmRestartProgress) {
             var _pos = PositionDropDownMenuCentered(array_length(confirmOptions));
             confirmHoveredIndex = DropDownMenuHitTest(_pos.x, _pos.y, array_length(confirmOptions), _mx, _my);
@@ -519,23 +393,29 @@ function SettingsOverlay() constructor {
             }
             if (mouse_check_button_pressed(mb_left)) {
                 if (confirmHoveredIndex == 0) ResetPlayerProgress(); // "Yes"
-                confirmRestartProgress = false; // "Yes", "No", or a miss-click all close the confirm either way
+                confirmRestartProgress = false;
             }
             return self;
         }
 
-        // Slider/gamma dragging takes priority over everything else below
-        // while the mouse button is held -- follows the cursor every step,
-        // independent of which row it started over, standard "drag anywhere
-        // once grabbed" slider feel.
         if (draggingSlider != undefined || draggingGamma) {
             if (!mouse_check_button(mb_left)) {
                 draggingSlider = undefined;
                 draggingGamma  = false;
                 SaveGameSettings();
+            } else if (draggingSlider == "cursorScale") {
+                var _c = _GraphicsRowRects();
+                global.gameSettings.cursorScale = _CursorScaleFromMouseX(_SliderTrackRect(_c.cursorSliderX, _c.cursorY), _mx);
             } else if (draggingGamma) {
                 var _g = _GraphicsRowRects();
                 global.gameSettings.gamma = _SliderValueFromMouseX(_SliderTrackRect(_g.gammaSliderX, _g.gammaY), _mx);
+            } else if (draggingSlider == "hoverDelayBottomBar" || draggingSlider == "hoverDelayWorldItems") {
+                var _hoverRows = _GameplayHoverRowRects();
+                if (draggingSlider == "hoverDelayBottomBar") {
+                    global.gameSettings.hoverDelayBottomBar = _HoverDelaySecondsFromMouseX(_SliderTrackRect(_hoverRows.bottomBar.sliderX, _hoverRows.bottomBar.y), _mx);
+                } else {
+                    global.gameSettings.hoverDelayWorldItems = _HoverDelaySecondsFromMouseX(_SliderTrackRect(_hoverRows.worldItems.sliderX, _hoverRows.worldItems.y), _mx);
+                }
             } else {
                 var _rows = _AudioRowRects();
                 if (draggingSlider == "master") {
@@ -543,6 +423,7 @@ function SettingsOverlay() constructor {
                     ApplyGameSettings();
                 } else if (draggingSlider == "music") {
                     global.gameSettings.musicVolume = _SliderValueFromMouseX(_SliderTrackRect(_rows.music.sliderX, _rows.music.y), _mx);
+                    ApplyGameSettings();
                 } else if (draggingSlider == "sfx") {
                     global.gameSettings.sfxVolume = _SliderValueFromMouseX(_SliderTrackRect(_rows.sfx.sliderX, _rows.sfx.y), _mx);
                 }
@@ -555,7 +436,6 @@ function SettingsOverlay() constructor {
             return self;
         }
 
-        // Tab bar -- always live, regardless of which tab is active.
         var _tabRects = _TabRects();
         hoveredTab = -1;
         for (var i = 0; i < array_length(_tabRects); i++) {
@@ -566,7 +446,7 @@ function SettingsOverlay() constructor {
         }
         if (hoveredTab != -1 && mouse_check_button_pressed(mb_left)) {
             activeTab = hoveredTab;
-            return self; // switching tabs consumes the click -- don't also register it against the PREVIOUS tab's content this same frame
+            return self;
         }
 
         if (mouse_check_button_pressed(mb_left) && _PointInRect(_mx, _my, _BackButtonRect())) {
@@ -576,10 +456,10 @@ function SettingsOverlay() constructor {
 
         switch (activeTab) {
             case 0: _UpdateGameplayTab(_mx, _my); break;
-            case 1: break; // Controls -- visual only, nothing to update
+            case 1: break;
             case 2: _UpdateAudioTab(_mx, _my); break;
             case 3: _UpdateGraphicsTab(_mx, _my); break;
-            case 4: break; // Accessibility -- stub, nothing to update
+            case 4: break;
         }
 
         return self;
@@ -592,11 +472,29 @@ function SettingsOverlay() constructor {
         if (!mouse_check_button_pressed(mb_left)) return;
 
         var _rects = _GameplayButtonRects();
-        if (_PointInRect(_mx, _my, _rects.restartTutorial)) {
+        if (_ShouldShowRestartTutorial() && _PointInRect(_mx, _my, _rects.restartTutorial)) {
             RestartTutorial();
-        } else if (_PointInRect(_mx, _my, _rects.restartProgress)) {
+            return;
+        }
+        if (_PointInRect(_mx, _my, _rects.restartProgress)) {
             confirmRestartProgress = true;
             confirmHoveredIndex    = -1;
+            return;
+        }
+
+        var _hoverRows = _GameplayHoverRowRects();
+        var _bottomBarTrack  = _SliderTrackRect(_hoverRows.bottomBar.sliderX, _hoverRows.bottomBar.y);
+        var _worldItemsTrack = _SliderTrackRect(_hoverRows.worldItems.sliderX, _hoverRows.worldItems.y);
+
+        if (_PointInRect(_mx, _my, _bottomBarTrack)) {
+            draggingSlider = "hoverDelayBottomBar";
+            global.gameSettings.hoverDelayBottomBar = _HoverDelaySecondsFromMouseX(_bottomBarTrack, _mx);
+            return;
+        }
+        if (_PointInRect(_mx, _my, _worldItemsTrack)) {
+            draggingSlider = "hoverDelayWorldItems";
+            global.gameSettings.hoverDelayWorldItems = _HoverDelaySecondsFromMouseX(_worldItemsTrack, _mx);
+            return;
         }
     }
 
@@ -617,6 +515,7 @@ function SettingsOverlay() constructor {
         if (_PointInRect(_mx, _my, _SliderTrackRect(_rows.music.sliderX, _rows.music.y))) {
             draggingSlider = "music";
             global.gameSettings.musicVolume = _SliderValueFromMouseX(_SliderTrackRect(_rows.music.sliderX, _rows.music.y), _mx);
+            ApplyGameSettings();
             return;
         }
         if (_PointInRect(_mx, _my, _SliderTrackRect(_rows.sfx.sliderX, _rows.sfx.y))) {
@@ -625,14 +524,9 @@ function SettingsOverlay() constructor {
             return;
         }
 
-        if (_PointInRect(_mx, _my, _ToggleRect(_rows.master.toggleX, _rows.master.y))) {
-            global.gameSettings.masterMuted = !global.gameSettings.masterMuted;
-            ApplyGameSettings();
-            SaveGameSettings();
-            return;
-        }
         if (_PointInRect(_mx, _my, _ToggleRect(_rows.music.toggleX, _rows.music.y))) {
             global.gameSettings.musicMuted = !global.gameSettings.musicMuted;
+            ApplyGameSettings();
             SaveGameSettings();
             return;
         }
@@ -663,6 +557,12 @@ function SettingsOverlay() constructor {
             SaveGameSettings();
             return;
         }
+        var _cursorTrack = _SliderTrackRect(_rows.cursorSliderX, _rows.cursorY);
+        if (_PointInRect(_mx, _my, _cursorTrack)) {
+            draggingSlider = "cursorScale";
+            global.gameSettings.cursorScale = _CursorScaleFromMouseX(_cursorTrack, _mx);
+            return;
+        }
         if (_PointInRect(_mx, _my, _SliderTrackRect(_rows.gammaSliderX, _rows.gammaY))) {
             draggingGamma = true;
             global.gameSettings.gamma = _SliderValueFromMouseX(_SliderTrackRect(_rows.gammaSliderX, _rows.gammaY), _mx);
@@ -670,14 +570,8 @@ function SettingsOverlay() constructor {
         }
     }
 
-    // ---------------------------------------------------------------
-    // Draw
-    // ---------------------------------------------------------------
-
     /// @function Draw()
-    /// @description Call once per Draw GUI event -- both PauseMenu.Draw()
-    ///        and TitleMenu.Draw() call this LAST (on top of everything
-    ///        else) whenever isOpen is true. No-ops if not open.
+    /// @description Call once per Draw GUI event. No-ops if not open.
     static Draw = function() {
         if (!isOpen) return;
 
@@ -715,8 +609,6 @@ function SettingsOverlay() constructor {
     }
 
     /// @function DrawTabBar()
-    /// @description Internal helper for Draw() -- the 5 tab buttons along
-    ///        the top of the panel, highlighted per active/hovered state.
     static DrawTabBar = function() {
         var _rects = _TabRects();
         for (var i = 0; i < array_length(tabs); i++) {
@@ -739,14 +631,28 @@ function SettingsOverlay() constructor {
     /// @function DrawGameplayTab()
     static DrawGameplayTab = function() {
         var _rects = _GameplayButtonRects();
-        _DrawActionButton(_rects.restartTutorial, "Restart Tutorial");
+        if (_ShouldShowRestartTutorial()) {
+            _DrawActionButton(_rects.restartTutorial, "Restart Tutorial");
+        }
         _DrawActionButton(_rects.restartProgress, "Restart Progress");
+
+        var _hoverRows = _GameplayHoverRowRects();
+        var _s         = global.gameSettings;
+        _DrawSlider(
+            _hoverRows.bottomBar.sliderX, _hoverRows.bottomBar.y,
+            _s.hoverDelayBottomBar / SETTINGS_HOVER_DELAY_MAX_SECONDS,
+            "Bottom Bar Hover Delay", false,
+            $"{string_format(_s.hoverDelayBottomBar, 1, 1)}s"
+        );
+        _DrawSlider(
+            _hoverRows.worldItems.sliderX, _hoverRows.worldItems.y,
+            _s.hoverDelayWorldItems / SETTINGS_HOVER_DELAY_MAX_SECONDS,
+            "World Item Hover Delay", false,
+            $"{string_format(_s.hoverDelayWorldItems, 1, 1)}s"
+        );
     }
 
     /// @function DrawControlsTab()
-    /// @description Visual-only readout of the game's actual current
-    ///        control scheme -- see GetControlsList()'s own doc comment for
-    ///        where every entry came from.
     static DrawControlsTab = function() {
         var _panel = _PanelRect();
         var _x     = _panel.x1 + SETTINGS_CONTENT_PAD_X;
@@ -772,8 +678,7 @@ function SettingsOverlay() constructor {
         var _rows = _AudioRowRects();
         var _s    = global.gameSettings;
 
-        _DrawSlider(_rows.master.sliderX, _rows.master.y, _s.masterVolume, "Master", _s.masterMuted);
-        _DrawToggle(_rows.master.toggleX, _rows.master.y, _s.masterMuted, "Mute");
+        _DrawSlider(_rows.master.sliderX, _rows.master.y, _s.masterVolume, "Master", false);
 
         _DrawSlider(_rows.music.sliderX, _rows.music.y, _s.musicVolume, "Music", _s.musicMuted);
         _DrawToggle(_rows.music.toggleX, _rows.music.y, _s.musicMuted, "Mute");
@@ -789,19 +694,21 @@ function SettingsOverlay() constructor {
 
         _DrawToggle(_rows.fullscreenToggleX, _rows.fullscreenY, _s.fullscreen, "Fullscreen");
 
-        var _borderlessLabel = "Borderless Windowed" + (_s.fullscreen ? " (windowed only)" : "");
+        var _borderlessLabel = "Borderless Fullscreen" + (_s.fullscreen ? "" : " (applies next time Fullscreen is on)");
         _DrawToggle(_rows.borderlessToggleX, _rows.borderlessY, _s.borderless, _borderlessLabel);
 
         _DrawSlider(_rows.gammaSliderX, _rows.gammaY, _s.gamma, "Gamma", false);
+
+        _DrawSlider(
+            _rows.cursorSliderX, _rows.cursorY,
+            (_s.cursorScale - SETTINGS_CURSOR_SCALE_MIN) / (SETTINGS_CURSOR_SCALE_MAX - SETTINGS_CURSOR_SCALE_MIN),
+            "Cursor Size", false,
+            $"{_s.cursorScale}x"
+        );
     }
 
     /// @function DrawAccessibilityTab()
-    /// @description STUB per explicit request ("Accessibility will be a
-    ///        stub for now, unless you have an idea for it") -- the rows
-    ///        below are exactly that idea, drawn greyed-out/non-interactive
-    ///        (Update() never checks hits against this tab) rather than a
-    ///        single blank message, so there's something concrete to react
-    ///        to/veto. None of these are wired to anything real yet.
+    /// @description Stub tab -- 3 greyed-out, non-interactive placeholder ideas.
     static DrawAccessibilityTab = function() {
         var _panel = _PanelRect();
         var _x     = _panel.x1 + SETTINGS_CONTENT_PAD_X;
@@ -820,9 +727,6 @@ function SettingsOverlay() constructor {
     }
 
     /// @function DrawRestartProgressConfirm()
-    /// @description Internal helper for Draw() -- the Yes/No confirm
-    ///        sub-panel for Restart Progress, same shared row-drawing shape
-    ///        PauseMenu.DrawMenuList()/TitleMenu's own confirm use.
     static DrawRestartProgressConfirm = function() {
         var _pos = PositionDropDownMenuCentered(array_length(confirmOptions));
         DrawDropDownMenuTitle(_pos.x, _pos.y, "Restart Progress?");
@@ -843,17 +747,15 @@ function SettingsOverlay() constructor {
         }
     }
 
-    /// @function _DrawSlider(_x, _y, _value, _label, _muted)
-    /// @description Draws one labeled slider -- track, filled portion,
-    ///        round handle -- greyed when _muted. Used by the Audio tab's 3
-    ///        volume sliders and the Graphics tab's gamma slider (which
-    ///        passes _muted = false -- it has no mute concept).
+    /// @function _DrawSlider(_x, _y, _value, _label, _muted, [_valueText])
+    /// @description Draws one labeled slider -- track, filled portion, round handle.
     /// @param {Real} _x Track's left edge.
     /// @param {Real} _y Track's vertical center.
     /// @param {Real} _value 0..1
     /// @param {String} _label
     /// @param {Bool} _muted
-    static _DrawSlider = function(_x, _y, _value, _label, _muted) {
+    /// @param {String} [_valueText] Overrides the default "NN%" readout.
+    static _DrawSlider = function(_x, _y, _value, _label, _muted, _valueText = undefined) {
         var _track = _SliderTrackRect(_x, _y);
 
         draw_set_halign(fa_left);
@@ -871,13 +773,10 @@ function SettingsOverlay() constructor {
 
         draw_set_color(HOVER_CARD_TEXT_COLOR);
         draw_set_halign(fa_right);
-        draw_text(_track.x2 + 40, _y, string(round(_value * 100)) + "%");
+        draw_text(_track.x2 + 40, _y, _valueText ?? (string(round(_value * 100)) + "%"));
     }
 
     /// @function _DrawToggle(_x, _y, _on, _label)
-    /// @description Draws one small checkbox-style toggle + its label to
-    ///        the right. Used for the 3 mute toggles (Audio) and the
-    ///        Fullscreen/Borderless toggles (Graphics).
     /// @param {Real} _x Box's left edge.
     /// @param {Real} _y Box's vertical center.
     /// @param {Bool} _on
@@ -897,11 +796,6 @@ function SettingsOverlay() constructor {
     }
 
     /// @function _DrawActionButton(_rect, _label, [_enabled])
-    /// @description Same plain rectangle+text button style
-    ///        FateEngineOverlay's temporary buttons use (DrawOneButton,
-    ///        FateEngineOverlayScripts.gml) -- reused verbatim rather than
-    ///        redeclared, since no generic button sprite exists anywhere in
-    ///        the project.
     /// @param {Struct} _rect { x1, y1, x2, y2 }
     /// @param {String} _label
     /// @param {Bool} [_enabled]

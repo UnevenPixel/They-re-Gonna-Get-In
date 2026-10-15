@@ -17,6 +17,17 @@ All angles in degrees, not radians, unless a GML function requires radians — c
 Every function gets Feather JSDoc annotations (@function, @param, @returns, etc.).
 Maintain a Notion-compatible markdown doc alongside each library summarizing its API and usage.
 
+Commenting/JSDoc structure (established 2026-08, comment-trim effort):
+File header: max 2 lines — one-line purpose statement + pointer to the companion .md (e.g. "// <purpose>. See <File>.md."). No mid-file section-divider comments in .gml; section breaks live as ## headers in the .md instead.
+JSDoc @description: state what the function does, not why/when it was added. Strip dated history, request quotes, and rationale out of @description — that content belongs in the companion .md, not deleted.
+Companion .md per script (per object, for objects/*.gml — one .md covering all its Create/Step/Draw/Other events together) carries everything trimmed out of the .gml: design rationale, dated history ("2026-07-05 request..."), judgment calls, bugfix explanations, data-provenance notes. Nothing gets deleted outright — it migrates to the .md before the .gml is trimmed.
+Skip the companion .md when there's nothing to preserve beyond what's already documented elsewhere (e.g. a trivial event_inherited()-only object Create event whose object is otherwise covered by UnitDefinitions.md/BuildingDefinitions.md/etc.) — trim its header to ≤2 lines and stop there.
+Keep short inline TODOs (a few words) in the .gml rather than moving them to the .md.
+Keep comments on vaguely-named variables inline — these aren't candidates for migration.
+Load-bearing FSM/state code (guard/defend/combat/attack/siege) keeps its critical short warning comments inline verbatim (e.g. "LOAD-BEARING: ...") even after trimming — the full writeup still goes in the .md, but anyone editing that state code needs the warning without opening a second file.
+Vendored/generated code (Scribble, Steamworks SDK mirrors) gets only the 2-line file header added — don't rewrite or relocate the vendor's own doc comments.
+Never trim/edit player-facing string literals (flavor text, UI copy, "Notes"/description fields) under this convention — it applies to comments only. Flag if dated commentary has leaked into a data string; don't silently rewrite it.
+
 Object hierarchy
 
 oUnitParent — has a team, TEAM.PLAYER or TEAM.ENEMY (TEAM enum, scripts/Enumerators).

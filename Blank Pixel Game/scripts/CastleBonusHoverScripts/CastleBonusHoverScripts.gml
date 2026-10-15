@@ -1,31 +1,8 @@
-// -----------------------------------------------------------
-// CastleBonusHoverScripts -- 2026-07-12 request: "Add a hover menu to the
-// castle (only visible if the garrison menu isn't open) showing all
-// currently applied [stationed passive] bonuses." Owns a HoverCard
-// (HoverCardScripts.gml) shown while the mouse dwells over the player's
-// OWN castle (oPlayerCastle only -- same restriction CastleGarrisonMenu
-// already applies, see that file's Update() comment: the garrison
-// dropdown, and now this panel, are player-castle-only, not informational
-// for the enemy castle). Same dwell/fade/cursor-anchor pattern as
-// PlotHoverController/BuildingHoverController (PlotHoverScripts.gml /
-// BuildingHoverScripts.gml) -- deliberately reusing PLOT_HOVER_DELAY_STEPS/
-// PLOT_HOVER_FADE_STEPS/PLOT_HOVER_CURSOR_GAP rather than inventing new
-// timing macros for a third near-identical hover controller.
-//
-// Suppressed whenever CastleGarrisonMenu.isOpen is true (passed in by the
-// caller each Step -- see oUnitControl/Step_0.gml) so the two never
-// overlap on screen, per the request's explicit "only visible if the
-// garrison menu isn't open."
-// -----------------------------------------------------------
+// Hover menu on the player's castle listing all currently applied stationed
+// passive bonuses. See CastleBonusHoverScripts.md.
 
 /// @function CastleBonusHoverBodyText(_bonuses)
-/// @description One "+X% Label" line per currently non-zero field on
-///        _bonuses, joined with "\n" -- skips any bonus type nothing is
-///        currently stationed to provide. Falls back to a single
-///        "No active bonuses." line if every field is 0 (nothing team-
-///        relevant is stationed, or only Archers are -- Archer's
-///        Stationed Effect still contributes nothing here, see
-///        stationedBonuses' doc comment, UnitDefinitions.gml).
+/// @description One "+X% Label" line per non-zero field on _bonuses, joined with "\n". Falls back to "No active bonuses." See .md.
 /// @param {Struct.StationedBonuses} _bonuses
 /// @returns {String}
 function CastleBonusHoverBodyText(_bonuses) {
@@ -57,9 +34,7 @@ function CastleBonusHoverBodyText(_bonuses) {
 }
 
 /// @function CastleBonusHoverController()
-/// @description Call Step() once per Step event and Draw() once per Draw
-///        GUI event -- same "plain struct, owner drives Step/Draw" pattern
-///        as every other hover controller in this codebase.
+/// @description Owns a HoverCard shown while the mouse dwells over the player's own castle. Owner calls Step()/Draw().
 function CastleBonusHoverController() constructor {
     card        = new HoverCard();
     hoverTarget = noone; // the oPlayerCastle instance currently being dwelt on, or noone
@@ -67,17 +42,10 @@ function CastleBonusHoverController() constructor {
     alpha       = 0;     // current fade level, 0-1
 
     /// @function Step(_selectionController, _blueprintController, _garrisonMenuOpen)
-    /// @description Resolves this frame's hover candidate (mouse-over the
-    ///        player's own castle, unless suppressed), advances/resets the
-    ///        dwell timer, and eases alpha toward 1 once the dwell
-    ///        threshold is reached (or back toward 0 otherwise) -- same
-    ///        structure as PlotHoverController.Step/BuildingHoverController.Step.
+    /// @description Resolves this frame's hover candidate, advances/resets the dwell timer, eases alpha toward the target. Same structure as PlotHoverController.Step/BuildingHoverController.Step.
     /// @param {Struct.SelectionController} _selectionController
     /// @param {Struct.BlueprintController} _blueprintController
-    /// @param {Bool} _garrisonMenuOpen True while CastleGarrisonMenu is
-    ///        open -- forces this panel to treat the frame as "not
-    ///        hovering" at all, so it fades out (or never fades in)
-    ///        exactly as if the mouse had left the castle.
+    /// @param {Bool} _garrisonMenuOpen True while CastleGarrisonMenu is open -- forces this panel to treat the frame as "not hovering," fading it out.
     static Step = function(_selectionController, _blueprintController, _garrisonMenuOpen) {
         var _candidate = noone;
         if (!_garrisonMenuOpen && !BuildingHoverSuppressed(_selectionController, _blueprintController)) {
@@ -108,8 +76,7 @@ function CastleBonusHoverController() constructor {
             var _cardW = card.GetWidth();
             var _cardH = card.GetHeight();
 
-            // Same cursor-quadrant anchoring as PlotHoverController.Step --
-            // see that function's comment for the full reasoning.
+            // Same cursor-quadrant anchoring as PlotHoverController.Step.
             var _anchorLeft = (_mx < display_get_gui_width()  / 2);
             var _anchorTop  = (_my < display_get_gui_height() / 2);
 
@@ -119,8 +86,7 @@ function CastleBonusHoverController() constructor {
     }
 
     /// @function Draw()
-    /// @description Call once per Draw GUI event. No-ops while fully faded
-    ///        out, same as every other hover controller here.
+    /// @description Call once per Draw GUI event. No-ops while fully faded out.
     static Draw = function() {
         if (alpha <= 0) return;
         card.Draw(alpha);

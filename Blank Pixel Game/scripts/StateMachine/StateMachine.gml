@@ -1,3 +1,6 @@
+// Generic finite state machine engine -- State bundles callbacks, StateMachine
+// owns/dispatches named states. See StateMachine.md.
+
 /// @function State(_onEnter, _onStep, _onDraw, _onExit)
 /// @param {Function} [_onEnter] (_owner, _machine) -> void. Called once on entering this state.
 /// @param {Function} [_onStep]  (_owner, _machine) -> void. Called once per Step() while active.
@@ -11,8 +14,7 @@ function State(_onEnter = undefined, _onStep = undefined, _onDraw = undefined, _
 }
 
 /// @function StateMachine(_owner)
-/// @param {Id.Instance|Struct} _owner Whatever this machine belongs to.
-///        Passed as the first argument to every callback.
+/// @param {Id.Instance|Struct} _owner Whatever this machine belongs to. Passed as the first argument to every callback.
 function StateMachine(_owner) constructor {
     owner        = _owner;
     states       = {};         // name (string) -> State
@@ -51,9 +53,7 @@ function StateMachine(_owner) constructor {
     }
 
     /// @function ChangeState(_name, _force)
-    /// Transitions to a different state: runs the current state's OnExit,
-    /// clears data, switches, then runs the new state's OnEnter.
-    /// Does nothing if already in the requested state, unless _force is true.
+    /// @description Transitions to a different state: runs the current state's OnExit, clears data, switches, then runs the new state's OnEnter. No-op if already in the requested state, unless _force is true.
     /// @param {String} _name
     /// @param {Bool} [_force] Re-enter the same state (re-run OnExit + OnEnter) if true.
     /// @returns {Struct.StateMachine} self
@@ -82,8 +82,7 @@ function StateMachine(_owner) constructor {
     }
 
     /// @function RevertToPrevious()
-    /// Returns to whatever state was active before the last ChangeState()
-    /// call. No-op if there is no previous state recorded.
+    /// @description Returns to whatever state was active before the last ChangeState() call. No-op if there is no previous state recorded.
     /// @returns {Struct.StateMachine} self
     static RevertToPrevious = function() {
         if (previousName != undefined) {
@@ -93,7 +92,7 @@ function StateMachine(_owner) constructor {
     }
 
     /// @function Step()
-    /// Call once per Step event.
+    /// @description Call once per Step event.
     /// @returns {Struct.StateMachine} self
     static Step = function() {
         if (currentState != undefined && currentState.onStep != undefined) {
@@ -103,8 +102,7 @@ function StateMachine(_owner) constructor {
     }
 
     /// @function Draw()
-    /// Call once per Draw event. Safe to omit entirely if a state has no
-    /// draw logic -- onDraw is optional per-state, not just per-machine.
+    /// @description Call once per Draw event. Safe to omit entirely if a state has no draw logic -- onDraw is optional per-state, not just per-machine.
     /// @returns {Struct.StateMachine} self
     static Draw = function() {
         if (currentState != undefined && currentState.onDraw != undefined) {

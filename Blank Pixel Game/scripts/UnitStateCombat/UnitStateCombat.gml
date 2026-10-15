@@ -1,10 +1,12 @@
+// FSM state "combat" -- melee fight state entered from guard/defend.
+// FLAGGED/load-bearing state file. See UnitStateCombat.md.
+
 #macro COMBAT_PHASE_PURSUE  "pursue"
 #macro COMBAT_PHASE_ATTACK  "attack"
 #macro COMBAT_PHASE_RECOVER "recover"
 
 /// @function Combat_Enter(_unit, _machine)
-/// @description StateMachine onEnter for "combat". Resets phase/cooldown tracking
-///        and starts from the idle sprite.
+/// @description StateMachine onEnter for "combat". Resets phase/cooldown tracking and starts from the idle sprite.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Combat_Enter(_unit, _machine) {
@@ -18,21 +20,12 @@ function Combat_Enter(_unit, _machine) {
 }
 
 /// @function Combat_Step(_unit, _machine)
-/// @description StateMachine onStep for "combat". Drives the pursue/attack/recover
-///        cycle against _unit.combatTarget, picking a new target via
-///        ChooseCombatTarget() if the current one is gone, and reverting to
-///        whichever of guard/defend it was interrupted from (UnitRevertFromCombat,
-///        UnitCombatHelpers.gml) if there's no target or the target leashes
-///        out of range -- "combat" is only ever entered from guard/defend
-///        (UnitEnterCombat), so there's always a previous state to go back to.
+/// @description StateMachine onStep for "combat". Drives the pursue/attack/recover cycle against _unit.combatTarget, picking a new target via ChooseCombatTarget() if the current one is gone, and reverting to whichever of guard/defend it was interrupted from if there's no target or it leashes out of range. See .md.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Combat_Step(_unit, _machine) {
 
-    // -----------------------------------------------------------
-    // Target validation
-    // -----------------------------------------------------------
-
+    // Target validation.
     if (!instance_exists(_unit.combatTarget)) {
         _unit.combatTarget = ChooseCombatTarget(_unit);
         if (_unit.combatTarget == noone) {
@@ -50,10 +43,7 @@ function Combat_Step(_unit, _machine) {
         return;
     }
 
-    // -----------------------------------------------------------
-    // Phase: PURSUE
-    // -----------------------------------------------------------
-
+    // Phase: PURSUE.
     if (_machine.data.phase == COMBAT_PHASE_PURSUE) {
         _unit.sprite_index = _unit.sprIdle;
         UnitPursueTarget(_unit, _targetPos, _unit.combatTarget.agent.velocity);
@@ -66,10 +56,7 @@ function Combat_Step(_unit, _machine) {
         }
     }
 
-    // -----------------------------------------------------------
-    // Phase: ATTACK
-    // -----------------------------------------------------------
-
+    // Phase: ATTACK.
     else if (_machine.data.phase == COMBAT_PHASE_ATTACK) {
         UnitIdleInPlace(_unit);
         UnitTryDealDamage(_unit, _unit.combatTarget, _machine);
@@ -81,10 +68,7 @@ function Combat_Step(_unit, _machine) {
         }
     }
 
-    // -----------------------------------------------------------
-    // Phase: RECOVER
-    // -----------------------------------------------------------
-
+    // Phase: RECOVER.
     else if (_machine.data.phase == COMBAT_PHASE_RECOVER) {
         _machine.data.cooldownTimer -= global.matchSpeed;
 

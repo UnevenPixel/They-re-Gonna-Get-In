@@ -1,15 +1,17 @@
+// Instantiates every player-side HUD/input controller this object owns.
+// See oUnitControl.md.
 selectionController = new SelectionController(oUnitParent, TEAM.PLAYER);
 orderMenu = new OrderMenu();
 blueprintController = new BlueprintController(TEAM.PLAYER);
-xpBarWidget = new XpBarWidget(TEAM.PLAYER); // lower HUD -- 2026-07-06 request
-plotHoverController = new PlotHoverController(); // un-occupied building plot hover data -- 2026-07-06 request
-buildingHoverController = new BuildingHoverController(); // placed building hover data -- 2026-07-08 request
-unitSelectHoverController = new UnitSelectHoverController(); // top-left single-unit-selected info card -- 2026-07-11 request
-rulerPortraitController = new RulerPortraitController(GetRulerPortraitDefinition(global.selectedRuler)); // animated ruler portrait on the UI bar -- 2026-07-11 request
-castleGarrisonMenu = new CastleGarrisonMenu(); // castle-wall-click garrison dropdown -- 2026-07-11 request, see CastleGarrisonMenu.gml
-selectionSummaryMenu = new SelectionSummaryMenu(); // top-left multi-unit-selected panel -- 2026-07-12 request, see SelectionSummaryMenu.gml
-castleBonusHoverController = new CastleBonusHoverController(); // castle hover panel listing active stationed passive bonuses -- 2026-07-12 request, see CastleBonusHoverScripts.gml
-armyLimitMenu = new ArmyLimitMenu(); // "Unit Limits" dropdown, opened by clicking the Army Limit Widget icon -- 2026-07-13 request, see ArmyLimitMenu.gml
-fateEngineOverlay = new FateEngineOverlay(); // Fate Engine session overlay, opened by clicking the XP bar -- 2026-07-13 request, see FateEngineOverlayScripts.gml
-settingsOverlay = new SettingsOverlay(); // shared settings sub-menu -- 2026-07-14 request, see SettingsOverlayScripts.gml. Instantiated BEFORE pauseMenu below, which takes it as a constructor param.
-pauseMenu = new PauseMenu(settingsOverlay); // pause menu, opened via Escape -- 2026-07-13 request, see PauseMenuScripts.gml. Settings is now a real sub-menu of this (OpenSettings()) rather than a stub -- 2026-07-14 addition.
+xpBarWidget = new XpBarWidget(TEAM.PLAYER); // lower HUD
+plotHoverController = new PlotHoverController(); // un-occupied building plot hover data
+buildingHoverController = new BuildingHoverController(); // placed building hover data
+unitSelectHoverController = new UnitSelectHoverController(); // top-left single-unit-selected info card
+rulerPortraitController = new RulerPortraitController(GetRulerPortraitDefinition(global.selectedRuler)); // animated ruler portrait on the UI bar
+castleGarrisonMenu = new CastleGarrisonMenu(); // castle-wall-click garrison dropdown
+selectionSummaryMenu = new SelectionSummaryMenu(); // top-left multi-unit-selected panel
+castleBonusHoverController = new CastleBonusHoverController(); // castle hover panel listing active stationed passive bonuses
+armyLimitMenu = new ArmyLimitMenu(); // "Unit Limits" dropdown, opened by clicking the Army Limit Widget icon
+fateEngineOverlay = new FateEngineOverlay(); // Fate Engine session overlay, opened by clicking the XP bar
+settingsOverlay = new SettingsOverlay(); // shared settings sub-menu -- instantiated BEFORE pauseMenu, which takes it as a constructor param
+pauseMenu = new PauseMenu(settingsOverlay); // pause menu, opened via Escape; settings is a real sub-menu of this (OpenSettings())

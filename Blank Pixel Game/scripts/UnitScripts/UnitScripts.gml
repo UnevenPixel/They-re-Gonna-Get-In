@@ -1,56 +1,21 @@
-// ChooseCombatTarget used to be a "always returns noone" stub here -- it's
-// now a real weighted implementation in GatherScripts.gml, next to the
-// _FindNearestEnemy/_FindNearestEnemyInSweep functions it supersedes.
+// Shared unit utilities that don't belong to any one system -- scratch data,
+// sprite/facing, play area, team guard zones, order dispatch. See UnitScripts.md.
 
 /// @function UnitDataBlock()
-/// @description Per-unit scratch data that doesn't belong on the base object
-///        variables -- damage taken, active status effects, and which
-///        UnitDefinition this unit is (see UnitApplyDefinition in
-///        UnitDefinitions.gml). This is deliberately the ONLY state a
-///        stationed unit needs to remember: when oUnitStationed is built, it
-///        should hold nothing but a UnitDataBlock, and redeploy by handing
-///        this struct to the new instance and calling UnitApplyDefinition
-///        again -- unitType is what tells it which definition to reapply.
+/// @description Per-unit scratch data that survives a station/redeploy swap -- damage taken, status effects, which UnitDefinition this unit is. See .md.
 function UnitDataBlock() constructor{
     damageTaken = 0;
     statusEffects = [];
     unitType = undefined; // Asset.GMObject -- set by UnitApplyDefinition
 }
 
-// -----------------------------------------------------------
-// A. Sprite and facing
-// -----------------------------------------------------------
-
-#macro UNIT_WALK_THRESHOLD 0.25 // minimum speed to show the walk sprite
-#macro UNIT_FACE_THRESHOLD 0.75  // minimum speed before image_xscale updates.
-                                 // Higher than UNIT_WALK_THRESHOLD so facing
-                                 // locks in before the walk sprite switches off,
-                                 // preventing the last frames of deceleration
-                                 // from flickering the unit's facing direction.
+#macro UNIT_WALK_THRESHOLD 0.125 // minimum speed to show the walk sprite -- 2026-10-14: halved from 0.25 with the unit speed halving, see .md
+#macro UNIT_FACE_THRESHOLD 0.2 // minimum speed before image_xscale updates -- 2026-10-14: was 0.75, which exceeded every unit's maxSpeed except Bomb Goblin after the speed halving; must stay below the slowest maxSpeed (Mud Golem 0.3), see .md
 
 /// @function UnitUpdateSprite(_unit)
-/// Updates sprite_index (idle vs walk), image_xscale (facing), and
-/// image_speed (match-speed-scaled) for the calling instance based on its
-/// agent's current velocity. Must be called from instance scope.
-///
-/// Rules:
-///   - Never interrupts an in-progress attack animation's sprite_index --
-///     but image_speed still gets refreshed even then (see below), so a
-///     mid-swing pause/speed-change is still honored every frame rather
-///     than only at the moment the swing began (UnitBeginSwing).
-///   - image_xscale only updates above UNIT_FACE_THRESHOLD so facing
-///     locks in during deceleration and doesn't flicker as the unit
-///     comes to a stop.
-///   - Only flips on meaningful horizontal movement (|velocity.x| > 0.1)
-///     so a unit moving purely vertically keeps its last facing direction.
-///
+/// @description Updates sprite_index (idle vs walk), image_xscale (facing), and image_speed (match-speed-scaled) from the calling instance's agent velocity. Must be called from instance scope. See .md for the full rule set.
 /// @param {Id.Instance} _unit
 function UnitUpdateSprite(_unit) {
-    // Every state's Step routes through here (directly or via
-    // UnitPursueTarget/UnitIdleInPlace) every frame, including mid-swing,
-    // so this is the one place that needs to track global.matchSpeed for
-    // ALL of a unit's animation (idle/walk/attack alike) to correctly
-    // freeze at 0x and speed up/down at 1x/2x/3x.
     _unit.image_speed = global.matchSpeed;
 
     if (_unit.sprite_index == _unit.sprAttack) return;
@@ -58,25 +23,15 @@ function UnitUpdateSprite(_unit) {
     var _vel   = _unit.agent.velocity;
     var _speed = _vel.Length();
 
-    // Facing updates at the higher threshold -- locks in before the
-    // sprite switches back to idle so there's no last-frame flip.
-    if (_speed > UNIT_FACE_THRESHOLD && abs(_vel.x) > 0.1) {
+    if (_speed > UNIT_FACE_THRESHOLD && abs(_vel.x) > 0.05) {
         _unit.image_xscale = (_vel.x >= 0) ? 1 : -1;
     }
 
-    // Sprite switches at the lower threshold.
     _unit.sprite_index = (_speed > UNIT_WALK_THRESHOLD) ? _unit.sprWalk : _unit.sprIdle;
 }
 
-// -----------------------------------------------------------
-// B. Play area
-// -----------------------------------------------------------
-
 /// @function InitPlayArea(_x1, _y1, _x2, _y2)
-/// Call once at game/room start with your actual coordinates.
-/// "Between the two castle fronts and above the UI strip" --
-/// replace the placeholder values below with real ones.
-///
+/// @description Call once at game/room start with real coordinates -- "between the two castle fronts and above the UI strip."
 /// @param {Real} _x1 Left edge (roughly: player castle front x)
 /// @param {Real} _y1 Top edge (top of the playfield)
 /// @param {Real} _x2 Right edge (roughly: enemy castle front x)
@@ -98,19 +53,8 @@ function InitPlayArea(_x1, _y1, _x2, _y2) {
 #macro PLAY_AREA_CONTAIN_MARGIN 8  // how far from the edge the nudge begins
 #macro PLAY_AREA_CONTAIN_WEIGHT 0.4 // low weight -- a soft suggestion, not a wall
 
-// -----------------------------------------------------------
-// B2. Team guard zones
-// -----------------------------------------------------------
-
 /// @function GetTeamGuardRect(_team)
-/// @description Returns a team's default guard patrol zone -- what
-///        oUnitParent assigns to guardRect at Create time. The player's
-///        zone is authored directly, sitting just in front of (i.e. on the
-///        battlefield side of) the player castle. Every other team's zone
-///        is derived by mirroring it across room_width -- the same axis
-///        oCastleManager uses for oPlayerCastle/oEnemyCastle and
-///        oOuterPlotSpawner uses for its plots -- so the enemy's zone ends
-///        up the same size, the same distance in front of its own castle.
+/// @description Returns a team's default guard patrol zone -- what oUnitParent assigns to guardRect at Create time. See .md for the mirroring logic.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @returns {Struct.ShapeRect}
 function GetTeamGuardRect(_team) {
@@ -128,25 +72,11 @@ function GetTeamGuardRect(_team) {
     );
 }
 
-// -----------------------------------------------------------
-// C. Shared order dispatch
-// -----------------------------------------------------------
-
 /// @function IssueOrderToUnits(_orderName, _units, _context)
-/// Issues a named order to an array of unit instances. Used by
-/// BOTH the player's SelectionController and the AI controller,
-/// so both paths go through the same Order.onIssue callback.
-///
-/// Does NOT handle targeting mode -- that's a player-UI concern
-/// managed by SelectionController. When the AI issues an order
-/// that would normally require a target click (e.g. "defend"),
-/// pass the target directly as _context here; the onIssue
-/// callback receives it either way.
-///
+/// @description Issues a named order to an array of unit instances. Used by both the player's SelectionController and the AI controller, so both go through the same Order.onIssue callback. Does NOT handle targeting mode -- see .md.
 /// @param {String}          _orderName
 /// @param {Array<Id.Instance>} _units
-/// @param {*}               [_context] Target instance, position,
-///        or whatever the order's onIssue expects.
+/// @param {*}               [_context] Target instance, position, or whatever the order's onIssue expects.
 function IssueOrderToUnits(_orderName, _units, _context = undefined) {
     var _order = GetOrder(_orderName);
     if (_order == undefined) {

@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"HubPauseMenuScripts",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"HubPauseMenuScripts",
+  "parent":{
+    "name":"Menus",
+    "path":"folders/Menus.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

@@ -1,0 +1,26 @@
+{
+  "$GMSound":"v2",
+  "%Name":"aConneliusSpeak",
+  "audioGroupId":{
+    "name":"audiogroup_default",
+    "path":"audiogroups/audiogroup_default",
+  },
+  "bitDepth":1,
+  "channelFormat":0,
+  "compression":0,
+  "compressionQuality":4,
+  "conversionMode":0,
+  "duration":0.17342404,
+  "exportDir":"",
+  "name":"aConneliusSpeak",
+  "parent":{
+    "name":"Dialogue",
+    "path":"folders/Sounds/Dialogue.yy",
+  },
+  "preload":false,
+  "resourceType":"GMSound",
+  "resourceVersion":"2.0",
+  "sampleRate":44100,
+  "soundFile":"aConneliusSpeak.wav",
+  "volume":0.5,
+}

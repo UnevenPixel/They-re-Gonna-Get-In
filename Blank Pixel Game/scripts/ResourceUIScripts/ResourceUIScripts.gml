@@ -1,31 +1,12 @@
-// -----------------------------------------------------------
-// ResourceUIScripts -- sResourceIcons lookup/translation (for embedding
-// resource icons in Scribble-formatted text) and the player's resource
-// bar HUD.
-//
-// sResourceIcons is a 10-frame sprite (16x16, origin Middle Center), one
-// icon per BASE resource, in this fixed order: wood, wheat, water, iron,
-// gold, meat, bones, coal, weapons, coins. xp and fateTokens are
-// deliberately NOT in this strip -- xp isn't spent the way the base 10
-// are (see ProgressionScripts.gml), and fateTokens are for a specific
-// future mechanic, not general spending -- neither gets an icon here.
-//
-// global.resourceIconOrder is a plain global array (not a #macro) so it's
-// allocated exactly once at game start rather than re-allocated every
-// time something reads it (a #macro expanding to an array literal would
-// build a fresh array at every reference site, including every frame
-// inside DrawResourceBar's loop below).
-// -----------------------------------------------------------
+// sResourceIcons lookup/translation for Scribble-formatted text, plus the
+// player's resource bar HUD. See ResourceUIScripts.md.
 
 global.resourceIconOrder = ["wood", "wheat", "water", "iron", "gold", "meat", "bones", "coal", "weapons", "coins"];
 
 /// @function ResourceIconIndex(_resource)
-/// @description Resolves a base-resource name to its frame index in
-///        sResourceIcons.
-/// @param {String} _resource One of the 10 base resource names (matches a
-///        key in global.resources / Cost -- see global.resourceIconOrder).
-/// @returns {Real} Frame index (0-9), or -1 if _resource isn't a base
-///        resource (e.g. "xp", "fateTokens", or an unrecognized string).
+/// @description Resolves a base-resource name to its frame index in sResourceIcons.
+/// @param {String} _resource One of the 10 base resource names.
+/// @returns {Real} Frame index (0-9), or -1 if _resource isn't a base resource.
 function ResourceIconIndex(_resource) {
     for (var i = 0; i < array_length(global.resourceIconOrder); i++) {
         if (global.resourceIconOrder[i] == _resource) return i;
@@ -34,30 +15,18 @@ function ResourceIconIndex(_resource) {
 }
 
 /// @function ResourceIconTag(_resource)
-/// @description Translates a base-resource name into the Scribble inline-
-///        sprite tag that renders its icon -- "[sResourceIcons,N]"; see
-///        Scribble's sprite-tag syntax (__scribble_gen_2_parser.gml).
+/// @description Translates a base-resource name into the Scribble inline-sprite tag that renders its icon.
 /// @param {String} _resource One of the 10 base resource names.
-/// @returns {String} The tag, or "" if _resource has no icon (xp,
-///        fateTokens, or unrecognized).
+/// @returns {String} The tag, or "" if _resource has no icon.
 function ResourceIconTag(_resource) {
     var _index = ResourceIconIndex(_resource);
     return (_index == -1) ? "" : $"[sResourceIcons,{_index}]";
 }
 
 /// @function CostToScribbleText(_cost)
-/// @description Builds a Scribble-formatted string for a Cost struct --
-///        one "[sResourceIcons,N]<amount>" run per non-zero base resource,
-///        in global.resourceIconOrder order, separated by double spaces.
-///        Feed the result into draw_text_scribble/draw_text_scribble_ext
-///        to render a building/unit's cost with icons inline (e.g. for a
-///        blueprint tooltip) instead of spelling out resource names.
-///        xp/fateTokens are skipped even if non-zero (no icon to show --
-///        see the file doc comment above).
+/// @description Builds a Scribble-formatted string for a Cost struct -- one icon+amount run per non-zero base resource. Feed into draw_text_scribble(_ext). xp/fateTokens are skipped (no icon). See .md.
 /// @param {Struct.Cost} _cost
-/// @returns {String} e.g. "[sResourceIcons,0]15  [sResourceIcons,9]10" for
-///        a cost of 15 wood + 10 coins. "" if the cost is entirely zero
-///        (or entirely xp/fateTokens).
+/// @returns {String} e.g. "[sResourceIcons,0]15  [sResourceIcons,9]10". "" if entirely zero.
 function CostToScribbleText(_cost) {
     var _text = "";
     for (var i = 0; i < array_length(global.resourceIconOrder); i++) {
@@ -72,22 +41,7 @@ function CostToScribbleText(_cost) {
 }
 
 /// @function CostToScribbleTextWithDiscount(_baseCost, _discountCost, _discountAvailable, _team)
-/// @description Builds the blueprint hover's cost row -- one
-///        "[icon]BasePrice (DiscountPrice)" run per non-zero base resource,
-///        in global.resourceIconOrder order -- 2026-07-09 request. The base
-///        price and the parenthesized discount price are colored
-///        INDEPENDENTLY of each other:
-///          - Base price renders in PLOT_HOVER_BAD_COLOR_TAG (red,
-///            PlotHoverScripts.gml) if _team can't currently afford that
-///            amount, default color otherwise.
-///          - Discount price renders in BLUEPRINT_DISCOUNT_UNAVAILABLE_COLOR_TAG
-///            (dark gray, BlueprintScripts.gml) whenever _discountAvailable is
-///            false -- i.e. no currently open plot would actually grant this
-///            building's discount, so the number is purely informational/
-///            theoretical right now -- regardless of whether _team could
-///            afford it. Only when _discountAvailable is true does it fall
-///            back to the same red-if-unaffordable/default-otherwise check
-///            the base price uses.
+/// @description Builds the blueprint hover's cost row -- "[icon]BasePrice (DiscountPrice)" per non-zero base resource. Base/discount prices are colored independently (unaffordable red, discount-unavailable gray). See .md.
 /// @param {Struct.Cost} _baseCost Typically _def.cost.
 /// @param {Struct.Cost} _discountCost Typically GetDiscountedCost(_def.cost, PLOT_BONUS_DISCOUNT_FRACTION).
 /// @param {Bool} _discountAvailable Whether any currently open plot grants the discount -- see GetBestAvailablePlacementCost (BlueprintScripts.gml).
@@ -119,40 +73,69 @@ function CostToScribbleTextWithDiscount(_baseCost, _discountCost, _discountAvail
     return _text;
 }
 
-// -----------------------------------------------------------
-// Resource bar HUD -- a single row of all 10 base-resource icons with the
-// team's current count next to each. No drag/click state (unlike
-// BlueprintController) so this is a plain function, not a struct -- call
-// once per Draw GUI event.
-// -----------------------------------------------------------
-
-#macro RESOURCE_BAR_ORIGIN_X     466 // center of the first (Wood) icon -- 2026-07-05 request
+#macro RESOURCE_BAR_ORIGIN_X     466 // center of the first (Wood) icon
 #macro RESOURCE_BAR_ORIGIN_Y     1060
 #macro RESOURCE_BAR_ICON_SPACING 148 // center-to-center between consecutive icons
 #macro RESOURCE_BAR_TEXT_GAP     10  // px from the icon's RIGHT EDGE (not center) to the count text
 
+#macro RESOURCE_BAR_UI_SCALE          2    // matches sMainUIBarBottom's draw scale (oUnitControl/Draw_64.gml)
+#macro RESOURCE_BAR_BOTTOM_Y          1080 // GUI Y of the UI bar's bottom edge, same call
+#macro RESOURCE_BAR_HOVER_NATIVE_H    22   // native px: the bottom strip of the UI bar that counts as "the resource bar" (== sMainUIResourceBarPopup's height)
+#macro RESOURCE_BAR_POPUP_SLIDE_PER_STEP 0.12 // 0..1 slide progress per draw frame
+#macro RESOURCE_SPEND_POPUP_SECONDS   2.5  // real seconds a "-##" popup lives
+#macro RESOURCE_SPEND_POPUP_RISE      60   // GUI px a popup floats up over its lifetime
+#macro RESOURCE_SPEND_POPUP_COLOR     c_red
+#macro RESOURCE_RATE_ZERO_COLOR       c_dkgray
+#macro RESOURCE_RATE_POSITIVE_COLOR   c_lime
+
+global.resourceSpendPopups = []; // { index, amount, age } -- player spends, drawn by DrawResourceBar
+global.resourceBarPopupK   = 0;  // 0..1 slide progress of sMainUIResourceBarPopup
+
+/// @function ResourceSpendPopupAdd(_resource, _amount)
+/// @description Queues a floating "-##" popup over _resource's slot in the resource bar. Ignored for resources with no bar icon (xp, fateTokens).
+/// @param {String} _resource
+/// @param {Real} _amount
+function ResourceSpendPopupAdd(_resource, _amount) {
+    var _index = ResourceIconIndex(_resource);
+    if (_index == -1) return;
+    array_push(global.resourceSpendPopups, { index: _index, amount: _amount, age: 0 });
+}
+
+/// @function GetTeamResourceRates(_team)
+/// @description Cumulative production per second of every base resource across _team's producing buildings, including garrison bonuses. Ignores spending.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @returns {Struct} resource name -> rate per second.
+function GetTeamResourceRates(_team) {
+    var _rates = {};
+    for (var i = 0; i < array_length(global.resourceIconOrder); i++) struct_set(_rates, global.resourceIconOrder[i], 0);
+
+    var _bonus = GetStationedPassiveBonuses(_team);
+    with (oResourceBuildingParent) {
+        if (team != _team || productionResource == undefined || productionRate <= 0) continue;
+        var _goldBonus = (productionResource == "gold") ? _bonus.goldProductionBonus : 0;
+        var _mult      = 1 + _bonus.allResourceProductionBonus + _goldBonus;
+        struct_set(_rates, productionResource, struct_get(_rates, productionResource) + productionRate * _mult);
+    }
+    return _rates;
+}
+
 /// @function DrawResourceBar(_team)
-/// @description Call once per Draw GUI event. Renders all 10 base-resource
-///        icons (sResourceIcons, in global.resourceIconOrder) in a single
-///        row starting at (RESOURCE_BAR_ORIGIN_X, RESOURCE_BAR_ORIGIN_Y) --
-///        that point is the CENTER of the first (Wood) icon, since
-///        sResourceIcons is origin-centered, same as every other UI sprite
-///        this project draws by center. Each subsequent icon sits
-///        RESOURCE_BAR_ICON_SPACING px to the right, center to center.
-///        _team's current count for that resource is drawn
-///        RESOURCE_BAR_TEXT_GAP px to the right of the icon's right EDGE
-///        (icon center + half the icon's width + the gap), vertically
-///        centered on the icon.
+/// @description Call once per Draw GUI event. Renders all 10 base-resource icons in a single row starting at (RESOURCE_BAR_ORIGIN_X, RESOURCE_BAR_ORIGIN_Y) (icon CENTER), with _team's current count drawn to the right of each. While the mouse is over the bar's bottom strip, sMainUIResourceBarPopup slides up over it and the counts become production rates; spend popups float above. See .md.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 function DrawResourceBar(_team) {
     var _halfIconWidth = sprite_get_width(sResourceIcons) / 2;
 
+    // hover slide (progress lives in a global; this runs once per frame)
+    var _mx = device_mouse_x_to_gui(0);
+    var _my = device_mouse_y_to_gui(0);
+    var _barH = RESOURCE_BAR_HOVER_NATIVE_H * RESOURCE_BAR_UI_SCALE;
+    var _hover = (_mx >= 0 && _mx <= sprite_get_width(sMainUIResourceBarPopup) * RESOURCE_BAR_UI_SCALE
+        && _my >= RESOURCE_BAR_BOTTOM_Y - _barH && _my <= RESOURCE_BAR_BOTTOM_Y);
+    global.resourceBarPopupK = clamp(global.resourceBarPopupK + (_hover ? RESOURCE_BAR_POPUP_SLIDE_PER_STEP : -RESOURCE_BAR_POPUP_SLIDE_PER_STEP), 0, 1);
+    var _k = global.resourceBarPopupK;
+
     draw_set_halign(fa_left);
     draw_set_valign(fa_middle);
-    // 2026-07-11 request: resource counts now use fntResource (was the
-    // default GML font) in HOVER_CARD_TEXT_COLOR (HoverCardScripts.gml) --
-    // matches every hover-data card's text color, so the bar reads as part
-    // of the same UI language instead of a separate default-white style.
     draw_set_font(fntResource);
     draw_set_color(HOVER_CARD_TEXT_COLOR);
 
@@ -166,6 +149,44 @@ function DrawResourceBar(_team) {
         var _amount = struct_get(global.resources[_team], _resource);
         draw_text(_cx + _halfIconWidth + RESOURCE_BAR_TEXT_GAP, _cy, string(_amount));
     }
+
+    // Popup slides up from below the screen edge to sit exactly over the bar strip (sprite origin is bottom-left).
+    if (_k > 0) {
+        var _ease  = _k * _k * (3 - 2 * _k);
+        var _slide = (1 - _ease) * _barH;
+        draw_sprite_ext(sMainUIResourceBarPopup, 0, 0, RESOURCE_BAR_BOTTOM_Y + _slide, RESOURCE_BAR_UI_SCALE, RESOURCE_BAR_UI_SCALE, 0, c_white, 1);
+
+        var _rates = GetTeamResourceRates(_team);
+        for (var i = 0; i < array_length(global.resourceIconOrder); i++) {
+            var _cx2 = RESOURCE_BAR_ORIGIN_X + i * RESOURCE_BAR_ICON_SPACING;
+            var _cy2 = RESOURCE_BAR_ORIGIN_Y + _slide;
+            var _rate = struct_get(_rates, global.resourceIconOrder[i]);
+
+            draw_sprite(sResourceIcons, i, _cx2, _cy2);
+            draw_set_color(_rate > 0 ? RESOURCE_RATE_POSITIVE_COLOR : RESOURCE_RATE_ZERO_COLOR);
+            draw_text(_cx2 + _halfIconWidth + RESOURCE_BAR_TEXT_GAP, _cy2, $"{round(_rate * 100) / 100}/s");
+        }
+    }
+
+    // Spend popups: "-##" in red, float up and fade over RESOURCE_SPEND_POPUP_SECONDS.
+    var _dt = delta_time / 1000000;
+    for (var p = array_length(global.resourceSpendPopups) - 1; p >= 0; p--) {
+        var _pop = global.resourceSpendPopups[p];
+        _pop.age += _dt;
+        if (_pop.age >= RESOURCE_SPEND_POPUP_SECONDS) {
+            array_delete(global.resourceSpendPopups, p, 1);
+            continue;
+        }
+        var _t = _pop.age / RESOURCE_SPEND_POPUP_SECONDS;
+        draw_set_alpha(1 - _t);
+        draw_set_color(RESOURCE_SPEND_POPUP_COLOR);
+        draw_text(
+            RESOURCE_BAR_ORIGIN_X + _pop.index * RESOURCE_BAR_ICON_SPACING + _halfIconWidth + RESOURCE_BAR_TEXT_GAP,
+            RESOURCE_BAR_ORIGIN_Y - 24 - _t * RESOURCE_SPEND_POPUP_RISE,
+            $"-{_pop.amount}"
+        );
+    }
+    draw_set_alpha(1);
 
     // Reset to the default font -- nothing else in this project calls
     // draw_set_font, so every other draw_text call this frame relies on

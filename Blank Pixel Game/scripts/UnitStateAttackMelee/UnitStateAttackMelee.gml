@@ -1,3 +1,7 @@
+// FSM state "attack" -- melee assault on attackBuildingTarget, with a
+// DEFENDER sub-phase for nearby enemies. FLAGGED/load-bearing state file.
+// See UnitStateAttackMelee.md.
+
 #macro ATTACK_BUILDING_HALF   24   // half of 48x48, for edge-distance calc
 #macro ATTACK_PHASE_APPROACH  "approach"  // moving toward the building
 #macro ATTACK_PHASE_SWING     "swing"     // playing attack animation on building
@@ -5,37 +9,7 @@
 #macro ATTACK_PHASE_DEFENDER  "defender"  // temporarily fighting a defending unit
 
 /// @function NearestBuildingEdgePoint(_building, _fromPos)
-/// Returns the nearest point on the building's bounding box edge
-/// to the given position -- used so the unit targets the surface
-/// of the building rather than its center, which would put the
-/// attack trigger point 24px inside the building.
-///
-/// 2026-07-13 bugfix ("soldiers in the center of the wheat field" report):
-/// a plain clamp() of _fromPos to the box only produces a point ON the
-/// edge when _fromPos starts OUTSIDE the box -- if _fromPos is already
-/// INSIDE (both axes already within range), clamp() is a no-op and just
-/// hands back _fromPos itself, i.e. "the nearest edge point" degenerates
-/// into wherever the unit already happens to be standing, dead center
-/// included. That's reachable in practice because buildings were dropped
-/// from units' hard collision list back on 2026-07-06 (move_and_collide
-/// only checks oEnvironmentSolid now) -- Steering_AvoidObstacles is a soft
-/// lookahead force, not a wall, so a unit converging on a small building
-/// alongside allies (separation pressure) or approaching at a sharp angle
-/// can clip past the corner the feeler missed and end up inside. Once
-/// inside, Attack_Step/AttackRanged_Step read _distToEdge as ~0 and the
-/// unit just locks in place right there instead of continuing out to the
-/// real surface.
-///
-/// Now explicitly detects the inside case and pushes back out to whichever
-/// side has the least penetration depth, same "always a real point on the
-/// actual perimeter, never the interior" guarantee CastleFrontEdgePoint
-/// (CastleScripts.gml) already gives for the castle (it sidesteps this
-/// entirely by always returning a fixed edge-line X rather than blending
-/// toward _fromPos). Since this function is called fresh every step, a
-/// unit that's already stuck inside from before this fix self-corrects
-/// the very next frame -- UnitPursueTarget just steers it out to the
-/// newly-correct edge point (buildings still don't hard-block movement,
-/// so nothing stops it walking back out).
+/// @description Returns the nearest point on the building's bounding box edge to _fromPos, so the unit targets the building's surface rather than its center. Explicitly handles the case where _fromPos is already INSIDE the box (a plain clamp() would be a no-op there) -- see UnitStateAttackMelee.md, do not revert to a plain clamp().
 /// @param {Id.Instance}    _building
 /// @param {Struct.Vector2} _fromPos
 /// @returns {Struct.Vector2}
@@ -74,14 +48,8 @@ function NearestBuildingEdgePoint(_building, _fromPos) {
     return new Vector2(_cx, _cy);
 }
 
-// -----------------------------------------------------------
-// attack
-// -----------------------------------------------------------
-
 /// @function Attack_Enter(_unit, _machine)
-/// @description StateMachine onEnter for "attack". Bails back to "guard" if the
-///        building target is already gone; otherwise resets phase/cooldown/defender
-///        tracking and starts from the idle sprite.
+/// @description StateMachine onEnter for "attack". Bails back to "guard" if the building target is already gone; otherwise resets phase/cooldown/defender tracking and starts from the idle sprite.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Attack_Enter(_unit, _machine) {
@@ -101,17 +69,12 @@ function Attack_Enter(_unit, _machine) {
 }
 
 /// @function Attack_Step(_unit, _machine)
-/// @description StateMachine onStep for "attack". Drives the approach/swing/recover
-///        cycle against attackBuildingTarget, with a DEFENDER sub-phase that
-///        interrupts to fight off a nearby enemy unit before resuming the building.
+/// @description StateMachine onStep for "attack". Drives the approach/swing/recover cycle against attackBuildingTarget, with a DEFENDER sub-phase that interrupts to fight off a nearby enemy unit before resuming the building. See .md for the phase priority order.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Attack_Step(_unit, _machine) {
 
-    // -----------------------------------------------------------
-    // Building validation -- check every frame
-    // -----------------------------------------------------------
-
+    // Building validation -- check every frame.
     if (!instance_exists(_unit.attackBuildingTarget)) {
         // Building is gone -- job done, return to guard.
         _machine.ChangeState("guard");
@@ -122,14 +85,9 @@ function Attack_Step(_unit, _machine) {
     var _edgePos      = NearestBuildingEdgePoint(_unit.attackBuildingTarget, _unit.agent.pos);
     var _distToEdge   = _unit.agent.pos.Distance(_edgePos);
 
-    // -----------------------------------------------------------
-    // Phase: DEFENDER (highest priority -- always checked first)
-    // If a defender was engaged, keep fighting it until it's gone
-    // or it retreats out of aggro range, then fall back to the
-    // building. Swapping back to APPROACH (not SWING) means the
-    // unit will re-check distance and cooldown cleanly.
-    // -----------------------------------------------------------
-
+    // Phase: DEFENDER (highest priority -- always checked first). Keep
+    // fighting until the defender is gone or retreats out of aggro range,
+    // then fall back to the building via APPROACH.
     if (_machine.data.phase == ATTACK_PHASE_DEFENDER) {
 
         var _def = _machine.data.defenderTarget;
@@ -154,8 +112,7 @@ function Attack_Step(_unit, _machine) {
 
         // Pursue and attack the defender using the same three-sub-phase
         // logic as the combat state, but driven from inside attack's
-        // DEFENDER phase rather than a separate FSM state, so the
-        // building target is preserved throughout.
+        // DEFENDER phase so the building target is preserved throughout.
         if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer -= global.matchSpeed;
 
         if (_defDist > _unit.attackRange) {
@@ -182,14 +139,9 @@ function Attack_Step(_unit, _machine) {
         return; // don't fall through to building phases this frame
     }
 
-    // -----------------------------------------------------------
-    // Aggro check -- runs every frame outside of DEFENDER phase.
-    // If a nearby enemy unit enters aggro range, interrupt the
-    // current building phase and engage them first.
-    // Note: only interrupts APPROACH or RECOVER, not mid-SWING.
-    // A swing already in progress always completes first.
-    // -----------------------------------------------------------
-
+    // Aggro check -- runs every frame outside of DEFENDER phase. Only
+    // interrupts APPROACH or RECOVER, not mid-SWING; a swing in progress
+    // always completes first.
     if (_machine.data.phase != ATTACK_PHASE_SWING) {
         var _defender = ChooseCombatTarget(_unit, _unit.attackAggroRadius);
         if (_defender != noone) {
@@ -201,15 +153,12 @@ function Attack_Step(_unit, _machine) {
         }
     }
 
-    // -----------------------------------------------------------
-    // Phase: APPROACH
-    // -----------------------------------------------------------
-
+    // Phase: APPROACH.
     if (_machine.data.phase == ATTACK_PHASE_APPROACH) {
         _unit.sprite_index = _unit.sprIdle;
 
-        // Seek the nearest edge point rather than the center, so
-        // the unit's attack range triggers at the building's surface.
+        // Seek the nearest edge point rather than the center, so the
+        // unit's attack range triggers at the building's surface.
         UnitPursueTarget(_unit, _edgePos, new Vector2(0, 0));
 
         if (_machine.data.cooldownTimer > 0) _machine.data.cooldownTimer -= global.matchSpeed;
@@ -220,10 +169,7 @@ function Attack_Step(_unit, _machine) {
         }
     }
 
-    // -----------------------------------------------------------
-    // Phase: SWING (attacking the building)
-    // -----------------------------------------------------------
-
+    // Phase: SWING (attacking the building).
     else if (_machine.data.phase == ATTACK_PHASE_SWING) {
         UnitIdleInPlace(_unit);
         UnitTryDealDamage(_unit, _unit.attackBuildingTarget, _machine);
@@ -235,15 +181,12 @@ function Attack_Step(_unit, _machine) {
         }
     }
 
-    // -----------------------------------------------------------
-    // Phase: RECOVER (cooldown between building swings)
-    // -----------------------------------------------------------
-
+    // Phase: RECOVER (cooldown between building swings).
     else if (_machine.data.phase == ATTACK_PHASE_RECOVER) {
         _machine.data.cooldownTimer -= global.matchSpeed;
 
-        // Hug the building edge during recovery so the unit is
-        // already in position when the cooldown expires.
+        // Hug the building edge during recovery so the unit is already in
+        // position when the cooldown expires.
         if (_distToEdge > _unit.attackRange) {
             UnitPursueTarget(_unit, _edgePos, new Vector2(0, 0));
         } else {
@@ -257,8 +200,7 @@ function Attack_Step(_unit, _machine) {
 }
 
 /// @function Attack_Exit(_unit, _machine)
-/// @description StateMachine onExit for "attack". Ends any in-progress swing and
-///        clears building/defender target tracking.
+/// @description StateMachine onExit for "attack". Ends any in-progress swing and clears building/defender target tracking.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function Attack_Exit(_unit, _machine) {

@@ -1,0 +1,12 @@
+{
+  "$GMShader":"",
+  "%Name":"shFlagWave",
+  "name":"shFlagWave",
+  "parent":{
+    "name":"TitleOptions",
+    "path":"folders/Menus/TitleScreen/TitleOptions.yy",
+  },
+  "resourceType":"GMShader",
+  "resourceVersion":"2.0",
+  "type":1,
+}

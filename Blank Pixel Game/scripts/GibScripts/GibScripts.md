@@ -1,70 +1,47 @@
 # GibScripts
 
-Gibbing/blood-particle system: on-hit blood pixels, on-death chunks/unique gib/splatter/blood pixels, and the shared "fake gravity arc, land, stamp to a persistent surface" physics behind all of it. 2026-07-12 request.
+Gibbing/blood-particle system for all units on death or hit (except Mud Golem, handled separately). Owns the physics for flying debris (`oGibDebris`), spawn helpers that configure one for a specific job (general chunk / a unit's own unique gib / a single-pixel blood particle), the instant (no-physics) blood splatter stamp, and the two orchestrators everything else calls: `SpawnUnitHitBlood` (non-lethal hit) and `SpawnUnitDeathGibs` (death) -- both called from `ApplyDamage` (`UnitCombatHelpers.gml`), the one choke point ALL damage in this game already routes through (melee AND ranged/projectile alike), so hooking there is the only place this needed to be wired in.
 
-## Core idea
+Mud Golem is excluded from BOTH orchestrators entirely (hard-exits immediately) per explicit request -- "except the golem, we will handle his" covers hit particles too, not just the death sequence, since he's hit constantly in normal play and the request was clear this should be fully hands-off for him.
 
-Every "gore" system in this game (`oGibDebris`) shares ONE physics model: a real ground position (`x, y`) that slides via `vx, vy` with friction (the "flung away from who killed them" component), and a purely visual height (`z, vz`) that pops up and falls back down under fake gravity (the "arch" component). Landing — `z` crossing back through 0 — is "stopped moving": the debris stamps its current appearance onto a persistent surface (`global.gibSurface`, owned by `oGibSurfaceControl`) and destroys itself. Blood splatters skip all of this and stamp instantly, no live instance at all.
+Every landed piece of debris (and every instant splatter) gets stamped onto `global.gibSurface` (`oGibSurfaceControl.gml`) and then either destroys itself (debris) or was never a live instance at all (splatter) -- gore accumulates as pixels on one surface, not as a permanently growing pile of live instances.
 
-Everything is wired into `ApplyDamage` (`UnitCombatHelpers.gml`) — the single choke point every damage source (melee AND ranged/projectile) already routes through — so no other combat file needed to change.
+## Debris physics (oGibDebris)
 
-**Mud Golem is excluded from the entire system** (hit particles AND death gibs), per explicit request ("we will handle his").
+`GibDebrisStep` -- ground position (x, y) slides via vx/vy, dragged down every step by `GIB_GROUND_FRICTION` (the "flung away from who killed them" half). `z` is a SEPARATE, purely visual height, pulled back down by `GIB_GRAVITY` every step (the "arch" half) -- it never feeds back into x/y. Landing is detected the instant `z` crosses back down through 0 having been above it (guards against triggering on the spawn frame, before the initial "pop" has even been applied) -- at that point `GibDebrisLand` stamps + destroys it.
+
+`GibDebrisDraw` draws at `(x, y - z)` -- the z offset is what makes the arch visible. `kind == "pixel"` draws a flat-color square (same `draw_rectangle` idiom as `oResourceProducedParticle`'s "square" kind); `kind == "sprite"` draws `gibSprite`'s frame with current rotation.
+
+`GibDebrisLand` stamps the debris's current appearance onto `global.gibSurface` at its final resting position, then destroys the instance. No-ops the stamp (still destroys) if the surface has been lost and not yet recreated this frame -- belt-and-suspenders, `oGibSurfaceControl.Step` normally beats every `oGibDebris` to it.
+
+## Spawn helpers
+
+`GibFlingAngle` computes the direction debris should travel: straight out along the line from the killer through the victim, plus random scatter. Falls back to a fully random angle if no attributable killer position is given.
+
+`SpawnGibDebrisSprite` spawns one sprite-kind debris -- used for both the shared `sGeneralChunks` burst and a unit's own unique `gibSprite`. Picks a random frame if the sprite has more than one (general chunks/splatters do; per-unit gibs are single-frame, no-op there).
+
+`SpawnColorPixel` spawns one pixel-kind debris -- a single 1px flat-color dot, randomly interpolated between a dark and bright color (same `merge_color(..., random(1))` idiom `SpawnResourceProducedParticles` uses). Generalized from an earlier `SpawnBloodPixel` (hardcoded to blood-red) so `SpawnBuildingHitParticles`' gray particles can reuse the exact same physics profile -- the `BLOOD_PIXEL_*` physics macro names are stale (kept as-is to avoid an unrelated rename) but now describe "single pixel particle" physics generically, not blood specifically.
+
+`SpawnBloodPixel` is a thin `BLOOD_PIXEL_COLOR_DARK`/`BRIGHT` wrapper around `SpawnColorPixel` -- unchanged signature from before the generalization.
+
+`DrawBloodSplatterInstant` stamps one random `sGeneralSplatters` frame directly onto `global.gibSurface` -- NO live instance, no physics, an instant draw.
+
+## Orchestrators
+
+`SpawnUnitHitBlood(_unit, _source)` -- spawns 2-4 blood pixels at a unit's position on every non-lethal hit. Mud Golem excluded (hard exit).
+
+`SpawnBuildingHitParticles(_building, _source)` -- the building equivalent, 2-4 gray particles on every non-lethal hit, reusing the same pixel-kind physics as blood but in gray tones (buildings don't bleed). No Mud Golem-style exclusion (buildings have no such concept). Reads an optional per-building color override off `BuildingDefinition.hitParticleColorDark`/`Bright`; falls back to the shared gray macros when unset (every building today).
+
+`SpawnUnitDeathGibs(_unit, _source)` -- the full on-death sequence, in order: (1) instant blood splatter, always, including Bomb Goblin; (2) 3-5 general chunks, only if `UnitDefinition.usesGeneralChunks` is true (false only for Bomb Goblin); (3) the unit's own unique gib, only if `UnitDefinition.gibSprite` is registered; (4) 4-8 more blood pixels, always. Mud Golem excluded (hard exit). Must be called BEFORE the caller destroys the unit -- reads `_unit.x`/`_unit.y`/`_unit.object_index`, which need the instance to still exist.
+
+## Macros
+
+`GIB_GRAVITY`/`GIB_GROUND_FRICTION`/`GIB_SPIN_SPEED` -- placeholder physics tuning, not tuned against any real fall-time target. `GIB_FLING_SPEED_MIN/MAX`/`GIB_FLING_SPREAD`/`GIB_POP_MIN/MAX` -- general chunks + unique gibs. `BLOOD_PIXEL_*` -- smaller/quicker/wider-scattering than chunks (see spawn helpers above re: the stale naming). `GIB_HIT_PARTICLE_MIN/MAX` (2-4), `GIB_DEATH_PARTICLE_MIN/MAX` (4-8), `GIB_CHUNK_COUNT_MIN/MAX` (3-5, not spec'd -- picked to read as "a few pieces," not a pile). `BUILDING_HIT_PARTICLE_COLOR_DARK/BRIGHT` -- flat grays, explicit placeholder ("default everything to shades of gray for now"); `BuildingDefinition.hitParticleColorDark/Bright` lets a future pass override per building type without touching this file. `GIB_BUILDING_HIT_PARTICLE_MIN/MAX` (2-4) -- count not spec'd, matched to the unit hit-particle range for a consistent feel.
 
 ## API
 
-### `oGibSurfaceControl` (object, one instance per match)
-
-Owns `global.gibSurface` (`surface_create(room_width, room_height)`), recreates it if lost (`Step`), and draws it (`Draw`) at `depth = room_height + 1` (positive, changed 2026-07-12 follow-up) — since `depth = -y` for every y-sorted instance in this project only ever ranges `-room_height` to `0`, any positive depth draws BEFORE all of them, so the gib surface now renders behind units/buildings instead of on top.
-
-### `oGibDebris` (object, one instance per flying chunk/gib/blood pixel)
-
-Fields set by the spawn helpers below (not meaningful before that): `kind` (`"sprite"` or `"pixel"`), `gibSprite`/`frame`/`angle`/`spinSpeed` (kind `"sprite"`), `pixelColor`/`pixelSize` (kind `"pixel"`), `vx`/`vy`/`z`/`vz` (physics).
-
-- `GibDebrisStep(_debris)` — one step of the physics model above. Called from the object's own Step event.
-- `GibDebrisDraw(_debris)` — draws at `(x, y - z)`. Called from the object's own Draw event.
-- `GibDebrisLand(_debris)` — stamps onto `global.gibSurface` at the final `(x, y)`, then `instance_destroy`s. Called internally by `GibDebrisStep` the instant `z` lands back at 0.
-
-### Spawn helpers
-
-- `GibFlingAngle(_x, _y, _sourceX, _sourceY, _spread)` → direction (degrees) along the killer→victim line, +/- random `_spread`. Falls back to a fully random angle if `_sourceX` is `undefined` (no attributable killer).
-- `SpawnGibDebrisSprite(_x, _y, _sourceX, _sourceY, _sprite)` → one sprite-kind `oGibDebris` (random frame/rotation/spin, `GIB_FLING_*`/`GIB_POP_*` physics range). Used for both the shared `sGeneralChunks` burst and a unit's own unique gib.
-- `SpawnColorPixel(_x, _y, _sourceX, _sourceY, _colorDark, _colorBright)` → one pixel-kind `oGibDebris` (`BLOOD_PIXEL_*` physics range — the name is now stale/generic, describes "single pixel particle" physics, not blood specifically — color randomly interpolated `_colorDark`→`_colorBright`). Added 2026-07-12 follow-up as the generalized base under `SpawnBloodPixel`.
-- `SpawnBloodPixel(_x, _y, _sourceX, _sourceY)` → thin `SpawnColorPixel` wrapper fixed to `BLOOD_PIXEL_COLOR_DARK`→`BRIGHT` (red tones). Unchanged signature/behavior from before the generalization.
-- `DrawBloodSplatterInstant(_x, _y)` → stamps a random `sGeneralSplatters` frame straight onto `global.gibSurface`, no instance, no physics.
-
-### Orchestrators (call these; everything above is plumbing)
-
-- `SpawnUnitHitBlood(_unit, _source)` — non-lethal unit hit: `GIB_HIT_PARTICLE_MIN`-`MAX` (2-4) blood pixels. Called from `ApplyDamage`'s non-lethal branch (unit case). Hard-exits immediately if `_unit.object_index == oMudGolemUnit`.
-- `SpawnUnitDeathGibs(_unit, _source)` — death: instant splatter (always) → `GIB_CHUNK_COUNT_MIN`-`MAX` (3-5) general chunks (only if `UnitDefinition.usesGeneralChunks`) → the unit's own unique gib (only if `UnitDefinition.gibSprite` is set) → `GIB_DEATH_PARTICLE_MIN`-`MAX` (4-8) blood pixels. Called from `ApplyDamage`'s lethal branch, BEFORE `instance_destroy` (reads `_target.x`/`y`/`object_index`). Hard-exits immediately if `_unit.object_index == oMudGolemUnit`.
-- `SpawnBuildingHitParticles(_building, _source)` — non-lethal building hit, added 2026-07-12 follow-up ("add grey particles to buildings when they are hit"): `GIB_BUILDING_HIT_PARTICLE_MIN`-`MAX` (2-4) single-pixel particles via `SpawnColorPixel`, gray by default (`BUILDING_HIT_PARTICLE_COLOR_DARK`/`BRIGHT`) unless `BuildingDefinition.hitParticleColorDark`/`hitParticleColorBright` is set for that building type (both `undefined` today — every building uses the shared gray). Called from `ApplyDamage`'s non-lethal branch (building/else case). No death-particle equivalent exists for buildings — the request only covered hits, not destruction.
-
-### Per-unit data (`UnitDefinitions.gml`)
-
-- `UnitDefinition.gibSprite` — this unit's unique on-death gib sprite, or `undefined`. Set for Peasant/Soldier/Archer/Knight (`sPeasantGib`/`sSoldierGib`/`sArcherGib`/`sKnightGib`). Not set for Bomb Goblin (no sprite exists) or Mud Golem (excluded entirely).
-- `UnitDefinition.usesGeneralChunks` — `true` by default; `false` only for Bomb Goblin (already has its own explosion animation, no unique gib sprite either — general debris would look mismatched).
-
-### Per-building data (`BuildingDefinitions.gml`)
-
-- `BuildingDefinition.hitParticleColorDark` / `hitParticleColorBright` — optional per-building-type override for `SpawnBuildingHitParticles`' color range. Both `undefined` for every registered building today (falls back to the shared gray macros) — placeholder for a future pass giving each building type its own color, per the request ("we will make specific color coded particles for each building later").
-
-## Usage
-
-```gml
-// ApplyDamage (UnitCombatHelpers.gml), non-lethal branch
-if (variable_instance_exists(_target, "fsm")) {
-    SpawnUnitHitBlood(_target, _source);
-}
-
-// ApplyDamage, lethal branch, BEFORE instance_destroy(_target)
-if (variable_instance_exists(_target, "fsm")) {
-    SpawnUnitDeathGibs(_target, _source);
-}
-```
-
-## Known assumptions / scope limits (flag if wrong)
-
-- Mud Golem excluded from BOTH hit particles and death gibs, not just death -- explicit 2026-07-12 clarification ("we will handle his" covers everything this pass).
-- Chunk count (3-5) isn't specified by the request ("most all units") -- picked to read as "a few pieces," not a pile. Same for the exact `GIB_*`/`BLOOD_PIXEL_*` physics constants -- all placeholders, not tuned.
-- "When they stop moving" is interpreted as "the vertical arc (`z`) has completed" -- the ground-plane slide (`vx`/`vy`) keeps decaying independently via friction and is never separately checked against a stop threshold. In practice friction is high enough that horizontal motion is negligible by the time the arc lands, but it's not an exact "both velocities near zero" check.
-- Lost-surface recovery (`oGibSurfaceControl.Step`) recreates a BLANK surface -- every gib stamped before the loss is gone. No persistence-across-loss was requested; flag if that turns out to matter in practice (e.g. frequent window resizing during play).
-- Splatters/chunks/pixels are stamped at the dying/hit unit's raw `(x, y)` (typically feet position) -- no per-unit offset tuning.
+- `GibDebrisStep(_debris)`, `GibDebrisDraw(_debris)`, `GibDebrisLand(_debris)` -- called from oGibDebris's own Step/Draw events.
+- `GibFlingAngle(_x, _y, _sourceX, _sourceY, _spread)`.
+- `SpawnGibDebrisSprite(_x, _y, _sourceX, _sourceY, _sprite)`, `SpawnColorPixel(_x, _y, _sourceX, _sourceY, _colorDark, _colorBright)`, `SpawnBloodPixel(_x, _y, _sourceX, _sourceY)`.
+- `DrawBloodSplatterInstant(_x, _y)`.
+- `SpawnUnitHitBlood(_unit, _source)`, `SpawnBuildingHitParticles(_building, _source)`, `SpawnUnitDeathGibs(_unit, _source)`.

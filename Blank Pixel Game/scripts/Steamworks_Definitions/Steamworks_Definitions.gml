@@ -1,4 +1,5 @@
-
+// Vendored Steamworks C++ SDK enum mirrors -- comments on individual
+// members are Valve's own SDK docs. See Steamworks_Definitions.md.
 
 // SteamPartiesBeaconLocationType
 enum STEAM_PARTIES_BEACON_LOCATION

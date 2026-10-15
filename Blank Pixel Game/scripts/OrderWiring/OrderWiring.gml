@@ -1,11 +1,10 @@
-// -----------------------------------------------------------
-// Order registration (call once, e.g. a game-start script)
-// -----------------------------------------------------------
+// Registers every player-issuable Order (guard/defend/attack/siege/station)
+// with the global order registry. LOAD-BEARING: drives fsm.ChangeState for
+// guard/defend/attack/siege/station -- flag before changing (CLAUDE.md).
+// See OrderWiring.md.
 
 /// @function RegisterAllOrders()
-/// @description Registers every player-issuable Order with the global order
-///        registry (see RegisterOrder in UnitSelection.gml). Call once at game
-///        start -- currently wired from oGameControl's Create event.
+/// @description Registers every player-issuable Order (see RegisterOrder, UnitSelection.gml). Call once at game start -- wired from oGameControl's Create event. See .md.
 function RegisterAllOrders() {
     RegisterOrder(new Order("guard", "Guard"));   // default onIssue: fsm.ChangeState("guard")
     RegisterOrder(new Order(
@@ -14,60 +13,31 @@ function RegisterAllOrders() {
         function(_units, _context) {
             // _context is the clicked building instance.
             for (var i = 0; i < array_length(_units); i++) {
-                // Guard against a unit that died between selection/order-
-                // issue and this callback running -- see PruneDeadSelected
-                // in UnitSelection.gml and NIGHTLY_REVIEW_2026-07-09.md §3.1.
                 if (!instance_exists(_units[i])) continue;
                 _units[i].defendTarget = _context;
-                // 2026-07-13 bugfix: _force = true. ChangeState no-ops if the
-                // unit is ALREADY in "defend" (StateMachine.gml) -- without
-                // forcing, reassigning a unit that's already defending one
-                // building to a DIFFERENT one (e.g. AI_Defending_Step
-                // redirecting defenders to a newly-threatened building,
-                // AIControl.gml) would silently do nothing: defendTarget
-                // above updates, but Defend_Enter never re-runs to rebuild
-                // the patrol waypoints from it, so the unit just keeps
-                // patrolling its OLD building forever. Forcing re-entry
-                // makes every "defend" order -- reassignment or not --
-                // actually (re)commit to whatever target was just set. See
-                // Defend_Exit's doc comment (UnitStateDefend.gml) for the
-                // other half of this fix (it no longer clears defendTarget
-                // on exit, which would otherwise wipe the new target we just
-                // assigned above before Defend_Enter ever reads it).
+                // LOAD-BEARING: _force = true is required so a unit already
+                // in "defend" actually re-enters on reassignment -- see .md
+                // (pairs with Defend_Exit's own fix, UnitStateDefend.gml).
+                // Do not remove without re-reading both halves together.
                 _units[i].fsm.ChangeState("defend", true);
             }
         },
         true, // requiresTarget = true -- menu click starts targeting mode
         function(_instance, _team) {
-            // Only own-team buildings are valid defend targets. _team is
-            // the ordering side's own team, passed through by whatever's
-            // driving targeting (see SelectionController.UpdateTargeting) --
-            // no more hardcoded TEAM.PLAYER assumption, so this now works
-            // the same regardless of which side issues "defend".
+            // Only own-team buildings are valid defend targets.
             return object_is_ancestor(_instance.object_index, oBuildingParent)
                 && _instance.team == _team;
         }
     ));
 
-    // "attack" needs a target to actually be useful -- onIssue here
-    // expects _context to be the clicked building/unit instance, set
-    // on each unit before transitioning. Replace with however your
-    // combat states actually consume a target (e.g. writing into
-    // _machine.data instead, if using the StateMachine.data pattern).
-    //
-    // FLAG (FSM/order wiring -- CLAUDE.md calls this load-bearing): the
-    // state a unit enters now depends on its UnitDefinition tags --
-    // "ranged"-tagged units (currently just Archer) go to "attackRanged"
-    // (UnitStateAttackRanged.gml, fires projectiles) instead of "attack"
-    // (UnitStateAttackMelee.gml, instant melee hit). Both states expect the
-    // exact same attackBuildingTarget contract, so this is the only line
-    // that changed in this order's onIssue.
+    // LOAD-BEARING: state routing depends on UnitDefinition tags -- see .md.
+    // Do not collapse to a single state without re-checking both attack
+    // states' attackBuildingTarget contracts.
     RegisterOrder(new Order(
         "attack",
         "Attack Building",
         function(_units, _context) {
             for (var i = 0; i < array_length(_units); i++) {
-                // Same dead-unit guard as "defend" above.
                 if (!instance_exists(_units[i])) continue;
                 _units[i].attackBuildingTarget = _context;
                 var _state = UnitHasTag(_units[i], "ranged") ? "attackRanged" : "attack";
@@ -77,9 +47,6 @@ function RegisterAllOrders() {
         true, // requiresTarget
         function(_instance, _team) {
             // Only enemy (non-own-team) buildings are valid attack targets.
-            // Same _team-passthrough fix as "defend" above -- "!= _team"
-            // rather than "== TEAM.ENEMY" so this reads correctly no matter
-            // which side is issuing "attack".
             return object_is_ancestor(_instance.object_index, oBuildingParent)
                 && _instance.team != _team;
         }
@@ -89,30 +56,13 @@ function RegisterAllOrders() {
         // No target click needed -- GetEnemyCastle() finds the castle
         // automatically inside Siege_Enter. Just flip the state.
         for (var i = 0; i < array_length(_units); i++) {
-            // Same dead-unit guard as "defend"/"attack" above.
             if (!instance_exists(_units[i])) continue;
             _units[i].fsm.ChangeState("siege");
         }
     }));
 
-    // "station" -- 2026-07-11: stationing is now built (UnitStateStation.gml
-    // registers a real "station" state on every unit's StateMachine, see
-    // oUnitParent/Create_0.gml). No target click needed, same as "siege" --
-    // Station_Enter resolves the unit's own castle automatically.
-    //
-    // 2026-07-12: stationing now costs gold (UnitDefinition.stationCost,
-    // via GetUnitStationCost -- StationScripts.gml). Issuing to multiple
-    // selected units at once sorts them CHEAPEST FIRST, then walks the
-    // sorted list purchasing + dispatching one at a time -- per the
-    // request: "If multiple units are selected to station, and the player
-    // can't afford to station all of them... selecting the cheapest
-    // options to station, and do as many as the player can afford." A unit
-    // whose Purchase fails is simply skipped (not dispatched, nothing
-    // spent for it) and the loop continues rather than stopping outright --
-    // today's cost is gold-only, so once the cheapest-remaining unit can't
-    // be afforded nothing pricier after it can either, but continuing
-    // (instead of breaking) keeps this correct if stationCost ever grows
-    // into a multi-resource Cost.
+    /// station costs gold and, when issued to multiple units at once, sorts
+    /// cheapest-first and dispatches as many as affordable -- see .md.
     RegisterOrder(new Order("station", "Station", function(_units, _context) {
         var _alive = [];
         for (var i = 0; i < array_length(_units); i++) {
@@ -133,7 +83,6 @@ function RegisterAllOrders() {
         }
     }));
 
-    // "combat" is intentionally NOT registered as a player-issuable
-    // order -- units enter it automatically (e.g. when attacked while
-    // guarding), it's not something a player should pick from a menu.
+    // "combat" is intentionally NOT registered as a player-issuable order --
+    // units enter it automatically, not something a player picks from a menu.
 }

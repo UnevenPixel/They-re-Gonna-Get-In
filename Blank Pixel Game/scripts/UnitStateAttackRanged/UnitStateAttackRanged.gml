@@ -1,28 +1,9 @@
-// -----------------------------------------------------------
-// attackRanged -- ranged counterpart to "attack" (UnitStateAttackMelee.gml).
-// Dispatched into instead of "attack" for units tagged "ranged" -- see the
-// "attack" order's onIssue (OrderWiring.gml).
-//
-// Deliberately a near-total structural duplicate of Attack_Enter/Attack_Step/
-// Attack_Exit rather than a branch inside them: this codebase already hit
-// (and fixed) a bug from sharing one state's functions across multiple
-// orders (see PATCH_NOTES.md, "attack and Siege orders were silently dead
-// code" -- both were wired to combat's functions instead of their own). Each
-// order gets its own dedicated state functions here for the same reason,
-// even though it means the two files read almost identically. The ONLY
-// behavioral difference is at the swing trigger: UnitTryFireProjectile
-// spawns a projectile (fire-and-forget, damage resolves later when it
-// lands) instead of UnitTryDealDamage applying damage on the spot.
-//
-// Reuses ATTACK_PHASE_APPROACH/SWING/RECOVER/DEFENDER, ATTACK_BUILDING_HALF,
-// and NearestBuildingEdgePoint from UnitStateAttackMelee.gml -- GML macros
-// and functions are global regardless of which file defines them, so
-// there's nothing to redeclare here.
-// -----------------------------------------------------------
+// FSM state "attackRanged" -- ranged counterpart to "attack"
+// (UnitStateAttackMelee.gml). FLAGGED/load-bearing state file.
+// See UnitStateAttackRanged.md for why this is a near-duplicate, not a branch.
 
 /// @function AttackRanged_Enter(_unit, _machine)
-/// @description StateMachine onEnter for "attackRanged". Same shape as
-///        Attack_Enter.
+/// @description StateMachine onEnter for "attackRanged". Same shape as Attack_Enter.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function AttackRanged_Enter(_unit, _machine) {
@@ -42,18 +23,12 @@ function AttackRanged_Enter(_unit, _machine) {
 }
 
 /// @function AttackRanged_Step(_unit, _machine)
-/// @description StateMachine onStep for "attackRanged". Same
-///        approach/swing/recover/defender cycle as Attack_Step, but both
-///        swing points (building swing and the defender sub-phase's swing)
-///        call UnitTryFireProjectile instead of UnitTryDealDamage.
+/// @description StateMachine onStep for "attackRanged". Same approach/swing/recover/defender cycle as Attack_Step, but both swing points call UnitTryFireProjectile instead of UnitTryDealDamage.
 /// @param {Id.Instance} _unit
 /// @param {Struct.StateMachine} _machine
 function AttackRanged_Step(_unit, _machine) {
 
-    // -----------------------------------------------------------
-    // Building validation -- check every frame
-    // -----------------------------------------------------------
-
+    // Building validation -- check every frame.
     if (!instance_exists(_unit.attackBuildingTarget)) {
         _machine.ChangeState("guard");
         return;
@@ -62,10 +37,7 @@ function AttackRanged_Step(_unit, _machine) {
     var _edgePos    = NearestBuildingEdgePoint(_unit.attackBuildingTarget, _unit.agent.pos);
     var _distToEdge = _unit.agent.pos.Distance(_edgePos);
 
-    // -----------------------------------------------------------
-    // Phase: DEFENDER (highest priority -- always checked first)
-    // -----------------------------------------------------------
-
+    // Phase: DEFENDER (highest priority -- always checked first).
     if (_machine.data.phase == ATTACK_PHASE_DEFENDER) {
 
         var _def = _machine.data.defenderTarget;
@@ -110,10 +82,7 @@ function AttackRanged_Step(_unit, _machine) {
         return; // don't fall through to building phases this frame
     }
 
-    // -----------------------------------------------------------
     // Aggro check -- runs every frame outside of DEFENDER phase.
-    // -----------------------------------------------------------
-
     if (_machine.data.phase != ATTACK_PHASE_SWING) {
         var _defender = ChooseCombatTarget(_unit, _unit.attackAggroRadius);
         if (_defender != noone) {
@@ -125,10 +94,7 @@ function AttackRanged_Step(_unit, _machine) {
         }
     }
 
-    // -----------------------------------------------------------
-    // Phase: APPROACH
-    // -----------------------------------------------------------
-
+    // Phase: APPROACH.
     if (_machine.data.phase == ATTACK_PHASE_APPROACH) {
         _unit.sprite_index = _unit.sprIdle;
 
@@ -142,10 +108,7 @@ function AttackRanged_Step(_unit, _machine) {
         }
     }
 
-    // -----------------------------------------------------------
-    // Phase: SWING (firing at the building)
-    // -----------------------------------------------------------
-
+    // Phase: SWING (firing at the building).
     else if (_machine.data.phase == ATTACK_PHASE_SWING) {
         UnitIdleInPlace(_unit);
         UnitTryFireProjectile(_unit, _unit.attackBuildingTarget, _machine);
@@ -157,10 +120,7 @@ function AttackRanged_Step(_unit, _machine) {
         }
     }
 
-    // -----------------------------------------------------------
-    // Phase: RECOVER
-    // -----------------------------------------------------------
-
+    // Phase: RECOVER.
     else if (_machine.data.phase == ATTACK_PHASE_RECOVER) {
         _machine.data.cooldownTimer -= global.matchSpeed;
 

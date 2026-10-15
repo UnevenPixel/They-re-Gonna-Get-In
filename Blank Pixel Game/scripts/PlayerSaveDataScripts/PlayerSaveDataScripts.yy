@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"PlayerSaveDataScripts",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"PlayerSaveDataScripts",
+  "parent":{
+    "name":"Settings",
+    "path":"folders/Menus/Settings.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

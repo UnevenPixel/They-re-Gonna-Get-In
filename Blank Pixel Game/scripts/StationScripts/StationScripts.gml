@@ -1,24 +1,8 @@
-// -----------------------------------------------------------
-// Stationing -- turning a live unit into an invisible, no-fsm garrison
-// entry stored at its team's castle, and creating one directly (skipping
-// the live/walk-to-castle step entirely) for training buildings placed on
-// an inside plot. See UnitStateStation.gml for the "station" order's
-// walk-to-castle FSM state that calls UnitBecomeStationed on arrival.
-// -----------------------------------------------------------
+// Stationing -- live unit <-> invisible garrison entry at the team's castle,
+// plus station/deploy economy and passive stationed bonuses. See StationScripts.md.
 
 /// @function CountTeamStationedUnits(_team)
-/// @description Total live oUnitStationed belonging to _team, any type.
-///        2026-07-13 correction: stationed units still count against
-///        global.armyLimit (TrainingScripts.gml) -- they didn't before
-///        this function existed, which meant a team could station units
-///        to quietly train PAST its intended army-wide cap (stationing
-///        never freed real capacity, it just wasn't being counted at
-///        all). Shared by TrainingTryQueueUnit's army-wide check (so both
-///        the player and the AI are bound by the same corrected math) and
-///        AIControl.gml's AI_TeamAtArmyLimit/AI_CurrentStationedCount --
-///        one source of truth for "how many stationed units does this
-///        team have" instead of duplicating this same `with` loop in two
-///        files.
+/// @description Total live oUnitStationed belonging to _team, any type. Counts against global.armyLimit -- shared source of truth, see .md.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @returns {Real}
 function CountTeamStationedUnits(_team) {
@@ -30,21 +14,7 @@ function CountTeamStationedUnits(_team) {
 }
 
 /// @function CountTeamStationedUnitsOfType(_team, _unitType)
-/// @description Counts live oUnitStationed belonging to _team whose
-///        preserved unitData.unitType matches _unitType specifically --
-///        the stationed counterpart to CountTeamUnitsOfType
-///        (TrainingScripts.gml), which only ever sees LIVE instances of
-///        _unitType (e.g. oPeasantUnit) and can't see a stationed one,
-///        since a stationed unit is a completely different object
-///        (oUnitStationed) with its original type preserved only inside
-///        unitData (see UnitDataBlock, UnitScripts.gml).
-///
-///        2026-07-13 addition ("update Training type limit to include the
-///        stationed units as well") -- used by TrainingTryQueueUnit's
-///        per-type cap check (TrainingTypeLimit's companion existing-count)
-///        alongside AI_WouldTrainSucceed's (AIControl.gml) matching dry-run,
-///        so a stationed Peasant now counts against "how many Peasants can
-///        this team ever have via Peasant Wards," not just a live one.
+/// @description Counts live oUnitStationed belonging to _team whose preserved unitData.unitType matches _unitType. Stationed counterpart to CountTeamUnitsOfType (TrainingScripts.gml). See .md.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @param {Asset.GMObject} _unitType e.g. oPeasantUnit.
 /// @returns {Real}
@@ -57,11 +27,7 @@ function CountTeamStationedUnitsOfType(_team, _unitType) {
 }
 
 /// @function StationCastleCorner(_castle)
-/// @description Fixed storage point for stationed units at _castle -- the
-///        top-left corner of its bbox. Arbitrary: oUnitStationed has no
-///        sprite and never renders (see that object), so the exact position
-///        only matters as a stable spawn point if/when a future redeploy
-///        feature creates a live unit back out from here.
+/// @description Fixed storage point for stationed units at _castle -- the top-left corner of its bbox. Arbitrary -- oUnitStationed never renders. See .md.
 /// @param {Id.Instance} _castle
 /// @returns {Struct.Vector2}
 function StationCastleCorner(_castle) {
@@ -69,21 +35,7 @@ function StationCastleCorner(_castle) {
 }
 
 /// @function UnitBecomeStationed(_unit)
-/// @description Transforms a live _unit into a stationed one: creates an
-///        oUnitStationed at _unit's team's castle corner (StationCastleCorner),
-///        hands it _unit's existing UnitDataBlock as-is (preserving
-///        damageTaken/statusEffects/unitType -- see UnitDataBlock,
-///        UnitScripts.gml), then destroys _unit directly.
-///
-///        Destroying directly (not through ApplyDamage) is deliberate --
-///        STRATEGIC_XP_LOSE_UNIT (UnitCombatHelpers.gml) is only awarded
-///        from ApplyDamage, and oUnitParent has no Destroy event, so this
-///        cannot misfire a "lost a unit" penalty for what is actually a
-///        successful station.
-///
-///        If _unit's team has no castle on the board (shouldn't normally
-///        happen -- Station_Enter already falls back to "guard" when that's
-///        true), falls back to _unit's current position instead of crashing.
+/// @description Transforms a live _unit into a stationed one: creates an oUnitStationed at _unit's team's castle corner, hands it _unit's existing UnitDataBlock as-is, then destroys _unit directly (not via ApplyDamage -- see .md re: avoiding a false "lost a unit" XP penalty). Falls back to _unit's current position if the team has no castle.
 /// @param {Id.Instance} _unit
 function UnitBecomeStationed(_unit) {
     var _castle = GetTeamCastle(_unit.team);
@@ -97,24 +49,7 @@ function UnitBecomeStationed(_unit) {
 }
 
 /// @function StationSpawnDirectly(_team, _unitType)
-/// @description Builds a stationed _unitType unit for _team without ever
-///        putting a live unit on the battlefield -- used by TrainingSpawnUnit
-///        (TrainingScripts.gml) when the training building sits on an inside
-///        plot, per the 2026-07-11 request: "Any training buildings that
-///        builds a unit when on an inside plot will immediately build a
-///        stationed unit instead."
-///
-///        Spawns a real _unitType instance just to get a correctly
-///        UnitApplyDefinition-stamped UnitDataBlock (unitType, etc.), then
-///        immediately hands it to UnitBecomeStationed, which destroys it in
-///        the same step before it ever runs a Step or Draw event -- so
-///        nothing is visible on the battlefield at any point, matching "no
-///        rendering."
-///
-///        Deliberately does NOT award STRATEGIC_XP_FIRST_DEPLOYMENT
-///        (TrainingScripts.gml) -- that XP is for a unit's first appearance
-///        ON the battlefield, which a directly-stationed unit never has.
-///        Flagging this as a judgment call, not an explicit spec answer.
+/// @description Builds a stationed _unitType unit for _team without ever putting a live unit on the battlefield -- used by TrainingSpawnUnit when a training building sits on an inside plot. Spawns a real instance for a correctly-stamped UnitDataBlock, then immediately hands it to UnitBecomeStationed. Deliberately does NOT award STRATEGIC_XP_FIRST_DEPLOYMENT -- see .md.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @param {Asset.GMObject} _unitType e.g. oPeasantUnit.
 function StationSpawnDirectly(_team, _unitType) {
@@ -127,21 +62,10 @@ function StationSpawnDirectly(_team, _unitType) {
     UnitBecomeStationed(_unit);
 }
 
-// -----------------------------------------------------------
-// Station/deploy economy -- 2026-07-12 request. UnitDefinition.stationCost
-// (UnitDefinitions.gml, a flat gold amount from the "Project Azurite Data
-// Sheets") already existed as display-only data for the unit hover card;
-// this is what makes it actually spend. Same price both directions, per
-// its own doc comment ("Gold cost to station/deploy this unit type").
-// -----------------------------------------------------------
-
-#macro STATION_DEPLOY_SPAWN_MARGIN 24 // native px outside the castle's front edge a redeployed unit spawns at -- mirrors TrainingGetSpawnPoint's "just outside the building" idea (TrainingScripts.gml)
+#macro STATION_DEPLOY_SPAWN_MARGIN 24 // native px outside the castle's front edge a redeployed unit spawns at -- mirrors TrainingGetSpawnPoint's "just outside the building" idea
 
 /// @function GetUnitStationCost(_unitType)
-/// @description Wraps UnitDefinition.stationCost into a spendable Cost
-///        struct (Economy.gml) -- shared by both the "station" order's
-///        affordability pass (OrderWiring.gml) and DeployStationedUnit
-///        below, since the field is priced identically either direction.
+/// @description Wraps UnitDefinition.stationCost into a spendable Cost struct -- shared by the "station" order's affordability pass (OrderWiring.gml) and DeployStationedUnit below, priced identically either direction.
 /// @param {Asset.GMObject} _unitType
 /// @returns {Struct.Cost}
 function GetUnitStationCost(_unitType) {
@@ -150,17 +74,7 @@ function GetUnitStationCost(_unitType) {
 }
 
 /// @function StationDeploySpawnPoint(_castle)
-/// @description Point just outside _castle's FRONT edge (same side
-///        CastleFrontEdgePoint, CastleScripts.gml, picks -- whichever of
-///        bbox_left/bbox_right actually faces the room's center) to spawn a
-///        redeployed unit at, with a small random vertical jitter so
-///        back-to-back deploys don't land stacked (mirrors
-///        TrainingGetSpawnPoint's spacing reasoning, TrainingScripts.gml).
-///        Re-derives the front side itself rather than calling
-///        CastleFrontEdgePoint -- that function clamps toward a caller
-///        position (there's no unit marching toward the castle here, just
-///        a castle to spawn just outside of), and doesn't expose which
-///        side it picked for the "push further outward" math below to reuse.
+/// @description Point just outside _castle's front edge to spawn a redeployed unit at, with random vertical jitter so back-to-back deploys don't stack. Re-derives the front side itself rather than calling CastleFrontEdgePoint -- see .md.
 /// @param {Id.Instance} _castle
 /// @returns {Struct.Vector2}
 function StationDeploySpawnPoint(_castle) {
@@ -176,35 +90,9 @@ function StationDeploySpawnPoint(_castle) {
 }
 
 /// @function DeployStationedUnit(_team, _unitType)
-/// @description Redeploys ONE stationed _unitType unit belonging to _team
-///        back onto the battlefield -- the castle garrison dropdown's
-///        click-to-deploy action (CastleGarrisonMenu.gml), 2026-07-12
-///        request. Charges GetUnitStationCost via Purchase BEFORE anything
-///        else happens, so an unaffordable deploy is a pure no-op (nothing
-///        destroyed, nothing spent, nothing spawned).
-///
-///        Picks whichever live oUnitStationed instance of this type is
-///        found first if more than one is garrisoned -- GameMaker's `with`
-///        iteration order isn't a meaningful "oldest"/"healthiest" pick,
-///        just "any one of them." Flagging since a request that cares
-///        WHICH specific one (e.g. always the least-damaged) would need a
-///        different selection rule.
-///
-///        Creates a fresh _unitType instance just outside the team's
-///        castle (StationDeploySpawnPoint), overrides its team (same
-///        override pattern TrainingSpawnUnit/StationSpawnDirectly use),
-///        then swaps in the STATIONED unit's preserved UnitDataBlock
-///        (damageTaken/statusEffects/unitType) and re-runs
-///        UnitApplyDefinition -- the exact redeploy sequence already
-///        documented on UnitDataBlock (UnitScripts.gml). Defaults to
-///        "guard" -- the fsm's own built-in starting state, untouched here
-///        -- since a deployed unit has no training-building context to
-///        default to "defend" against like TrainingSpawnUnit's units do;
-///        flagging as a judgment call, not an explicit spec answer.
+/// @description Redeploys ONE stationed _unitType unit belonging to _team back onto the battlefield -- the castle garrison dropdown's click-to-deploy action. Charges GetUnitStationCost before anything else happens. Picks whichever matching stationed instance is found first if more than one exists (with-iteration order, not a meaningful priority -- see .md). Re-runs UnitApplyDefinition per the redeploy sequence UnitDataBlock documents; defaults to "guard" (judgment call, see .md).
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
-/// @param {Asset.GMObject|Undefined} _unitType Undefined is a safe no-op --
-///        lets CastleGarrisonMenu's "--" placeholder row / an outside click
-///        pass straight through without a separate guard at the call site.
+/// @param {Asset.GMObject|Undefined} _unitType Undefined is a safe no-op -- lets CastleGarrisonMenu's "--" placeholder row / an outside click pass through without a separate guard.
 /// @returns {Bool} True if a unit was actually deployed.
 function DeployStationedUnit(_team, _unitType) {
     if (_unitType == undefined) return false;
@@ -235,51 +123,166 @@ function DeployStationedUnit(_team, _unitType) {
 
     var _spawnPos = StationDeploySpawnPoint(_castle);
     var _unit = instance_create_layer(_spawnPos.x, _spawnPos.y, "Instances", _unitType);
-    _unit.team      = _team; // overrides oUnitParent's Create-time TEAM.PLAYER default -- same override pattern TrainingSpawnUnit/StationSpawnDirectly use
+    _unit.team      = _team; // overrides oUnitParent's Create-time TEAM.PLAYER default
     _unit.guardRect = GetTeamGuardRect(_unit.team); // same stale-guardRect correction TrainingSpawnUnit applies after a post-Create team override
 
-    _unit.unitData = _stationed.unitData; // hands back the preserved struct (damageTaken/statusEffects/unitType) -- see UnitDataBlock, UnitScripts.gml
-    UnitApplyDefinition(_unit); // re-stamp/reapply per the redeploy sequence UnitDataBlock's doc comment already specifies
+    _unit.unitData = _stationed.unitData; // hands back the preserved struct -- see UnitDataBlock, UnitScripts.gml
+    UnitApplyDefinition(_unit); // re-stamp/reapply per the redeploy sequence UnitDataBlock's doc comment specifies
 
     instance_destroy(_stationed);
 
     return true;
 }
 
-// -----------------------------------------------------------
-// Passive stationed bonuses -- 2026-07-12 request. Every registered unit's
-// "Stationed Effect" passive (UnitDefinitions.gml) was flavor-text-only
-// until now; UnitDefinition.stationedBonuses is the real, structured
-// counterpart, and GetStationedPassiveBonuses below is what every
-// consumer (production rate, training speed, unit HP/damage at spawn)
-// actually calls. Archer's "Ranged attacks from the wall" is deliberately
-// NOT represented -- see stationedBonuses' own doc comment
-// (UnitDefinitions.gml) for why (a real combat mechanic, not a
-// multiplier -- out of scope this pass per user clarification).
-//
-// IMPORTANT scope note, flagged rather than silently assumed: HP/damage
-// bonuses (unitHealthBonus/unitDamageBonus) are applied ONCE, at a unit's
-// spawn/redeploy moment (UnitApplyDefinition, UnitDefinitions.gml) -- NOT
-// dynamically re-applied to every already-live unit the instant a new
-// Mud Golem/Soldier gets stationed, and not removed retroactively if that
-// unit is later deployed back out. Doing this fully dynamically would mean
-// tracking each unit's BASE stats separately from its EFFECTIVE stats and
-// recomputing every live unit's HP/damage on every station/deploy change --
-// a real systemic change to how combat health is tracked, not something
-// to fold in silently under a "passive bonuses" request. This pass keeps
-// the simpler "current team bonus baked in at spawn time" behavior, same
-// spirit as stationCost's own incremental rollout.
-// -----------------------------------------------------------
+#macro CASTLE_ROAM_SPEED          0.3  // path px per step at matchSpeed 1
+#macro CASTLE_ROAM_MAX_DEVIATION  2    // max px a stationed unit strays from the path on each axis
+#macro CASTLE_ROAM_OFFSET_EASE    0.02 // per-step lerp factor of the current deviation toward its target
+#macro CASTLE_ROAM_WALK_MIN       120  // steps
+#macro CASTLE_ROAM_WALK_MAX       420
+#macro CASTLE_ROAM_STOP_MIN       90
+#macro CASTLE_ROAM_STOP_MAX       300
+#macro CASTLE_ROAM_REVERSE_CHANCE 0.25 // chance to turn around when resuming from a stop
+#macro CASTLE_ROAM_DEPTH          -450 // default only; Step re-sorts by Y within the band below
+#macro CASTLE_ROAM_DEPTH_NEAR     -413 // band top: just under oCastleManager (-412, wall index 0), used for the smallest Y
+#macro CASTLE_ROAM_DEPTH_FAR      -479 // band bottom: just above oCastleTopper (-480, index 1), used for the largest Y
+#macro CASTLE_ROAM_SORT_MAX_Y     500  // Y at/after which the sort band is fully used
+#macro CASTLE_ROAM_FRAME_STEPS    12   // steps per walk-frame swap (0 <-> 1)
+
+/// @function CastleRoamPathPoint(_team, _index)
+/// @description World position of pth_CastleRoam point _index for _team's castle. The path is relative to the wall sprite's top-left; the enemy wall is mirrored horizontally.
+/// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
+/// @param {Real} _index
+/// @returns {Struct.Vector2}
+function CastleRoamPathPoint(_team, _index) {
+    var _castle = GetTeamCastle(_team);
+    var _px     = path_get_point_x(pth_CastleRoam, _index);
+    var _py     = path_get_point_y(pth_CastleRoam, _index);
+    if (!instance_exists(_castle)) return new Vector2(_px, _py);
+
+    var _sprite = (_team == TEAM.PLAYER) ? sCastleWall : sEnemyCastleWall;
+    var _left   = _castle.x - sprite_get_xoffset(_sprite);
+    var _top    = _castle.y - sprite_get_yoffset(_sprite);
+    var _wx     = (_team == TEAM.PLAYER) ? _left + _px : _left + sprite_get_width(_sprite) - _px;
+    return new Vector2(_wx, _top + _py);
+}
+
+/// @function CastleRoamInit(_stationed)
+/// @description Starts a freshly stationed unit's visual roam at a random pth_CastleRoam point, idle. Call after team is set.
+/// @param {Id.Instance} _stationed An oUnitStationed.
+function CastleRoamInit(_stationed) {
+    with (_stationed) {
+        var _count = path_get_number(pth_CastleRoam);
+        roamDir    = choose(1, -1);
+        roamIndex  = irandom(_count - 1); // last point reached
+        roamTarget = (roamIndex + roamDir + _count) mod _count;
+        var _start = CastleRoamPathPoint(team, roamIndex);
+        roamX      = _start.x;
+        roamY      = _start.y;
+        roamWalking = false;
+        roamTimer   = irandom_range(CASTLE_ROAM_STOP_MIN, CASTLE_ROAM_STOP_MAX);
+        roamOffX = 0;
+        roamOffY = 0;
+        roamOffTargetX = 0;
+        roamOffTargetY = 0;
+        roamFace = (roamX < room_width / 2) ? 1 : -1;
+        roamFrame = 0;
+        roamFrameTimer = 0;
+        roamReady = true;
+    }
+}
+
+/// @function CastleRoamStep(_stationed)
+/// @description Advances one stationed unit's visual roam: alternates walking along pth_CastleRoam (with smoothly drifting deviation) and standing still, and updates facing.
+/// @param {Id.Instance} _stationed An oUnitStationed.
+function CastleRoamStep(_stationed) {
+    with (_stationed) {
+        if (!roamReady) CastleRoamInit(id);
+        var _dt = global.matchSpeed;
+        if (_dt <= 0) return;
+
+        var _centerFace = function(_x) { return (_x <= room_width / 2) ? 1 : -1; };
+        roamTimer -= _dt;
+
+        // lower Y draws behind higher Y (lower depth value = drawn later = in front)
+        depth = lerp(CASTLE_ROAM_DEPTH_NEAR, CASTLE_ROAM_DEPTH_FAR, clamp((roamY + roamOffY) / CASTLE_ROAM_SORT_MAX_Y, 0, 1));
+
+        if (!roamWalking) {
+            roamFrame      = 0;
+            roamFrameTimer = 0;
+            roamFace = _centerFace(roamX + roamOffX);
+            if (roamTimer <= 0) {
+                roamWalking = true;
+                roamTimer   = irandom_range(CASTLE_ROAM_WALK_MIN, CASTLE_ROAM_WALK_MAX);
+                if (random(1) < CASTLE_ROAM_REVERSE_CHANCE) {
+                    // stops usually happen mid-segment: turn back toward the point just left, not a diagonal to the one before it
+                    roamDir = -roamDir;
+                    var _prevIndex = roamIndex;
+                    roamIndex  = roamTarget;
+                    roamTarget = _prevIndex;
+                }
+            }
+            return;
+        }
+
+        roamFrameTimer += _dt;
+        if (roamFrameTimer >= CASTLE_ROAM_FRAME_STEPS) {
+            roamFrameTimer -= CASTLE_ROAM_FRAME_STEPS;
+            roamFrame = 1 - roamFrame;
+        }
+
+        // deviation drifts smoothly toward a random target within +/- the max, re-rolled once reached
+        roamOffX = lerp(roamOffX, roamOffTargetX, CASTLE_ROAM_OFFSET_EASE * _dt);
+        roamOffY = lerp(roamOffY, roamOffTargetY, CASTLE_ROAM_OFFSET_EASE * _dt);
+        if (abs(roamOffX - roamOffTargetX) < 0.1 && abs(roamOffY - roamOffTargetY) < 0.1) {
+            roamOffTargetX = random_range(-CASTLE_ROAM_MAX_DEVIATION, CASTLE_ROAM_MAX_DEVIATION);
+            roamOffTargetY = random_range(-CASTLE_ROAM_MAX_DEVIATION, CASTLE_ROAM_MAX_DEVIATION);
+        }
+
+        var _goal = CastleRoamPathPoint(team, roamTarget);
+        var _dx   = _goal.x - roamX;
+        var _dy   = _goal.y - roamY;
+        var _dist = point_distance(0, 0, _dx, _dy);
+        var _step = CASTLE_ROAM_SPEED * _dt;
+
+        if (_dist <= _step) {
+            roamX = _goal.x;
+            roamY = _goal.y;
+            roamIndex  = roamTarget;
+            roamTarget = (roamIndex + roamDir + path_get_number(pth_CastleRoam)) mod path_get_number(pth_CastleRoam);
+        } else {
+            roamX += _dx / _dist * _step;
+            roamY += _dy / _dist * _step;
+        }
+
+        // facing: going up favors the room center; otherwise the horizontal direction of travel (keeps current if purely vertical down)
+        if (_dy < 0 && abs(_dy) >= abs(_dx)) {
+            roamFace = _centerFace(roamX + roamOffX);
+        } else if (abs(_dx) > 0.01) {
+            roamFace = sign(_dx);
+        }
+
+        if (roamTimer <= 0) {
+            roamWalking = false;
+            roamTimer   = irandom_range(CASTLE_ROAM_STOP_MIN, CASTLE_ROAM_STOP_MAX);
+        }
+    }
+}
+
+/// @function CastleRoamDraw(_stationed)
+/// @description Draws one stationed unit's small sprite at its roam position (feet-anchored, team-recolored for the enemy), frame 0 or 1 per the walk cycle.
+/// @param {Id.Instance} _stationed An oUnitStationed.
+function CastleRoamDraw(_stationed) {
+    with (_stationed) {
+        if (!roamReady || unitData == undefined) return;
+        var _def = GetUnitDefinition(unitData.unitType);
+        if (_def == undefined || _def.smallSprite == undefined) return;
+        var _frame = min(roamFrame, sprite_get_number(_def.smallSprite) - 1); // guard single-frame sprites
+        PaletteSwapDrawSprite(_def.palette, team, _def.smallSprite, _frame, round(roamX + roamOffX), round(roamY + roamOffY), roamFace);
+    }
+}
 
 /// @function StationedBonuses()
-/// @description Aggregated result of GetStationedPassiveBonuses -- every
-///        field is an additive FRACTION (0.05 = +5%), summed across every
-///        live oUnitStationed instance on one team that has a matching
-///        stationedBonuses entry. Field names are exactly
-///        "<type>Bonus" for each stationedBonuses type string
-///        (UnitDefinition's doc comment) -- GetStationedPassiveBonuses
-///        writes to them via dynamic struct access, so a new type string
-///        needs a matching field added here too.
+/// @description Aggregated result of GetStationedPassiveBonuses -- every field is an additive FRACTION (0.05 = +5%), summed across every live oUnitStationed on one team. Field names are exactly "<type>Bonus" for each stationedBonuses type string -- a new type string needs a matching field added here. See .md.
 function StationedBonuses() constructor {
     allResourceProductionBonus = 0; // Peasant -- applies to every producing resource building
     goldProductionBonus        = 0; // Bomb Goblin -- gold only, stacks additively with the above
@@ -291,16 +294,7 @@ function StationedBonuses() constructor {
 }
 
 /// @function GetStationedPassiveBonuses(_team)
-/// @description Scans every live oUnitStationed belonging to _team once and
-///        sums their UnitDefinition.stationedBonuses entries into a fresh
-///        Struct.StationedBonuses -- one linear stack per unit stationed,
-///        matching each passive's own "(stacks per X stationed)" wording.
-///        Recomputed fresh every call, not cached anywhere -- same
-///        "simplicity over micro-optimization" convention as
-///        TrainingTypeLimit (TrainingScripts.gml); called at most once per
-///        producing/training building per Step and once per unit spawn,
-///        which is a small enough oUnitStationed count on this game's
-///        scale not to need a cached/dirty-flag layer.
+/// @description Scans every live oUnitStationed belonging to _team once and sums their UnitDefinition.stationedBonuses entries into a fresh StationedBonuses -- one linear stack per unit stationed. Recomputed fresh every call, not cached. See .md.
 /// @param {Real} _team TEAM.PLAYER or TEAM.ENEMY.
 /// @returns {Struct.StationedBonuses}
 function GetStationedPassiveBonuses(_team) {
